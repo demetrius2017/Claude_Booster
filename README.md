@@ -1,3 +1,5 @@
+**🇬🇧 English** | [🇷🇺 Русский](README.ru.md)
+
 # Claude Booster
 
 **Stop re-teaching Claude Code the same things every morning.**
@@ -21,15 +23,21 @@ Claude Booster turns those sessions into a compounding asset. One `python instal
 
 Claude Booster ships three mechanisms that address the three failure modes of LLM agents working on multi-session projects:
 
-### 1. Paired Worker+Verifier — kills in-session self-evaluation bias
+### 1. The Тройка — Flow Designer → Worker + Verifier
 
-When Claude delegates a coding task, it spawns **two agents in parallel**: a Worker that implements the change and an independent Verifier that writes an executable acceptance test — without seeing the Worker's prompt or approach. The Lead runs the test and reads the exit code. PASS/FAIL is the test's verdict, never the Lead's judgment of the Worker's code.
+When Claude delegates a coding task, it runs a **three-agent pipeline**:
 
-**Why this matters:** Single-agent workflows suffer from self-evaluation bias — the same model that wrote the code reviews it and "confidently praises even mediocre work" (Anthropic). The Verifier breaks this loop by testing observable behavior, not implementation details.
+1. **Flow Designer** (Opus) maps every failure mode, temporal gap, and state cascade — producing a Process Flow Document (PFD) before any code is written
+2. **Worker** (Sonnet) implements the change with PFD-derived directives as hard requirements
+3. **Verifier** (Sonnet) writes an executable acceptance test — without seeing the Worker's code or prompt
 
-**In practice:** Every implementation task in this session used paired verification. The Verifier caught a real bug (awk range pattern in handover format validation) that the Worker missed — exit code 1, classified as V-failure, test fixed, re-run → exit 0. This is the mechanism working as designed.
+The Lead runs the Verifier's test. Exit code = verdict. No subjective "looks good to me."
 
-See `~/.claude/rules/paired-verification.md` for the full protocol: Artifact Contract, W/V/A/E failure classification, test legitimacy standard, skip criteria.
+**Why this matters:** Single-agent workflows suffer from two biases: self-evaluation (same model writes and reviews) and flat-snapshot thinking (no consideration of what happens at T+1, T+2, ...). The Flow Designer forces temporal/branching analysis upfront. The Verifier breaks the self-evaluation loop by testing observable behavior independently.
+
+**In practice:** The `/go` command (v1.12) hardcodes this pipeline as a single invocation. `go_gate.py` enforces it — during IMPLEMENT phase, any coding Agent spawn without an active `/go` pipeline is physically blocked by the hook.
+
+See `~/.claude/rules/paired-verification.md` for the Worker/Verifier protocol, `~/.claude/rules/flow-designer.md` for PFD methodology, and `templates/commands/go.md` for the hardcoded pipeline.
 
 ### 2. Temporal-causal 3D memory — kills cross-session stuck loops
 
@@ -54,7 +62,7 @@ Claude Booster doesn't run every agent on the same model. The Lead routes each d
 
 The **Lead** (orchestrator) stays on **Opus 4.7** — strongest model for synthesis, routing, and judgment. Optionally, with `/fast` toggle, the Lead runs on **Opus 4.6 fast output** (~2.5x faster tokens).
 
-A typical paired task spawns 2 agents (Worker + Verifier) on Sonnet and 1 Explore agent on Haiku — all in parallel. The Lead orchestrates on Opus. Total wall-clock: 60–90 seconds for what would take 3–5 minutes with everything on one model.
+A typical тройка task spawns 1 Flow Designer on Opus (foreground, ~30-60s), then 2 agents (Worker + Verifier) on Sonnet in parallel (~40-60s). The Lead orchestrates on Opus. Total wall-clock: 90–120 seconds for what would take 5–8 minutes with everything on one model sequentially.
 
 **On Claude Max:** model routing (Haiku/Sonnet/Opus delegation) works out of the box within the subscription. **Fast mode is NOT included in the Max subscription** — it is billed as extra usage at $30/$150 per MTok from the first token, even if you have remaining plan usage. Enable with `/fast` only when speed justifies the cost.
 
@@ -681,7 +689,7 @@ Escape hatches for legitimate exceptions: `CLAUDE_BOOSTER_SKIP_{TASK,PHASE,EVIDE
 | **`CLAUDE.md` bloated to 500 lines** | Everything loaded on every prompt | 11 scoped rules — `paths:` filtering, description-gated loading, always-on kept minimal |
 | **Claude re-implements existing code** | No recon-before-code rule | `core.md` enforces Grep-first; auto-consilium fires on high-risk edits |
 | **Same bug class hits you 3 times** | Fix → forget → repeat | Error-taxonomy classifier promotes recurring patterns into `institutional.md` as permanent rules |
-| **Agent writes code, Lead says "looks good"** | Self-evaluation bias — Lead authored the brief, naturally sees the result as matching | Paired Worker+Verifier: independent acceptance test with executable exit code. Lead runs the test, doesn't read the code to judge |
+| **Agent writes code, Lead says "looks good"** | Self-evaluation bias — Lead authored the brief, naturally sees the result as matching | Тройка: Flow Designer maps failure modes → Worker implements → independent Verifier writes executable test. Exit code = verdict, not Lead's opinion |
 | **Same bug resurfaces every 3 sessions** | No causal memory — each session re-discovers and re-proposes the same fix | Temporal-causal 3D memory: stuck-loop detector hashes topics across handovers, forces reframe (Q1–Q4) when pattern detected |
 | **Every agent runs on Opus, session takes 10 min** | No model routing — all delegates inherit the Lead's expensive model | 4-tier routing: Haiku for lookups, Sonnet for coding, Opus only for architecture. 2-4x faster, 3-5x cheaper per delegation |
 | **Retry agent makes the same mistake** | No knowledge of what predecessor tried or why it failed | `session_context.py` lets retry agents read the failed Worker's raw session — stack traces, attempted edits, error messages — instead of Lead's lossy summary |
@@ -709,7 +717,7 @@ Escape hatches for legitimate exceptions: `CLAUDE_BOOSTER_SKIP_{TASK,PHASE,EVIDE
 | Post-mortem impossible: "what did we try?" | Session transcript unreachable | `## Session reference` links the JSONL transcript; RECON agent can grep it for tried approaches, failure modes, rejected alternatives |
 | Personal install breaks on new machine | Manual copy of `~/.claude/` | `install.py` — one command, atomic, idempotent, safe by default |
 | Worker loops on a failing tool call at 2am, burns quota | No watchdog | v1.2.0 Supervisor Agent — `policy.py` + `detector.py` + `quota.py`, SIGINT-ladder-cancels worker on deny / silence / quota breach |
-| Agent self-evaluates its own work | Same model writes and reviews — bias | Paired Worker+Verifier: independent executable acceptance test, exit code = verdict |
+| Agent self-evaluates its own work | Same model writes and reviews — bias | Тройка pipeline (`/go`): Flow Designer + Worker + independent Verifier, exit code = verdict, `go_gate.py` enforces the pattern |
 | Same problem loops across sessions | No causal chains in memory | Temporal-causal 3D memory + stuck-loop detector, hash-based recurrence detection |
 | Slow agents burn Opus budget | All delegates on Opus 4.7 | 4-tier model routing (Haiku/Sonnet/Opus) + `/fast` mode for coding agents |
 | Retry agent repeats same failed approach | No access to predecessor's session history | `session_context.py --agent "<failed Worker>"` — retry reads the raw JSONL of the failed agent, sees what was tried |
@@ -754,9 +762,9 @@ Under `~/.claude/`:
 | Path | Content |
 |------|---------|
 | `rules/*.md` | 12 rule files — anti-loop, tool strategy, pipeline phases, deploy procedures, frontend debug pipeline, institutional knowledge, error taxonomy, canary for rule-load detection, communication-style ("professor" tone), quality/Three-Nos, paired-verification (with session context injection protocol) |
-| `scripts/*.py` | 23 Python hook scripts — memory engine + session hooks (`rolling_memory.py`, `memory_session_start.py`/`_end.py`/`_post_tool.py`), evidence gates (`verify_gate.py`, `require_evidence.py`), phase machine (`phase.py`, `phase_gate.py`, `phase_prompt_inject.py`, `preserve_plan_context.py`), plan-first enforcer (`require_task.py`), approval-baseline counter (`approval_counter.py`), observability (`telemetry_agent_health.py`, `check_rules_loaded.py`, `check_review_ages.py`), session context extractor (`session_context.py` — readable JSONL extraction for agent delegation), systemic thinking guards (`financial_dml_guard.py`, `dep_guard.py`, `arch_freshness.py`), infra (`index_reports.py`, `backup_rolling_memory.py`, `add_frontmatter.py`, `instructions_loaded_log.py`) |
+| `scripts/*.py` | 25+ Python hook scripts — memory engine + session hooks (`rolling_memory.py`, `memory_session_start.py`/`_end.py`/`_post_tool.py`), тройка enforcement (`go_gate.py`, `delegate_gate.py`), evidence gates (`verify_gate.py`, `require_evidence.py`), phase machine (`phase.py`, `phase_gate.py`, `phase_prompt_inject.py`, `preserve_plan_context.py`), plan-first enforcer (`require_task.py`), model routing (`model_balancer.py`, `model_metric_capture.py`, `model_tag_enforcer.py`), observability (`telemetry_agent_health.py`, `check_rules_loaded.py`, `check_review_ages.py`, `compact_advisor.py`), session context extractor (`session_context.py`), systemic thinking guards (`financial_dml_guard.py`, `dep_guard.py`, `arch_freshness.py`), infra (`index_reports.py`, `backup_rolling_memory.py`, `add_frontmatter.py`, `codex_worker.sh`, `codex_sandbox_worker.sh`) |
 | `scripts/supervisor/` | v1.2.0 Supervisor Agent — 8 modules (`supervisor.py` CLI + orchestration, `policy.py` Tier 0/1/2 engine, `quota.py` admission + circuit-breaker, `detector.py` adaptive-silence FSM, `stream_json_adapter.py` Path A runtime, `persistence.py` sqlite writers, `runtime.py` transport Protocol, `schema.sql`) + `prompts/supervisor_v1.md` Haiku escalation contract |
-| `commands/*.md` | 12 slash commands: `/start`, `/handover`, `/consilium`, `/audit`, `/lead`, `/update`, `/phase`, `/delegate`, `/verify-after-edit`, `/verify-flow`, `/architecture`, `/debt` |
+| `commands/*.md` | 13 slash commands: `/go`, `/start`, `/handover`, `/consilium`, `/audit`, `/lead`, `/update`, `/phase`, `/delegate`, `/verify-after-edit`, `/verify-flow`, `/architecture`, `/debt` |
 | `agents/*.md`, `*.json` | Agent team protocols — lifecycle, ownership schema, worktree safety, readiness gates, roadmap convention |
 | `settings.json` | Hooks wired to Claude Code, **merged** into any existing config |
 | `.booster-manifest.json` | Installer metadata — SHA-256 per file, version, for idempotency and selective rollback |
@@ -769,6 +777,7 @@ All commands are on-demand — their instructions load only when you invoke them
 
 | Command | What it does |
 |---------|-------------|
+| `/go` | **The тройка pipeline in one command.** Validates Artifact Contract → spawns Flow Designer (Opus) → spawns Worker + Verifier (Sonnet, parallel) → runs test → exit code = verdict. Built-in W/V/A/E retry classification. `go_gate.py` enforces this for all coding during IMPLEMENT. |
 | `/start` | Initialize a session: read README, last handover, knowledge base (FTS5 cross-project search), telemetry, canary check, stuck-loop detection. Ends with `EnterPlanMode`. |
 | `/handover` | End-of-session report: auto-collects git log, saves structured report with Goal+KPI, Required reading, Session reference, verify-gate evidence block. |
 | `/consilium` | Multi-agent debate: RECON first (code, not reports), spawn 3–5 bio-specific agents + GPT via PAL MCP, synthesize positions, save to `reports/`. |
@@ -862,13 +871,16 @@ python3 install.py [flags]
 **Rule loading.** Claude Code auto-loads `~/.claude/rules/*.md`. Each file has frontmatter: `paths:` globs for conditional loading (e.g. `*.tsx` files load `frontend-debug.md` only), `description:` for gated loading, or no gate for always-on. Result: 10× less bloat than a monolithic `CLAUDE.md`.
 
 **Session lifecycle.**
-- **SessionStart** hook: budgeted memory injection.
-- **UserPromptSubmit** hook: clipboard image detection + shortcuts.
+- **SessionStart** hook: budgeted memory injection + model balancer daily decision.
+- **UserPromptSubmit** hook: phase prompt injection + compact advisor.
+- **PreToolUse** on Agent: `go_gate.py` enforces тройка pipeline — blocks coding Agent spawns during IMPLEMENT without active `/go`. `delegate_gate.py` enforces Lead-as-orchestrator pattern (budget on direct tool calls, resets on delegation).
 - **PreToolUse** on Bash: `verify_gate.py` scans the last 200 transcript lines for an evidence JSON block before allowing `git commit` on handover files.
-- **PostToolUse**: batches events into `memory_batch_<session>.jsonl` for the session-end extractor.
+- **PostToolUse**: batches events into `memory_batch_<session>.jsonl` for the session-end extractor + model metric capture for balancer.
 - **Stop**: 3-question smart extraction + error-lesson classification (11-slug taxonomy) → promotes recurring patterns into `institutional.md`.
 
-**Auto-consilium.** `core.md` defines HIGH risk as "change hits 2+ of: production data, auth/security, infrastructure, multi-service, financial logic, irreversible side effects". When triggered, Claude spawns 3-5 bio-specific agents (architect, security, devops, product, ...) + GPT via PAL MCP, synthesizes positions, saves to `reports/consilium_*.md`. Index picks it up.
+**Auto-consilium.** `core.md` defines HIGH risk as "change hits 2+ of: production data, auth/security, infrastructure, multi-service, financial logic, irreversible side effects". When triggered, Claude spawns 3-5 bio-specific agents (architect, security, devops, product, ...) + GPT via Codex/PAL, synthesizes positions, saves to `reports/consilium_*.md`. Index picks it up.
+
+**Тройка enforcement.** Every coding delegation during IMPLEMENT phase must go through the `/go` pipeline: Flow Designer → Worker + Verifier. `go_gate.py` (PreToolUse on Agent) physically blocks non-compliant spawns. `delegate_gate.py` enforces the Lead-as-orchestrator pattern — Lead delegates via agents, doesn't code inline.
 
 **Session context injection.** On retry (Worker failure classified as W/V/A/E), Lead includes the failed agent's session in the new Worker's brief via `session_context.py`. The tool reads Claude Code's JSONL session files — both Lead sessions and subagent sessions stored in `<session-id>/subagents/`. Preserves code edits (Edit/Write diffs), Bash commands + output, and dialogue. Strips hook noise, permission modes, file-history snapshots. Decision rules in `paired-verification.md` §Session context injection specify whose context to pass (Lead's vs. failed agent's) based on the trigger type.
 
@@ -907,9 +919,9 @@ claude-booster/
 ├── requirements.txt          # pyyaml (runtime dep for index_reports.py)
 ├── .gitignore                # excludes all per-user runtime data
 ├── templates/
-│   ├── rules/                # 10 .md files
-│   ├── scripts/              # 12 .py files
-│   ├── commands/             # 2 slash commands
+│   ├── rules/                # 12 .md files
+│   ├── scripts/              # 25+ .py/.sh files
+│   ├── commands/             # 13 slash commands
 │   ├── agents/               # 5 protocol files + 2 JSON schemas
 │   └── settings.json.template
 ├── docs/
