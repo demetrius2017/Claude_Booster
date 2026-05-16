@@ -40,7 +40,11 @@ Complete the AC and re-run /go. Do not proceed without a complete AC.
 
 Then STOP. Do NOT spawn any agents.
 
-**If AC is complete:** proceed to Phase 1.
+**If AC is complete:** write the .go_active marker so the go_gate hook allows Agent spawns during this pipeline run:
+```bash
+touch "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
+```
+Then proceed to Phase 1.
 
 ---
 
@@ -301,6 +305,11 @@ Run: `python3 ~/.claude/scripts/phase.py progress "4/4 verdict"`
 
 Run: `python3 ~/.claude/scripts/phase.py progress clear`
 
+Remove the .go_active marker (absolute last action):
+```bash
+rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
+```
+
 Done.
 
 ---
@@ -363,6 +372,11 @@ Then re-run /go from Phase 1 with the corrected AC.
 ```
 Run: `python3 ~/.claude/scripts/phase.py progress clear`
 
+Remove the .go_active marker:
+```bash
+rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
+```
+
 **E-failure (environment issue):**
 Fix the environment issue (install missing dep, correct path, fix permissions).
 Then re-run Phase 3 only — do NOT respawn Worker or Verifier.
@@ -385,6 +399,11 @@ Aggregated failure:
 Recommended next action: <specific concrete next step — not a question>
 ```
 Run: `python3 ~/.claude/scripts/phase.py progress clear`
+
+Remove the .go_active marker:
+```bash
+rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
+```
 
 On retry, always include the failed agent's session context (via `session_context.py`) in the new agent's brief so it sees what the predecessor tried and where it got stuck — not Lead's summary.
 
