@@ -304,6 +304,14 @@ def _segment_is_recon(segment: str) -> bool:
     ):
         return True
 
+    # SSH early-exit: non-destructive SSH is always recon — heredoc content
+    # executes remotely, so $()/pipes inside it are not local mutations.
+    if _SSH_CMD_RE.search(stripped):
+        for pat in _DESTRUCTIVE_SSH_PATTERNS:
+            if pat.search(stripped):
+                return False
+        return True
+
     # Command substitution guard — conservative approach.
     # Allow only trivially-safe $(…) forms; anything else is non-recon.
     if "$(" in segment or "`" in segment:
@@ -322,13 +330,6 @@ def _segment_is_recon(segment: str) -> bool:
         pipe_parts = re.split(r"(?<![|])\|(?![|])", segment)  # single | not part of ||
 
     first_part = pipe_parts[0].strip()
-
-    # SSH narrowing: if the ssh command contains destructive keywords, not recon.
-    if _SSH_CMD_RE.match(first_part):
-        for pat in _DESTRUCTIVE_SSH_PATTERNS:
-            if pat.search(first_part):
-                return False
-        # ssh without destructive payload: let normal RECON_BASH_PATTERNS decide below.
 
     # The first part must match at least one RECON_BASH_PATTERN.
     if not any(p.search(first_part) for p in RECON_BASH_PATTERNS):
