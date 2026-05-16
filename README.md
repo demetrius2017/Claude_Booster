@@ -62,6 +62,63 @@ A typical paired task spawns 2 agents (Worker + Verifier) on Sonnet and 1 Explor
 
 ---
 
+## What's new in v1.12 — `/go`: One Command to Rule the Pipeline
+
+**Your AI agent now has a conscience — and it physically cannot cheat.**
+
+The biggest problem with multi-agent pipelines isn't the agents themselves — it's the orchestrator skipping steps under pressure. "I'll just edit it directly, the PFD is overkill for this..." and suddenly you have untested code in production. Claude Booster v1.12 makes this impossible.
+
+### `/go` — The Тройка Pipeline in One Command
+
+One command. Three agents. Zero shortcuts.
+
+```
+/go <Artifact Contract>
+```
+
+That's it. From this single invocation, the system spawns:
+1. **Flow Designer** (Opus) — produces a Process Flow Document mapping every failure mode, temporal gap, and state cascade
+2. **Worker** (Sonnet) — implements the task with PFD-derived directives as hard requirements
+3. **Verifier** (Sonnet) — writes an executable acceptance test *without seeing the Worker's code*
+
+The Lead runs the test. Exit code = verdict. No subjective "looks good to me." No skipped steps. No human in the loop between spawn and result.
+
+**Built-in retry intelligence:** When tests fail, `/go` classifies the failure (Worker missed a requirement? Verifier overstepped? Contract ambiguous? Environment broken?) and respawns the right agent with the failed session's context injected. Up to 3 retries, fully automatic.
+
+### `go_gate.py` — The Self-Enforcement Hook
+
+Here's what makes v1.12 different from "just another pipeline template": **the system enforces itself on itself.**
+
+`go_gate.py` is a PreToolUse hook that fires on every `Agent` spawn. During the IMPLEMENT phase, if you try to spawn a coding agent without an active `/go` pipeline — the hook blocks you. Exit code 2. Red text. No bypass.
+
+This means:
+- The Lead literally cannot "just quickly fix this inline" during implementation
+- Every coding delegation goes through Flow Designer → Worker + Verifier
+- The тройка is not a suggestion — it's a physical constraint
+
+**Smart detection:** The hook uses description-prefix matching (`Explore:`, `Plan `) to allow research agents through while blocking coding agents. Subagent type takes priority. Gerunds (`Exploring...`, `Planning...`) are correctly blocked — they're coding agents wearing research clothes.
+
+### Noise Reduction: From Error Walls to Signal
+
+Hook messages went on a diet:
+
+| Hook | Before | After |
+|------|--------|--------|
+| `go_gate.py` | 67 characters of explanation | `go_gate: → /go` (14 chars) |
+| `delegate_gate.py` | 300+ character wall of red text | `delegate_gate: → Agent (2/1 on 'Bash')` (40 chars) |
+
+You still see the block. You just don't need to scroll past a paragraph to understand what happened. The hook tells you what to do, not why you're wrong.
+
+### Upgrade
+
+```bash
+cd ~/Projects/Claude_Booster && python install.py
+```
+
+Existing installations: `go_gate.py` auto-deploys to `~/.claude/scripts/` and wires into `settings.json` as a PreToolUse hook on `Agent`. No manual config needed.
+
+---
+
 ## What's new in v1.10 — H2 compound command hardening + Flow Designer + Temporal Verification
 
 **Three independent safety and reasoning improvements: `delegate_gate.py` now correctly validates compound shell commands, a new Flow Designer agent forces explicit process thinking before complex tasks, and `paired-verification.md` gains temporal testing patterns for time-sensitive state.**
