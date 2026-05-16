@@ -27,39 +27,24 @@ The Flow Designer runs **after RECON** (it needs the Verified Facts Brief — ac
 - Does NOT write code (that's the Worker's job)
 - Does NOT decide architecture (that's consilium / Lead's job)
 - Does NOT replace the Verifier (PFD informs testing but doesn't substitute it)
-- Does NOT run on every task (see activation criteria below)
 
 Its output is a **map of mines** — here's where the temporal traps are, here's what branches exist, here's what goes stale — not a recipe for how to implement the solution.
 
 ---
 
-## 2. When to Activate
+## 2. Activation — Always-On by Default
 
-### Trigger criteria (ANY of these = activate)
+Flow Designer runs on **every work-producing delegation**. This is the standard pipeline, not an exception. The Lead does not "decide" whether to activate — it is activated by default.
 
-1. **Time-separated actions** — something happens now, something else happens later, and state changes between (lead time, settlement, queue processing)
-2. **External system responses** — broker, API, user action — where response is non-deterministic (may succeed, fail, partial, timeout)
-3. **Derived state** — a value computed from other values, where those source values can change independently
-4. **Concurrent mutations** — multiple writers to the same state (race conditions, reconciliation)
-5. **State machines** — explicit or implicit FSM where transitions have preconditions
+### Skip criteria (the ONLY cases where Flow Designer is skipped)
 
-### Skip criteria (Flow Designer adds no value)
+Skip is permitted ONLY when ALL of the following are true simultaneously:
+- The task is purely mechanical (rename, formatting, doc typo, config one-liner)
+- There is zero temporal dimension (no state changes over time, no external calls, no derived values)
+- There are zero branching outcomes (deterministic, single-path operation)
+- The task touches a single file with no downstream consumers
 
-- Pure refactoring (same behavior, different structure)
-- UI-only cosmetic changes with no backend state
-- Documentation / config / markdown changes
-- Mechanical search-replace, renames, typo fixes
-- Single-file utility functions with no side effects
-- Trivial bug fixes where the temporal dimension is obvious (wrong operator, typo in key name)
-- Formatting a string, adding a column to a display table, writing a pure transformation
-
-### Heuristic for the Lead
-
-> "If the Worker could write this as a pure function with no side effects and no external dependencies, skip. If it MUST interact with time, state, or external actors, activate."
-
-### Who decides
-
-The **Lead** decides during PLAN phase setup, based on RECON findings + task description. This is a judgment call, not a gate. When in doubt, activate — the cost (30-90s) is cheaper than one temporal-blind Worker retry (60-120s).
+If ANY of the above conditions is NOT met → Flow Designer runs. When in doubt, run it — cost (30-90s) < one Worker retry (60-120s).
 
 ---
 
@@ -348,7 +333,7 @@ After the PFD is produced, Lead runs one challenge pass — asking "what about..
 
 ### Skip signal
 
-If PFD would be trivial (all state_variables are STATIC, no branching beyond binary success/failure, no temporal gaps), Lead skips the Flow Designer and notes in handover: "Flow Designer: SKIP (reason: no temporal dimension in task)."
+If ALL skip criteria from §2 are met (purely mechanical, zero temporal dimension, zero branching, single file with no downstream consumers), Lead skips the Flow Designer and notes in handover: "Flow Designer: SKIP (reason: <specific skip criteria met>)." This is an exception — the default is always to run it.
 
 ---
 
@@ -708,7 +693,7 @@ Concrete failures that motivated this:
 | `paired-verification.md` | Worker receives `worker_directives` from PFD in the Artifact Contract. Verifier receives `verifier_assertions`. The PFD enriches the contract that drives the pair. |
 | `quality-no-defects.md` | Three Nos at Layer 2 (output guards) are directly informed by PFD `invariants`. "Do not pass on a value that violates the invariant" = output guard derived from PFD. |
 | `core.md` | Pre-Edit Impact Analysis ("what depends on this? what breaks?") is the same question as Lens 3. The PFD answers it systematically before code is written. |
-| `pipeline.md` | Flow Designer slots into PLAN phase. Lead decides activation. PFD is a planning artifact stored in `state/pfd/`. |
+| `pipeline.md` | Flow Designer is mandatory first stage of every delegation: RECON → Flow Designer → Worker + Verifier. PFD is a planning artifact stored in `state/pfd/`. |
 | `tool-strategy.md` | Model routing for Flow Designer follows `hard` tier. Bio-agent pattern applies when using Codex for PFD generation. |
 
 ### Evolutionary path
