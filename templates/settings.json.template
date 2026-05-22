@@ -1,5 +1,4 @@
 {
-  "effortLevel": "high",
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
@@ -204,7 +203,8 @@
             "command": "${PYTHON} ${CLAUDE_HOME}/scripts/compact_advisor.py",
             "source": "booster@${BOOSTER_VERSION}"
           }
-        ]
+        ],
+        "continueOnBlock": true
       },
       {
         "hooks": [

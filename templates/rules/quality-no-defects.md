@@ -190,7 +190,7 @@ def apply_fill(fill: Fill) -> None:
 2. **Тело:** идемпотентно? детерминированно? инварианты сохранены? *(Не делай брак)*
 3. **Выход:** что downstream получит, и как я это проверил перед commit'ом? *(Не передавай брак)*
 
-Если на любой вопрос ответ «не знаю» / «надеюсь, что да» — это сигнал спавнить агента-аудитора (`/simplify`, `/security-review`, или PAL `codereview`), а не пушить.
+Если на любой вопрос ответ «не знаю» / «надеюсь, что да» — это сигнал спавнить агента-аудитора (`/code-review`, `/security-review`, или PAL `codereview`), а не пушить.
 
 ## Когда можно мягче
 
@@ -203,7 +203,7 @@ def apply_fill(fill: Fill) -> None:
 ## Связи с существующими правилами
 
 - `core.md` §Pre-Edit Impact Analysis — Three Nos это **что именно проверять** в трёх вопросах "что зависит / что сломается / обратимо ли".
-- `pipeline.md` §AUDIT — `/simplify` + `/security-review` + PAL `codereview` это и есть "не передавай брак" на стыке IMPLEMENT→VERIFY.
+- `pipeline.md` §AUDIT — `/code-review` + `/security-review` + PAL `codereview` это и есть "не передавай брак" на стыке IMPLEMENT→VERIFY.
 - `commands.md` §handover §Verify-gate — JSON evidence-блок это формальная реализация "не передавай брак" на стыке session→commit.
 
 ## Anti-patterns (запрещено)

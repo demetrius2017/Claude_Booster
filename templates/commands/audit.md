@@ -761,7 +761,7 @@ If two auditors have opposite verdicts for the same file:line (one says PASS, on
 ## Integration notes
 
 - **`/audit` vs `/audit-trace`:** `/audit-trace` is a specialized command for tracing ONE data concept through ALL computation paths to find divergence. Use `/audit-trace` when the question is "does X get computed consistently everywhere?" Use `/audit` when the question is "is this code correct, secure, performant, well-designed?"
-- **`/audit` and the pipeline AUDIT phase:** `/audit` covers step 3 of `pipeline.md`'s AUDIT phase (PAL external review + multi-lens). Steps 1 (`/simplify`) and 2 (`/security-review`) are separate — run them before `/audit` on the post-simplify state.
+- **`/audit` and the pipeline AUDIT phase:** `/audit` covers step 3 of `pipeline.md`'s AUDIT phase (PAL external review + multi-lens). Steps 1 (`/code-review`) and 2 (`/security-review`) are separate — run them before `/audit` on the post-code-review state.
 - **Reports location:** `reports/audit_YYYY-MM-DD_<slug>.md` — same folder as consilium and audit-trace reports. The `type: audit` frontmatter distinguishes them.
 - **After fix:** re-run `/audit --focus <fixed-lens>` to confirm the HIGH findings are resolved before closing the task.
 - **PAL model selection:** if `mcp__pal__listmodels` is available, call it first to pick the strongest available model for the external review. Otherwise use the default PAL model.

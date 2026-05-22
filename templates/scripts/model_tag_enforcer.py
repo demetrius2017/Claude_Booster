@@ -125,6 +125,10 @@ ENV / Files:
                       bypasses BOTH tag enforcement AND routing enforcement
                CLAUDE_MODEL_TAG_AUTO_INJECT=1
                    -- currently a no-op (CC bug #16598 prevents updatedInput)
+               CLAUDE_EFFORT
+                   -- set by Claude Code runtime; when 'xhigh' or 'max',
+                      the hook skips entirely (user chose maximum quality,
+                      cost-saving advisories are counterproductive)
 """
 from __future__ import annotations
 
@@ -393,6 +397,9 @@ def main() -> int:
     if os.environ.get(_SKIP_ENV) == "1":
         return 0
 
+    # --- high effort = suppress cost advisories but keep quality hard-blocks ---
+    _high_effort = os.environ.get("CLAUDE_EFFORT", "").lower() in ("xhigh", "max")
+
     # --- fail-open guard: parse stdin ---
     try:
         raw = sys.stdin.read()
@@ -433,7 +440,7 @@ def main() -> int:
             # of codex costs more budget but doesn't break correctness.
             # Safety gates (dep_guard, verify_gate) are hard blocks; budget
             # optimization is a suggestion the Lead can override.
-            if provider == "codex-cli" and subagent_type != "Explore":
+            if provider == "codex-cli" and subagent_type != "Explore" and not _high_effort:
                 worker_script = (
                     "codex_sandbox_worker.sh" if category == "coding"
                     else "codex_worker.sh"
@@ -493,14 +500,15 @@ def main() -> int:
                         return 2
 
     # --- PHASE 2: tag enforcement (advisory — CC bug #16598 blocks auto-inject) ---
-    tag_match = _find_model_tag(description)
-    if tag_match:
-        warning = _check_mismatch(tag_match, model_param)
-        if warning:
-            print(warning, file=sys.stderr)
-    else:
-        msg = _build_block_message(description, model_param)
-        print(f"model_tag_enforcer [advisory]: {msg}", file=sys.stderr)
+    if not _high_effort:
+        tag_match = _find_model_tag(description)
+        if tag_match:
+            warning = _check_mismatch(tag_match, model_param)
+            if warning:
+                print(warning, file=sys.stderr)
+        else:
+            msg = _build_block_message(description, model_param)
+            print(f"model_tag_enforcer [advisory]: {msg}", file=sys.stderr)
 
     append_jsonl(ENFORCER_LOG_NAME, {
         "ts": iso_now(),

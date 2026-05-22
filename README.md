@@ -60,7 +60,7 @@ Claude Booster doesn't run every agent on the same model. The Lead routes each d
 | Medium | Sonnet 4.6 | Research, single-file review, routine audits |
 | Hard | Opus 4.7 | Architecture, security review, consilium, deep debugging |
 
-The **Lead** (orchestrator) stays on **Opus 4.7** — strongest model for synthesis, routing, and judgment. Optionally, with `/fast` toggle, the Lead runs on **Opus 4.6 fast output** (~2.5x faster tokens).
+The **Lead** (orchestrator) stays on **Opus 4.7** — strongest model for synthesis, routing, and judgment. Optionally, with `/fast` toggle, the Lead runs on **Opus 4.7 fast output** (~2.5x faster tokens). To pin the old Opus 4.6 fast mode: `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1`.
 
 A typical тройка task spawns 1 Flow Designer on Opus (foreground, ~30-60s), then 2 agents (Worker + Verifier) on Sonnet in parallel (~40-60s). The Lead orchestrates on Opus. Total wall-clock: 90–120 seconds for what would take 5–8 minutes with everything on one model sequentially.
 
@@ -650,7 +650,7 @@ Two new tables, both with `CHECK` constraints at the DB level:
 - Auto-compaction tries to fire mid-plan and summarize away the architecture discussion? Blocked.
 - `git push --force`, `rm -rf /`, `kubectl delete`, `dd`, `mkfs`? Refused even with `bypassPermissions`.
 
-Plus three Claude-4.7-specific env defaults that push back on the [effort-downgrade controversy](https://www.theregister.com/2026/04/13/claude_outage_quality_complaints/) shipped in Opus 4.6: `effortLevel: high`, `MAX_THINKING_TOKENS=12000`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`.
+Plus two Claude-4.7-specific env defaults: `MAX_THINKING_TOKENS=12000`, `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80`. (The `effortLevel: high` override was removed in v1.13 — Claude Code now defaults to `high` for Max subscribers. Users on Opus 4.7 can set `xhigh` for an intermediate tier between `high` and `max`.)
 
 Full lever map:
 
@@ -663,7 +663,7 @@ Full lever map:
 | `require_evidence.py` TaskCompleted hook | Refuses to close a task without `curl`/`pytest`/`SELECT ... N rows`/DevTools output in recent transcript. Bypass via `docs:`/`chore:` task prefix. |
 | `preserve_plan_context.py` PreCompact hook | Blocks auto-compaction while phase = `PLAN` so architectural discussion isn't summarized mid-design. |
 | `permissions.deny` hardening | `git push --force`, `git reset --hard`, `rm -rf /`, `kubectl delete`, `docker system prune`, `dd`, `mkfs` refused even in `bypassPermissions` mode. |
-| `effortLevel: high` + `MAX_THINKING_TOKENS=12000` | Counters the Claude 4.6→4.7 "effort downgrade" that shipped with medium-default adaptive thinking. |
+| `MAX_THINKING_TOKENS=12000` | Extended thinking budget for complex reasoning chains. (`effortLevel` removed — CC now defaults to `high`; set `xhigh` in settings for Opus 4.7 intermediate tier.) |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-7` | Pins Opus 4.7; session doesn't silently fall back to 4.6. |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80` | Compaction triggers at 80 % instead of the default ~95 % — planning context isn't lost at the edge. |
 

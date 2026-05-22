@@ -8,6 +8,7 @@
 
 Контракт:
     Вход: JSON на stdin {session_id, transcript_path, cwd, ...}
+        CC v2.1.145+ also includes: background_tasks (list), session_crons (list).
     Выход: нет (exit 0 всегда)
 
 Ограничения:
@@ -175,7 +176,9 @@ def _extract_session_insights(events: list[dict]) -> str:
     return "\n".join(lines) if lines else ""
 
 
-def _build_session_summary(events: list[dict], session_id: str, cwd: str) -> str:
+def _build_session_summary(events: list[dict], session_id: str, cwd: str,
+                           background_tasks: "list | None" = None,
+                           session_crons: "list | None" = None) -> str:
     """Build a brief session summary from batch events."""
     error_count = sum(1 for e in events if e.get("event_type") == "bash_error")
     commit_count = sum(1 for e in events if e.get("event_type") == "git_commit")
@@ -191,6 +194,10 @@ def _build_session_summary(events: list[dict], session_id: str, cwd: str) -> str
                 parts.append(f"  - {msg[:80]}")
     if error_count:
         parts.append(f"{error_count} error(s)")
+    if isinstance(background_tasks, list) and background_tasks:
+        parts.append(f"{len(background_tasks)} background task(s) active at session end")
+    if isinstance(session_crons, list) and session_crons:
+        parts.append(f"{len(session_crons)} session cron(s) active at session end")
     if not events:
         parts.append("no significant events captured")
 
@@ -216,6 +223,10 @@ def main() -> None:
 
     session_id = data.get("session_id", "unknown")
     cwd = data.get("cwd", "")
+    _bt = data.get("background_tasks")
+    background_tasks = _bt if isinstance(_bt, list) else []
+    _sc = data.get("session_crons")
+    session_crons = _sc if isinstance(_sc, list) else []
 
     batch_path = Path.home() / ".claude" / f"memory_batch_{session_id}.jsonl"
 
@@ -254,7 +265,9 @@ def main() -> None:
         # re-firing (PostToolUse batching) replaces the prior row for this
         # (session_id, scope) pair instead of accumulating snapshot spam.
         if events or cwd:
-            summary = _build_session_summary(events, session_id, cwd)
+            summary = _build_session_summary(events, session_id, cwd,
+                                             background_tasks=background_tasks,
+                                             session_crons=session_crons)
             summary_scope = cwd if cwd else "global"
             rolling_memory.memorize(
                 content=summary,

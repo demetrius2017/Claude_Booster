@@ -10,9 +10,9 @@ Contract:
     CLAUDE_BOOSTER_SKIP_METRIC_CAPTURE=1.
 
     For Task/Agent tools: inserts a row with provider=anthropic, timing and
-    token data extracted defensively from multiple possible event shapes
-    (tool_response.usage, toolUseResult.usage,
-    tool_response.toolUseResult.usage, top-level usage).
+    token data extracted defensively. Duration comes from top-level
+    `duration_ms` (CC v2.1.139+, pure tool time excl. hooks/permissions),
+    falling back to nested usage paths (tool_response.usage, etc.).
     If no usage data is found anywhere, logs a once-per-UTC-day diagnostic
     sample to ~/.claude/logs/model_metric_capture_sample.jsonl and exits.
 
@@ -110,6 +110,9 @@ def _find_usage(event: dict):
     Try multiple paths for the usage dict in priority order.
     Returns the first dict that contains a non-None 'duration_ms', or None.
 
+    Note: since CC v2.1.139+, top-level `duration_ms` is preferred (checked
+    in handle_event before calling this function). This function is the fallback.
+
     Priority:
         1. event["tool_response"]["usage"]
         2. event["toolUseResult"]["usage"]
@@ -202,15 +205,17 @@ def handle_event(event: dict) -> bool:
     project_root = _get_project_root()
 
     if tool_name in ("Task", "Agent"):
+        top_level_duration = event.get("duration_ms")
         usage = _find_usage(event)
-        if usage is None:
+        if usage is None and top_level_duration is None:
             # No usage data found in any known location -- log a daily sample
             # for diagnostics and exit cleanly without inserting a row.
             _log_no_usage_sample(event)
             return False
 
-        duration_ms = usage["duration_ms"]
+        duration_ms = top_level_duration if top_level_duration is not None else (usage or {}).get("duration_ms")
 
+        usage = usage or {}
         num_turns = usage.get("num_turns", 1) or 1
         tokens_in = usage.get("input_tokens")
         tokens_out = usage.get("output_tokens")

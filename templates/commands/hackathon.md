@@ -59,7 +59,7 @@ Lead reads the score matrix:
 | Result | Action |
 |--------|--------|
 | Clear winner | Move winner artifact to canonical path; delete others |
-| Tie | Run `/simplify` on tied implementations; pick cleaner/shorter one |
+| Tie | Run `/code-review` on tied implementations; pick cleaner/shorter one |
 | All fail — W (artifact wrong) | Re-run Workers with narrowed scope; include Judge output in new brief |
 | All fail — V (tests over-constrained) | Rewrite Judge Mandate; re-run Phase 3 only |
 | All fail — A (contract ambiguous) | Clarify Artifact Contract; restart from Phase 2 |
