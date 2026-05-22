@@ -15,8 +15,6 @@ Claude Code out of the box has no memory across sessions, no institutional learn
 Claude Booster turns those sessions into a compounding asset. One `python install.py` on any Mac or Linux box and your Claude Code starts **remembering, learning, and auditing itself**.
 
 
-**Kill date if no positive results:** 2026-05-22.
-
 ---
 
 ## Three quality innovations
@@ -67,6 +65,28 @@ A typical тройка task spawns 1 Flow Designer on Opus (foreground, ~30-60s)
 **On Claude Max:** model routing (Haiku/Sonnet/Opus delegation) works out of the box within the subscription. **Fast mode is NOT included in the Max subscription** — it is billed as extra usage at $30/$150 per MTok from the first token, even if you have remaining plan usage. Enable with `/fast` only when speed justifies the cost.
 
 **On API / pay-per-token plans:** model routing still works and actually *saves* money (Haiku and Sonnet are significantly cheaper than Opus). But you're paying per token, so budget accordingly. To disable routing and use a single model, remove the `[CRITICAL] Model routing` section from `~/.claude/rules/tool-strategy.md`.
+
+---
+
+## What's new in v1.13 — CC v2.1.140-148 feature adoption
+
+Adopts 9 Claude Code releases (v2.1.140–148, May 2026). Three categories of changes:
+
+**Config corrections:**
+- Removed `effortLevel: high` override — CC now defaults to `high` for Max subscribers, making our override redundant. New `xhigh` tier available for Opus 4.7.
+- Fast mode now uses Opus 4.7 (was 4.6 since CC v2.1.142). Pin old behavior: `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1`.
+
+**Hook upgrades:**
+- `continueOnBlock: true` on advisory PostToolUse hooks (`compact_advisor.py`) — when the hook blocks (exit 2), the rejection reason is now fed back into Claude's context and the turn continues, instead of being silently lost to stderr.
+- `model_tag_enforcer.py` reads `CLAUDE_EFFORT` env var — at `xhigh`/`max` effort, advisory warnings (codex routing, tag suggestions) are suppressed. Hard blocks for tier mismatch remain active at all effort levels.
+- `model_metric_capture.py` prefers top-level `duration_ms` (pure tool time, CC v2.1.139+) over nested `tool_response.usage.duration_ms`. Fixes a NoneType crash when only top-level duration exists.
+
+**Stop hook enrichment:**
+- `memory_session_end.py` extracts `background_tasks` and `session_crons` from CC v2.1.145+ Stop hook input, includes counts in session summaries.
+
+**Testing:**
+- `go_gate.py` test suite: 81 assertions covering all 12 decision paths — subagent skip, env bypass, non-Agent passthrough, fail-open, Explore/Plan exemption, description prefix, phase check, marker check, keyword matching, recon-intent override, haiku tier, block path.
+- `/simplify` renamed to `/code-review` across all templates (CC v2.1.146+ naming).
 
 ---
 
@@ -733,7 +753,7 @@ Escape hatches for legitimate exceptions: `CLAUDE_BOOSTER_SKIP_{TASK,PHASE,EVIDE
 ## 60-second quickstart
 
 ```bash
-git clone https://github.com/demetrius2017/claude-booster
+git clone https://github.com/demetrius2017/Claude_Booster.git
 cd claude-booster
 python3 install.py --dry-run                                   # preview every change
 python3 install.py --yes --name "Your Name" --email "you@example.com"
