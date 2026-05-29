@@ -103,7 +103,7 @@ _WEIGHTS: dict[str, float] = {"q": 0.5, "l": 0.3, "b": 0.2}
 # Hardcoded intelligence scores for Anthropic models (not in openai_models.json)
 _QUALITY_SCORES_ANTHROPIC: dict[str, int] = {
     "claude-opus-4-7": 20,
-    "claude-opus-4-6": 20,
+    "claude-opus-4-8": 20,
     "claude-sonnet-4-6": 17,
     "claude-haiku-4-5": 13,
 }

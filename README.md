@@ -68,6 +68,23 @@ A typical тройка task spawns 1 Flow Designer on Opus (foreground, ~30-60s)
 
 ---
 
+## What's new in v1.14 — Opus 4.8 model upgrade
+
+Claude Opus 4.8 is now available in Claude Code CLI. All references to `claude-opus-4-6` updated to `claude-opus-4-8` across templates, rules, and deployed scripts.
+
+**Changed files:**
+- `templates/scripts/model_balancer.py` — intelligence score entry: `claude-opus-4-8: 20`
+- `templates/scripts/check_fast_mode.py` — docstring example updated
+- `templates/scripts/supervisor/supervisor.py` — argparse help text updated
+- `templates/rules/tool-strategy.md` — `/lead` default model: `--model claude-opus-4-8`
+
+**Not changed (intentional):**
+- `claude-sonnet-4-6` — Sonnet 4.6 remains the current Sonnet model
+- README env var `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1` — CC-defined env var name, still valid for pinning old behavior
+- Historical release notes — they describe what was true at the time
+
+---
+
 ## What's new in v1.13 — CC v2.1.140-148 feature adoption
 
 Adopts 9 Claude Code releases (v2.1.140–148, May 2026). Three categories of changes:

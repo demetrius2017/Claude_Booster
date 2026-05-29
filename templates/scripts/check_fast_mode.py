@@ -18,7 +18,7 @@ CLI / Examples:
   echo '{}' | ${PYTHON} ${CLAUDE_HOME}/scripts/check_fast_mode.py
 
   # Test a specific threat:
-  echo '{}' | ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-6 ${PYTHON} ${CLAUDE_HOME}/scripts/check_fast_mode.py
+  echo '{}' | ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-8 ${PYTHON} ${CLAUDE_HOME}/scripts/check_fast_mode.py
 
 Limitations:
   - Only checks the 5 known fast mode threat vectors; new env vars are not

@@ -537,7 +537,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--cwd", help="Working directory for worker + policy scope (default: current directory)")
     run.add_argument("--session", help="Session id (auto if omitted)")
     run.add_argument("--config", help="Path to supervisor.yaml (default: <cwd>/.claude/supervisor.yaml)")
-    run.add_argument("--model", help="Model override for the worker (e.g. claude-opus-4-6, claude-sonnet-4-6)")
+    run.add_argument("--model", help="Model override for the worker (e.g. claude-opus-4-8, claude-sonnet-4-6)")
     # REMAINDER so users can type `/lead run fix the bug in foo.py` without
     # needing to wrap the prompt in quotes. Flags MUST come before the prompt.
     run.add_argument("prompt", nargs=argparse.REMAINDER, help="Prompt text — quotes optional, spaces fine")
