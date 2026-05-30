@@ -650,7 +650,7 @@ Query: `python3 ~/.claude/scripts/model_balancer.py get hard`
 | Provider | Model | When |
 |----------|-------|------|
 | Codex CLI | gpt-5.5 | Balancer returns `codex-cli` (default — flat fee) |
-| Anthropic | Opus 4.7 | Balancer returns `anthropic` |
+| Anthropic | Opus 4.8 | Balancer returns `anthropic` |
 
 ### Rationale
 

@@ -8,13 +8,13 @@ description: "Tool strategy: direct tools, agents, PAL MCP, Context7, Browser MC
   - `subagent_type: Explore` — codebase search
   - `subagent_type: Plan` — architectural planning
   - `general-purpose` — implementation, testing, audit
-- **[CRITICAL] Model routing for delegated agents — Lead decides by complexity, Lead itself stays on Opus 4.7 (1M):**
-  Pass explicit `model` param to `Agent` tool. Default (omitted) inherits Lead's Opus 4.7 — **do not** leave it blank for mechanical work, that burns Opus budget.
+- **[CRITICAL] Model routing for delegated agents — Lead decides by complexity, Lead itself stays on Opus 4.8 (1M):**
+  Pass explicit `model` param to `Agent` tool. Default (omitted) inherits Lead's Opus 4.8 — **do not** leave it blank for mechanical work, that burns Opus budget.
   - **Trivial / mechanical** (grep, file read, path lookup, simple regex edit, boilerplate, "find X in repo") → `model: "haiku"` — Haiku 4.5, fastest, cheapest.
   - **Medium** (pure mechanical work: boilerplate generation, simple grep-replace, formatting, single-file code review, standard /code-review passes) → `model: "sonnet"` — Sonnet 4.6. Use Sonnet only when the work is clearly mechanical with no reasoning required.
   - **Coding / implementation** (Worker agents that write code: features, bug fixes, refactors, test files, config changes producing ≥20 lines) → **check balancer first:** `python3 ~/.claude/scripts/model_balancer.py get coding` — if `provider=codex-cli` → use `codex_sandbox_worker.sh <model>` via Bash (not Agent tool); if `provider=anthropic` → `model: "sonnet"` in Agent call. Fallback (no balancer / error): `model: "sonnet"`. For supervised workers via `/lead`, use `--model claude-sonnet-4-6` explicitly. **For complex bugs or debugging with unknown root cause, escalate to Opus.**
   - **Bio-agent** (consilium opinion agents, audit lens agents, hackathon workers) → `codex_worker.sh gpt-5.5` via Bash. Codex gpt-5.5 (intelligence_score=20, same tier as Opus) is the default for these roles — flat-fee, no API token burn. Do NOT use Agent tool for bio-agents; pipe task to `codex_worker.sh gpt-5.5` directly.
-  - **Hard** (architecture design, cross-system reasoning, security review of auth/broker/payments, deep debugging with unknown root cause, Round-2 audits, synthesis of 3+ agent outputs) → `model: "opus"` — inherits Opus 4.7.
+  - **Hard** (architecture design, cross-system reasoning, security review of auth/broker/payments, deep debugging with unknown root cause, Round-2 audits, synthesis of 3+ agent outputs) → `model: "opus"` — inherits Opus 4.8.
   - **Tie-breakers:** if the agent will write ≥20 lines of non-boilerplate code → `sonnet`. If the task has a "why" question (root cause, trade-offs, design) → `opus`. If the task is purely "what / where" (locate, list, extract) → `haiku` is enough.
 
 ## Escalation on failure

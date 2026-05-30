@@ -129,10 +129,10 @@ DEFAULTS: dict = {
         "recon":          {"provider": PROVIDER_ANTHROPIC, "model": "claude-haiku-4-5"},
         "medium":         {"provider": PROVIDER_ANTHROPIC, "model": "claude-sonnet-4-6"},
         "coding":         {"provider": PROVIDER_ANTHROPIC, "model": "claude-sonnet-4-6"},
-        "hard":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-4-7"},
-        "consilium_bio":  {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-4-7"},
+        "hard":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-4-8"},
+        "consilium_bio":  {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-4-8"},
         "audit_external": {"provider": PROVIDER_PAL,       "model": "gpt-5.5"},
-        "lead":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-4-7"},
+        "lead":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-4-8"},
         "high_blast_radius": {
             "provider": PROVIDER_ANTHROPIC,
             "model": "claude-sonnet-4-6",

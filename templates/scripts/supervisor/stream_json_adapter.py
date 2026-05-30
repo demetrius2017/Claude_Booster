@@ -14,7 +14,7 @@ Contract:
   one-way from worker to supervisor.
 
 CLI / Examples:
-  runtime = StreamJsonRuntime(cli="claude", model="claude-opus-4-7")
+  runtime = StreamJsonRuntime(cli="claude", model="claude-opus-4-8")
   task_id = await runtime.submit_task("explain this repo", cwd="/tmp/booster-42")
   async for ev in runtime.events(task_id):
       ...

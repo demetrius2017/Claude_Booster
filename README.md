@@ -56,9 +56,9 @@ Claude Booster doesn't run every agent on the same model. The Lead routes each d
 | Trivial | Haiku 4.5 | Grep, file lookup, path search — instant, lightweight |
 | Coding | Sonnet 4.6 | Workers and Verifiers writing code, tests, configs (≥20 lines) |
 | Medium | Sonnet 4.6 | Research, single-file review, routine audits |
-| Hard | Opus 4.7 | Architecture, security review, consilium, deep debugging |
+| Hard | Opus 4.8 | Architecture, security review, consilium, deep debugging |
 
-The **Lead** (orchestrator) stays on **Opus 4.7** — strongest model for synthesis, routing, and judgment. Optionally, with `/fast` toggle, the Lead runs on **Opus 4.7 fast output** (~2.5x faster tokens). To pin the old Opus 4.6 fast mode: `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1`.
+The **Lead** (orchestrator) stays on **Opus 4.8** — strongest model for synthesis, routing, and judgment. Optionally, with `/fast` toggle, the Lead runs on **Opus 4.8 fast output** (~2.5x faster tokens). To pin the old Opus 4.6 fast mode: `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1`.
 
 A typical тройка task spawns 1 Flow Designer on Opus (foreground, ~30-60s), then 2 agents (Worker + Verifier) on Sonnet in parallel (~40-60s). The Lead orchestrates on Opus. Total wall-clock: 90–120 seconds for what would take 5–8 minutes with everything on one model sequentially.
 
@@ -756,7 +756,7 @@ Escape hatches for legitimate exceptions: `CLAUDE_BOOSTER_SKIP_{TASK,PHASE,EVIDE
 | Worker loops on a failing tool call at 2am, burns quota | No watchdog | v1.2.0 Supervisor Agent — `policy.py` + `detector.py` + `quota.py`, SIGINT-ladder-cancels worker on deny / silence / quota breach |
 | Agent self-evaluates its own work | Same model writes and reviews — bias | Тройка pipeline (`/go`): Flow Designer + Worker + independent Verifier, exit code = verdict, `go_gate.py` enforces the pattern |
 | Same problem loops across sessions | No causal chains in memory | Temporal-causal 3D memory + stuck-loop detector, hash-based recurrence detection |
-| Slow agents burn Opus budget | All delegates on Opus 4.7 | 4-tier model routing (Haiku/Sonnet/Opus) + `/fast` mode for coding agents |
+| Slow agents burn Opus budget | All delegates on Opus 4.8 | 4-tier model routing (Haiku/Sonnet/Opus) + `/fast` mode for coding agents |
 | Retry agent repeats same failed approach | No access to predecessor's session history | `session_context.py --agent "<failed Worker>"` — retry reads the raw JSONL of the failed agent, sees what was tried |
 | "What did the agents do?" | Subagent sessions buried in filesystem | `session_context.py --subagents` lists all agents (description, size, time); `--agent <keyword>` reads any one |
 | Edit A silently breaks B, C, D | No dependency map — changes land without tracing the call graph | `dep_guard.py` checks session transcript for dependency review evidence before allowing edits on high-dependency files; `ARCHITECTURE.md` + `dep_manifest.json` make the circuit board explicit |
@@ -836,7 +836,7 @@ See [Three quality innovations → Smart model routing](#3-smart-model-routing--
 |------|-------|----------|
 | Trivial | Haiku 4.5 | Grep, file lookup, path search, simple regex |
 | Coding / Medium | Sonnet 4.6 | Code generation, research, test writing, reviews |
-| Hard | Opus 4.7 | Architecture, security review, deep debugging, consilium |
+| Hard | Opus 4.8 | Architecture, security review, deep debugging, consilium |
 
 For supervised workers (`/lead`), pass `--model` explicitly:
 ```bash
