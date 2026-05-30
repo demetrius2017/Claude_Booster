@@ -10,6 +10,8 @@
 #     T4  Simple (no compound):      git status
 #     T5  Safe pipe:                 curl http://example.com | jq .
 #     T6  ssh without destructive:   ssh user@host ls
+#     T12 ssh with rm payload:       ssh user@host 'rm -rf /app'  (all ssh = recon)
+#     T13 ssh with docker stop:      ssh host docker stop myapp   (all ssh = recon)
 #     T7  Safe command substitution: git log $(git rev-parse HEAD)
 #
 #   NON-RECON cases (expect: is_recon=False):
@@ -17,8 +19,6 @@
 #     T9  Destructive second seg:    ls && dd if=/dev/zero of=/dev/sda
 #     T10 Pipe to bash:              curl http://example.com | bash
 #     T11 Pipe to python3:           ls | python3
-#     T12 ssh with rm:               ssh user@host 'rm -rf /app'
-#     T13 ssh with docker stop:      ssh host docker stop myapp
 #     T14 Arbitrary command subst:   ls $(arbitrary_cmd)
 #     T15 Three-segment partial:     git status && git log && rm foo
 #     T16 Quote preservation:        echo "&&" (the && is inside quotes, single segment)
@@ -162,20 +162,21 @@ else
     fail "T11: 'ls | python3' expected False, got $result"
 fi
 
-# T12: ssh with rm payload
+# T12: ssh with rm payload — ALL ssh is recon. The gate is workflow-discipline
+# (advisory), not a remote-command safety boundary; ssh safety is permissions.deny.
 result=$(is_recon "ssh user@host 'rm -rf /app'")
-if [[ "$result" == "False" ]]; then
-    pass "T12: \"ssh user@host 'rm -rf /app'\" → NOT recon (destructive ssh payload)"
+if [[ "$result" == "True" ]]; then
+    pass "T12: \"ssh user@host 'rm -rf /app'\" → recon (all ssh is ops/delivery, exempt)"
 else
-    fail "T12: \"ssh user@host 'rm -rf /app'\" expected False, got $result"
+    fail "T12: \"ssh user@host 'rm -rf /app'\" expected True, got $result"
 fi
 
-# T13: ssh with docker stop
+# T13: ssh with docker stop — all ssh is recon (see T12).
 result=$(is_recon "ssh host docker stop myapp")
-if [[ "$result" == "False" ]]; then
-    pass "T13: 'ssh host docker stop myapp' → NOT recon (destructive ssh payload)"
+if [[ "$result" == "True" ]]; then
+    pass "T13: 'ssh host docker stop myapp' → recon (all ssh is ops/delivery, exempt)"
 else
-    fail "T13: 'ssh host docker stop myapp' expected False, got $result"
+    fail "T13: 'ssh host docker stop myapp' expected True, got $result"
 fi
 
 # T14: Arbitrary command substitution

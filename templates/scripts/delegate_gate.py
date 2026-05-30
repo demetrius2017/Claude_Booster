@@ -186,16 +186,8 @@ _SAFE_PIPE_TARGETS: frozenset[str] = frozenset({
     "less", "more", "column", "cut", "awk", "sed", "tr", "xargs",
 })
 
-# Keywords in ssh argument strings that indicate a destructive remote command.
-_DESTRUCTIVE_SSH_PATTERNS = [
-    re.compile(r"\brm\b"),
-    re.compile(r"\bdd\b"),
-    re.compile(r"\bmkfs\b"),
-    re.compile(r"\bkill\b"),
-    re.compile(r"\bshutdown\b"),
-    re.compile(r"\breboot\b"),
-    re.compile(r"\bdocker\s+(rm|stop|kill)\b"),
-]
+# (destructive-ssh detection retired 2026-05-30: the gate is advisory and all ssh
+# is recon — remote-command safety is permissions.deny, not the delegate budget.)
 
 # Regex to find unquoted shell operators (&&, ||, ;) for compound-command splitting.
 # We walk the string manually to skip content inside single or double quotes.
@@ -291,7 +283,8 @@ def _segment_is_recon(segment: str) -> bool:
     """Return True if a single (non-compound) command segment is recon-safe.
 
     Handles:
-    - SSH narrowing: ssh with a destructive payload → NOT recon.
+    - SSH: ALL ssh is recon (ops/delivery; the gate is workflow-discipline,
+      not a remote-command safety boundary — that is permissions.deny).
     - Pipe chains: the segment may contain pipes; every piped sub-command must
       be either a RECON_BASH_PATTERN match or a _SAFE_PIPE_TARGETS entry.
     - Command substitution ($(...) / backticks): treated conservatively as
