@@ -168,6 +168,7 @@ def _format_delegate_stats(rows: list[dict], bypass_rows: list[dict], since_labe
 
     allow = by_decision.get("allow", 0)
     block = by_decision.get("block", 0)
+    advisory = by_decision.get("advisory", 0)
     auto_skip = by_decision.get("auto_skip", 0)
 
     by_bypass_decision: collections.Counter = collections.Counter()
@@ -182,18 +183,23 @@ def _format_delegate_stats(rows: list[dict], bypass_rows: list[dict], since_labe
     bypass_total = bypass_honoured + bypass_refused
     subagent_bypass = _count_subagent_bypass_attempts(rows, "delegate")
 
-    budget_hit_denom = block + allow
-    budget_hit_rate = _pct(block, budget_hit_denom)
+    # Over-budget signal is 'advisory' since 2026-05-30 (was 'block' before the
+    # advisory conversion). Count both so the rate stays correct across the window;
+    # post-conversion 'block' is only the malformed-payload fail-closed path.
+    budget_hits = block + advisory
+    budget_hit_denom = budget_hits + allow
+    budget_hit_rate = _pct(budget_hits, budget_hit_denom)
 
     lines = [
         f"=== delegate_gate — last {since_label} ===",
         f"total invocations: {total}",
         f"  allow:          {allow} ({_pct(allow, total)})",
         f"  block:          {block} ({_pct(block, total)})",
+        f"  advisory:       {advisory} ({_pct(advisory, total)})  [over-budget nudge, non-blocking]",
         f"  auto_skip:      {auto_skip} ({_pct(auto_skip, total)})  [sub-agent context]",
         f"  bypass:         {bypass_total} (honoured={bypass_honoured} refused={bypass_refused})",
         f"sub-agent bypass attempts: {subagent_bypass}",
-        f"budget-hit rate:   {budget_hit_rate} (block / (block + allow))",
+        f"budget-hit rate:   {budget_hit_rate} ((block+advisory) / (block+advisory+allow))",
     ]
     top = cwd_counter.most_common(5)
     if top:
