@@ -104,3 +104,42 @@ Do not stack new machinery on triple/sextuple-registered hooks (FM-4: the cure f
 4. **Read the data** → decide channel (Stop primary; PostToolUse-exit-2 fallback only if canary-verified) → **Phase-2 delivery** via `/go` (paired Worker+Verifier; high_blast_radius → Agent tool so PreToolUse guards fire).
 
 **Open verification items** (must close before Phase-2): (a) does a post-autocompact "session continued" message fire UserPromptSubmit? (b) does PostToolUse exit-2 reach the agent mid-turn (canary)? (c) real sub-case (1)/(2) split.
+
+---
+
+## ADDENDUM Round-2 (2026-05-31) — effort is a FIRST-ORDER direct context polluter (v1 under-analyzed it)
+
+**Critique that triggered this (user):** v1 demoted effort (Lever #2) to "prose only" by treating it as a *behavioral* amplifier (effort → longer stretch). That missed effort's **direct** context-pollution mechanism. Re-ran forensics (`effort_forensics.py`) measuring per-turn reasoning weight.
+
+### New evidence
+
+- **Thinking is stripped from the on-disk transcript** but billed in `usage.output_tokens`. All thinking blocks in the 3 sessions have empty text (keys `['signature','thinking','type']`) — the signature is kept for API replay, the reasoning text is not persisted.
+- **Per-turn reasoning weight is the effort fingerprint:**
+
+  | Session | turns >10k output | max output/turn | heavy turns w/ ≤1 tool |
+  |---|---|---|---|
+  | **feca4372** (worst-behaved) | **227 / 701 (32%)** | **64,000** (101 turns at the cap) | 227/227 |
+  | 5ae3ea8b (CRM) | 50 / 1246 (4%) | 23,181 | 50/50 |
+
+  Heavy turns have ≤1 tool call → the output is **reasoning, not tool args**. Session-wide for feca: ~22K tokens of text on disk + ~84K tokens of tool args, but ≈**6.95M** `output_tokens` generated → **~98% of generated tokens are thinking** that never appears in the transcript file.
+- **`compact_advisor.py` measures the wrong quantity.** It stats transcript bytes//4 = 1.32M for feca, while the real live window (`usage` cache_read+input) peaked at 634K. It simultaneously over-counts (whole history ≠ live window) and is **blind to thinking** — the exact load that drives the real window. Thinking is replayed as input within an agentic turn → bloats the live window super-linearly during a long turn, independent of stretch length.
+
+### Reframed model — TWO orthogonal, multiplicative channels
+
+- **Channel A (behavioral, covered by Lever #1):** effort → longer autonomous stretch (143–220 turns).
+- **Channel B (direct, MISSED in v1):** effort → heavier reasoning per turn (up to the 64K thinking-budget cap, 227× in feca) → live window inflates from the *first* heavy turn, no 40-turn wait needed.
+
+feca maxed both (220-turn stretch × 64K-reasoning turns) → 634K window + worst thrash/interrupts. Lever #1 addresses only A. Channel B had no lever.
+
+### Revised decision — Lever #2 promoted from "prose only" to code + prose
+
+- **2a (NEW, highest ROI): fix `compact_advisor` to estimate the window from `usage` (cache_read+input of the last assistant turn in the transcript), not file bytes.** This is the only change that makes the existing bloat detector *see* effort-driven thinking. Pure measurement fix; does not touch the opaque-host boundary. **Do this regardless of Lever #1.**
+- **2b (NEW): per-turn-weight axis.** Sustained high `output_tokens/turn` (repeated >10–20k) during IMPLEMENT = effort-pollution fingerprint → advisory. Measuring the fingerprint, not setting effort (allowed, mirrors `model_tag_enforcer.py:401`).
+- **2c (kept, now numerically justified): phase-aware effort polarity** prose — at IMPLEMENT with sustained 64K-reasoning turns, surface to the human once: "consider `/effort medium` for this build phase." Asset in RECON/diagnosis, liability in IMPLEMENT.
+
+### Revised implementation order
+
+0. **Lever #2a first** (usage-based token estimate in compact_advisor) — cheapest, unblocks accurate measurement for everything downstream, and is the single fix that makes effort-bloat visible.
+1–4. unchanged (dedup settings.json → prose rules → observe-only counter → phased delivery).
+
+**Note:** v1's "Open verification item (c) sub-case split" is now joined by **(d): does usage-based estimation in compact_advisor correctly track the live window across an autocompact boundary?**
