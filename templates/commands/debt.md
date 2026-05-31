@@ -1,6 +1,6 @@
 ---
 description: "Track and resolve session debts. /debt list shows inventory, /debt work picks highest priority, /debt review formats for handover."
-argument-hint: "[list|add|work|resolve|review] [args]"
+argument-hint: "[list|add|work|resolve|block|review] [args]"
 ---
 
 Parse `$ARGUMENTS` and route to the matching mode below. No argument or `list` → run **LIST** mode. Otherwise match the first word.
@@ -37,7 +37,7 @@ git -C "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" status --short 2>/d
 Uncommitted changes or untracked files in non-allowlisted paths (not `reports/`, `docs/`, `*.md`) → HIGH-priority debt.
 
 **Scan 4 — Manual debts file:**
-Read `.claude/.session_debts.json` (if it exists). Include every item with `status: "open"`.
+Read `.claude/.session_debts.json` (if it exists). Include every item with `status: "open"`. Items with `status: "BLOCKED-EXTERNAL"` go to the **separate blocked section** (see output format) — they are NOT open/closeable work.
 
 **Merge and classify:**
 
@@ -56,10 +56,16 @@ Read `.claude/.session_debts.json` (if it exists). Include every item with `stat
 [3] MED   "deferred to next session: dep_guard.py implementation" (transcript)
 [4] LOW   Tier 3 — ADR adoption not yet started (transcript)
 
-Total: 4 items (2 HIGH, 1 MED, 1 LOW)
+Total: 4 open items (2 HIGH, 1 MED, 1 LOW)
+
+## Blocked — needs human  (NOT counted as open/closeable work)
+
+[B1] apply prod index — needs: run `CREATE INDEX CONCURRENTLY` (prod-DB, user auth)
 ```
 
-If the inventory is empty: print `No open debts — session clean.` and stop.
+**[CRITICAL]** `BLOCKED-EXTERNAL` items are **excluded from the open count** and from any "close all debts" framing. They are not the agent's to close — only the user can clear them. Never re-classify a blocked item as open to "make progress," and never count them toward a `/goal`-style completion condition (see `goal-loop-discipline.md`). If there are blocked items but zero open items, the session is still **clean** for agent-actionable work — say so explicitly.
+
+If both sections are empty: print `No open debts — session clean.` and stop.
 
 ---
 
@@ -78,6 +84,32 @@ Write back to `.claude/.session_debts.json`. Print:
 ```
 Added debt #<id>: "<description>" [priority: MED]
 To change priority: edit .claude/.session_debts.json directly.
+```
+
+**[CRITICAL] Do NOT `/debt add` speculative or invented items to "show progress"** — especially under an active `/goal` (see `goal-loop-discipline.md` §3). Debt is for real, independently-actionable work. If a task's only precondition is a pending user authorization, it is NOT independently actionable — use `/debt block` (below), not `add`.
+
+---
+
+## MODE: block N
+
+Parse `block <N> "<unblock_action>"`. Marks an existing debt as **blocked on an external/user action** the agent must not take unilaterally.
+
+**Validity checklist — ALL must be true (else this is NOT a valid block; keep working):**
+- The missing item is **external to the agent** (user authorization, a credential/secret only the user holds, an irreversible/external action per `core.md`, a human decision).
+- The agent **cannot safely infer, substitute, or work around** it.
+- **Meaningful safe progress is no longer possible** without it.
+- `<unblock_action>` is **specific and minimal** — the exact smallest thing the user must do.
+
+"This is hard / I'm stuck / tests fail" does **NOT** qualify — that is `core.md` Anti-Loop, not a block. Difficulty is never an external block.
+
+Read `.claude/.session_debts.json`. Find item `id == N` (create the entry first via `add` if it's a transcript-only debt). Set:
+```json
+{"status": "BLOCKED-EXTERNAL", "unblock_action": "<unblock_action>", "blocked_at": "<ISO-8601 timestamp>"}
+```
+Write back. Print:
+```
+Debt [<N>] → BLOCKED-EXTERNAL. Needs human: <unblock_action>.
+Excluded from open/closeable count. Clear it by doing the action, then /debt resolve <N>.
 ```
 
 ---
@@ -136,8 +168,16 @@ Generate a formatted debt summary suitable for pasting into a handover report.
 | 2 | MED | dep_guard.py not yet implemented (Tier 2) | deferred |
 | 3 | LOW | ADR practice not yet adopted in any project | backlog |
 
+### Blocked — needs human (not agent-actionable)
+
+| # | Needs from you |
+|---|----------------|
+| B1 | apply prod index — run `CREATE INDEX CONCURRENTLY` (prod-DB, user auth) |
+
 Carried from: <session JSONL path or "current session">
 ```
+
+Keep the two sections separate. `BLOCKED-EXTERNAL` items go ONLY in the "Blocked — needs human" table, never in "Outstanding Debts" — the next session must see them as human-gated, not as unfinished agent work. Omit the blocked table entirely if there are no blocked items.
 
 3. If the inventory is empty, output:
 ```markdown

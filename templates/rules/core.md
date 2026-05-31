@@ -4,12 +4,23 @@ description: "Core rules: anti-loop, work principles, prohibited actions. Always
 
 # [CRITICAL] Anti-Loop & Debugging
 - Approach failed twice — STOP, explain, ask for direction. Do not retry with minor variations.
+- **"Hard/stuck" ≠ "blocked on the user."** If you are stuck because the work is hard, that's THIS rule (STOP + explain + ask direction). If the only remaining step is a user-gated action (irreversible/external/auth/prod-DB), that's a `/goal`-style **GOAL-HALT** — see `goal-loop-discipline.md`: emit one byte-stable Terminal Card, do not re-word, do not invent busy-work. Never conflate the two: difficulty alone must never trigger a "blocked on user" halt (that's a reward-hacked escape hatch).
 - Do not re-read the same file >2 times per task.
 - Diagnose BEFORE fixing: root cause with evidence first, then code changes.
 - Frontend bug: check API first (curl), then frontend via Chrome DevTools (see Frontend Debug Pipeline section).
 - **Performance complaint ("slow", "laggy", "takes forever"):** HAR/network data first (Step 0), then DevTools metrics. Do NOT poke UI like a user — look under the hood.
 - After deploy: curl API endpoints on prod — confirm they work.
 - Config files (docker-compose, Dockerfile, YAML) — Edit tool only, not sed.
+
+# [CRITICAL] Opaque host features — Booster's authority stops at the host boundary
+
+Some Claude Code features are **unobservable from hooks/disk and uninvokable as a skill** — e.g. the built-in `/goal` (sets a completion condition and re-invokes you every turn until met; no state file, no hook-input field, not self-clearable). Booster MUST NOT pretend to control these. When you hit one, the permitted moves, in order:
+
+1. **Shape your own output** via rules — the one surface Booster fully owns (e.g. `goal-loop-discipline.md`'s Terminal Card).
+2. **Emit a non-blocking advisory to the human**, who retains host control (only they can `/goal clear`).
+3. **Make Booster's own state legible** (debts, gates) so you don't mistake a host-imposed wall for your own unfinished work.
+
+FORBIDDEN: hook logic that *claims* to detect / clear / override an opaque host feature — it will be silently wrong and rot. Do not write a Stop-hook to "break the `/goal` loop": exit 0 still lets the host re-invoke, exit 2 fights the evaluator and can wedge turn-end globally. The cure is behavioral (your output), not interception.
 
 # [CRITICAL] Shell hygiene — zsh nomatch + parallel-cancel cascade
 The default Claude Code shell on macOS is zsh, which has `nomatch` enabled by default: a glob with no match (`ls roadmap.*` when no roadmap exists) aborts the command at parse time **before** redirects apply, so `2>/dev/null` does not silence it. **And** when one tool call in a parallel-tool-call block exits non-zero, the harness cancels every sibling call in the same block — one stray glob can void 5 unrelated probes.
