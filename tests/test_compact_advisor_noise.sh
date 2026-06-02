@@ -198,8 +198,10 @@ rm -f "$FAKE_CLAUDE_DIR/.compact_recommended_$UUID"
 
 UUID3="cafebabe-dead-beef-cafe-babe00000003"
 
+# 2.4 MB plain file → no usage block → byte fallback 2400000//4 = 600000 ≥ 600k default threshold.
+# (Calibrated for the 1M-window default: fire at 60% of 1M = 600k, not the legacy 120k.)
 BIG_FILE3="$(mktemp)"
-python3 -c "open('$BIG_FILE3','wb').write(b'x'*600000)"
+python3 -c "open('$BIG_FILE3','wb').write(b'x'*2400000)"
 
 EXIT_CODE=0
 echo "{\"session_id\":\"$UUID3\",\"transcript_path\":\"$BIG_FILE3\",\"cwd\":\"/tmp\"}" \

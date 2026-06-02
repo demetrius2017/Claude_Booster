@@ -2,11 +2,12 @@
 """UserPromptSubmit hook — inject /compact advisory when one-shot marker exists.
 
 Purpose:
-    When compact_advisor.py (PostToolUse hook) has detected that context is large,
-    it writes a marker file ~/.claude/.compact_recommended_<session_id>.  This hook
-    checks for that marker on every user prompt; if found, it injects a one-line
-    reminder into Claude's context via additionalContext, then deletes the marker
-    so the reminder fires exactly once per session crossing the threshold.
+    When compact_advisor.py (PostToolUse hook) has detected that context is
+    large, it writes a marker file ~/.claude/.compact_recommended_<session_id>
+    with content "<observed_tokens> <window>". This hook checks for that marker
+    on every user prompt; if found, it injects a one-line reminder into Claude's
+    context via additionalContext, then deletes the marker so the reminder fires
+    exactly once per session crossing the threshold.
 
 Contract:
     stdin  — UserPromptSubmit JSON: {session_id, prompt, cwd, ...}
@@ -20,6 +21,8 @@ Bypass:
 
 Files:
     ~/.claude/.compact_recommended_<session_id>  — one-shot marker (read + deleted here)
+        content = "<observed_tokens> <window>" (two ints); legacy single-int
+        markers are still accepted for back-compat.
 """
 from __future__ import annotations
 
@@ -30,18 +33,13 @@ import sys
 from pathlib import Path
 
 try:
-    from _gate_common import append_jsonl, iso_now
+    from _gate_common import append_jsonl, iso_now, effective_compact_threshold
 except ImportError:
     import pathlib as _pl
     sys.path.insert(0, str(_pl.Path(__file__).resolve().parent))
-    from _gate_common import append_jsonl, iso_now  # type: ignore[no-redef]
+    from _gate_common import append_jsonl, iso_now, effective_compact_threshold  # type: ignore[no-redef]
 
 _SKIP = os.environ.get("CLAUDE_BOOSTER_SKIP_COMPACT_ADVISOR", "")
-
-try:
-    _THRESHOLD = int(os.environ.get("CLAUDE_BOOSTER_COMPACT_THRESHOLD", "120000"))
-except ValueError:
-    _THRESHOLD = 120000  # malformed env var → fall back silently to default
 
 _SESSION_ID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
@@ -80,12 +78,32 @@ def main() -> int:
     if not marker.exists():
         return 0
 
-    # Read token estimate from marker
+    # Read "<tokens> <window>" from marker (legacy: single int = tokens only).
     try:
         marker_text = marker.read_text(encoding="utf-8").strip()
-        estimated_tokens = int(marker_text)
     except Exception:
-        estimated_tokens = _THRESHOLD  # fallback if unreadable
+        # Unreadable marker — remove it (one-shot) and emit nothing.
+        try:
+            marker.unlink()
+        except FileNotFoundError:
+            pass
+        return 0
+
+    try:
+        parts = marker_text.split()
+        tokens = int(parts[0])
+        window = int(parts[1]) if len(parts) >= 2 else effective_compact_threshold(tokens)[1]
+    except (ValueError, IndexError):
+        # Malformed marker content — remove it (one-shot), emit no advisory.
+        try:
+            marker.unlink()
+        except FileNotFoundError:
+            pass
+        return 0
+
+    if window < 1:
+        window = 1
+    pct = round(100 * tokens / window)
 
     # Delete marker — one-shot semantics rely on this succeeding.
     # Rare failure modes (read-only FS, race with concurrent inject): we still
@@ -93,15 +111,17 @@ def main() -> int:
     # "why did the advisory fire twice" later.
     try:
         marker.unlink()
+    except FileNotFoundError:
+        pass
     except Exception as exc:
         sys.stderr.write(
             f"compact_advisor_inject: marker.unlink failed for session {session_id}: {exc}\n"
         )
 
     advisory = (
-        f"⚠ Auto-advisory: context ≈ {estimated_tokens:,} tokens (>{_THRESHOLD // 1000}k). "
-        "Run /compact before the next non-trivial task to keep cache costs down. "
-        "(one-shot reminder; will not repeat)"
+        f"ℹ Context ≈ {tokens:,} tok = {pct}% of {window//1000}k window. "
+        "/compact recommended before the next heavy task. "
+        "(one-shot; you are not out of room)"
     )
 
     output = {
@@ -112,9 +132,16 @@ def main() -> int:
     }
 
     print(json.dumps(output))
-    append_jsonl("compact_advisor.jsonl", {"ts": iso_now(), "event": "injected", "session_id": session_id, "estimated_tokens": estimated_tokens})
+    append_jsonl("compact_advisor.jsonl", {"ts": iso_now(), "event": "injected", "session_id": session_id, "tokens": tokens, "window": window, "pct": pct})
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:  # never let the advisory crash the hook
+        try:
+            sys.stderr.write(f"compact_advisor_inject: unhandled exception: {exc}\n")
+        except Exception:
+            pass
+        sys.exit(0)

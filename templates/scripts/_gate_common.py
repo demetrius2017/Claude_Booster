@@ -206,3 +206,133 @@ def redact_secrets(s: str) -> str:
     if not isinstance(s, str) or not s:
         return "" if not isinstance(s, str) else s
     return _SECRET_RE.sub("<redacted>", s)
+
+
+# ---- Real context-window occupancy (for compact-advisor) ---------------
+
+def real_context_tokens(transcript_path) -> Optional[int]:
+    """Return the real context-window occupancy from the session JSONL.
+
+    Streams the transcript line by line and tracks the LAST assistant message
+    that carries a ``usage`` block. Returns the sum of
+    ``input_tokens + cache_read_input_tokens + cache_creation_input_tokens``
+    from that block — this is the actual number of tokens the model saw on
+    its most recent turn, i.e. the true context occupancy.
+
+    Returns None when:
+        - the file can't be opened (OSError),
+        - no assistant message with a usage dict is found,
+        - a usage dict is present but the three fields sum to 0 (defensive:
+          guards against renamed/missing fields — caller falls back).
+    Malformed/truncated JSON lines (including a partially-written final line)
+    are skipped, not fatal.
+    """
+    if not transcript_path:
+        return None
+    last_usage = None
+    try:
+        with open(transcript_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue  # malformed / truncated final line — skip
+                if not isinstance(obj, dict):
+                    continue
+                msg = obj.get("message")
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("role") != "assistant":
+                    continue
+                usage = msg.get("usage")
+                if isinstance(usage, dict):
+                    last_usage = usage
+    except OSError:
+        return None
+    except Exception:
+        return None
+    if not isinstance(last_usage, dict):
+        return None
+    # `or 0` coerces a present-but-null field (input_tokens: null) to 0 — the API
+    # emits null on cached/interrupted turns; a bare .get(...,0) keeps the None and
+    # the sum would raise TypeError, escaping this function uncaught.
+    try:
+        total = int(
+            (last_usage.get("input_tokens") or 0)
+            + (last_usage.get("cache_read_input_tokens") or 0)
+            + (last_usage.get("cache_creation_input_tokens") or 0)
+        )
+    except (TypeError, ValueError):
+        return None
+    if total <= 0:
+        return None  # fields renamed/zero — let caller fall back
+    return total
+
+
+def effective_compact_threshold(observed_tokens):
+    """Compute (threshold, window) for the compact advisor.
+
+    Returns a (threshold:int, window:int) tuple — the absolute token count at
+    which the /compact reminder should fire, and the assumed context window.
+
+    Logic:
+        - window defaults to 1_000_000; env CLAUDE_BOOSTER_CONTEXT_WINDOW
+          overrides (malformed → keep default).
+        - If observed_tokens is already above the legacy 200k window, force
+          window to at least 1_000_000 (we are clearly on a large window).
+        - pct defaults to 0.6; env CLAUDE_BOOSTER_COMPACT_PCT overrides
+          (malformed → 0.6), clamped to [0.01, 1.0].
+        - If CLAUDE_BOOSTER_COMPACT_THRESHOLD is set AND parses as int, it is
+          an absolute override that wins (back-compat). Otherwise
+          threshold = int(window * pct).
+        - threshold >= 1 and window >= 1 are guaranteed.
+    """
+    _DEFAULT_WINDOW = 1_000_000
+    window = _DEFAULT_WINDOW
+    explicit_window = False
+    try:
+        window = int(os.environ["CLAUDE_BOOSTER_CONTEXT_WINDOW"])
+        explicit_window = True
+    except (KeyError, ValueError):
+        window = _DEFAULT_WINDOW
+    if window < 1:
+        # A non-positive window is meaningless — fall back to the default and
+        # stop treating it as an explicit choice (else threshold would clamp to 1
+        # and the advisory would fire on every call with a "0k window" message).
+        window = _DEFAULT_WINDOW
+        explicit_window = False
+
+    # Auto-bump only when the window was NOT explicitly set: an observed occupancy
+    # above the legacy 200k cap proves we are on a large (≥1M) window. An explicit
+    # CLAUDE_BOOSTER_CONTEXT_WINDOW is the user's deliberate choice — respect it.
+    if not explicit_window and observed_tokens is not None:
+        try:
+            if int(observed_tokens) > 200_000:
+                window = max(window, _DEFAULT_WINDOW)
+        except (TypeError, ValueError):
+            pass
+
+    pct = 0.6
+    try:
+        pct = float(os.environ["CLAUDE_BOOSTER_COMPACT_PCT"])
+    except (KeyError, ValueError):
+        pct = 0.6
+    pct = max(min(pct, 1.0), 0.01)
+
+    threshold = None
+    if "CLAUDE_BOOSTER_COMPACT_THRESHOLD" in os.environ:
+        try:
+            threshold = int(os.environ["CLAUDE_BOOSTER_COMPACT_THRESHOLD"])
+        except ValueError:
+            threshold = None
+    if threshold is None:
+        threshold = int(window * pct)
+
+    if window < 1:
+        window = 1
+    if threshold < 1:
+        threshold = 1
+    return threshold, window

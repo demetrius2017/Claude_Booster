@@ -4,15 +4,15 @@
 #
 # Covered assertions (12 original + 3 new):
 #   1.  advisor: below-threshold → no marker written
-#   2.  advisor: above-threshold → marker written with token estimate
-#   3.  advisor: marker contains numeric token estimate
+#   2.  advisor: above-threshold (real usage block) → marker written
+#   3.  advisor: marker contains "<observed> <window>" (two ints)
 #   4.  inject:  no-marker → silent (no stdout)
 #   5.  inject:  marker present → advisory injected in stdout JSON
 #   6.  inject:  advisory text contains estimated token count
-#   7.  inject:  advisory text contains ">120k" when threshold=default
+#   7.  inject:  advisory text shows "% of 1000k window" at default threshold
 #   8.  inject:  marker deleted after inject (one-shot semantics)
-#   9.  inject:  JSONL event key is "estimated_tokens" (not "token_count")
-#   10. advisor: JSONL event key is "estimated_tokens" (not "token_count")
+#   9.  inject:  JSONL event key is "tokens" (not "token_count"/"estimated_tokens")
+#   10. advisor: JSONL event key is "observed" (not "token_count"/"estimated_tokens")
 #   11. inject:  malformed JSON stdin → exit 0, no crash
 #   12. inject:  missing session_id field → exit 0, no crash
 #  [NEW]
@@ -104,8 +104,12 @@ rm -f "$TMPFILE"
 # ---------------------------------------------------------------------------
 
 TMPFILE2="$(mktemp)"
-# Write 600000 bytes → 600000//4 = 150000 tokens → above 120000
-python3 -c "open('$TMPFILE2','wb').write(b'x'*600000)"
+# Real transcript line: assistant usage sums to 660000 (10000+600000+50000) ≥ 600k default threshold.
+python3 -c "
+import json
+line={'type':'assistant','message':{'role':'assistant','model':'claude-opus-4-8','usage':{'input_tokens':10000,'cache_read_input_tokens':600000,'cache_creation_input_tokens':50000,'output_tokens':100}},'uuid':'u1'}
+open('$TMPFILE2','w').write(json.dumps(line)+'\n')
+"
 
 echo '{"session_id":"'"$UUID"'","transcript_path":"'"$TMPFILE2"'","cwd":"/tmp"}' \
     | run_advisor >/dev/null 2>&1
@@ -122,10 +126,11 @@ rm -f "$TMPFILE2"
 # ---------------------------------------------------------------------------
 
 MARKER_VAL="$(cat "$FAKE_CLAUDE_DIR/.compact_recommended_$UUID" 2>/dev/null || echo '')"
-if [[ "$MARKER_VAL" =~ ^[0-9]+$ ]]; then
-    pass_test "advisor: marker contains numeric estimate ($MARKER_VAL)"
+# New format: "<observed> <window>" — two space-separated ints.
+if [[ "$MARKER_VAL" =~ ^[0-9]+\ [0-9]+$ ]]; then
+    pass_test "advisor: marker contains '<observed> <window>' ($MARKER_VAL)"
 else
-    fail_test "advisor: marker contains numeric estimate" "got: '$MARKER_VAL'"
+    fail_test "advisor: marker contains '<observed> <window>'" "got: '$MARKER_VAL'"
 fi
 
 # ---------------------------------------------------------------------------
@@ -175,19 +180,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# ASSERTION 7 — inject: advisory text contains ">120k" when threshold=default
+# ASSERTION 7 — inject: advisory shows "% of 1000k window" at default threshold
 # ---------------------------------------------------------------------------
 
+# Legacy single-int marker → window derived as 1M default → "15% of 1000k window".
 echo "150000" > "$FAKE_CLAUDE_DIR/.compact_recommended_$UUID"
 
 INJECT_OUT="$(echo '{"session_id":"'"$UUID"'","prompt":"hello","cwd":"/tmp"}' \
     | run_inject 2>/dev/null)"
 
 ADVISORY="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d['hookSpecificOutput']['additionalContext'])" "$INJECT_OUT" 2>/dev/null || echo '')"
-if echo "$ADVISORY" | grep -q ">120k"; then
-    pass_test "inject: default threshold → advisory contains '>120k'"
+if echo "$ADVISORY" | grep -q "% of 1000k window"; then
+    pass_test "inject: default threshold → advisory shows '% of 1000k window'"
 else
-    fail_test "inject: default threshold → advisory contains '>120k'" "advisory: '$ADVISORY'"
+    fail_test "inject: default threshold → advisory shows '% of 1000k window'" "advisory: '$ADVISORY'"
 fi
 
 # ---------------------------------------------------------------------------
@@ -207,10 +213,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# ASSERTION 9 — inject: JSONL event uses "estimated_tokens" not "token_count"
+# ASSERTION 9 — inject: JSONL event uses "tokens" not "token_count"/"estimated_tokens"
 # ---------------------------------------------------------------------------
 
-echo "150000" > "$FAKE_CLAUDE_DIR/.compact_recommended_$UUID"
+echo "150000 1000000" > "$FAKE_CLAUDE_DIR/.compact_recommended_$UUID"
 > "$JSONL_LOG"  # reset log
 
 echo '{"session_id":"'"$UUID"'","prompt":"hello","cwd":"/tmp"}' \
@@ -218,26 +224,30 @@ echo '{"session_id":"'"$UUID"'","prompt":"hello","cwd":"/tmp"}' \
 
 if [[ -f "$JSONL_LOG" ]]; then
     INJECTED_LINE="$(grep '"event"' "$JSONL_LOG" | grep '"injected"' | tail -1)"
-    HAS_ESTIMATED="$(echo "$INJECTED_LINE" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if 'estimated_tokens' in d else 'no')" 2>/dev/null || echo 'no')"
-    HAS_TOKEN_COUNT="$(echo "$INJECTED_LINE" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if 'token_count' in d else 'no')" 2>/dev/null || echo 'no')"
-    if [[ "$HAS_ESTIMATED" == "yes" && "$HAS_TOKEN_COUNT" == "no" ]]; then
-        pass_test "inject JSONL: uses 'estimated_tokens', not 'token_count'"
+    HAS_TOKENS="$(echo "$INJECTED_LINE" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if 'tokens' in d else 'no')" 2>/dev/null || echo 'no')"
+    HAS_STALE="$(echo "$INJECTED_LINE" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if ('token_count' in d or 'estimated_tokens' in d) else 'no')" 2>/dev/null || echo 'no')"
+    if [[ "$HAS_TOKENS" == "yes" && "$HAS_STALE" == "no" ]]; then
+        pass_test "inject JSONL: uses 'tokens', not 'token_count'/'estimated_tokens'"
     else
-        fail_test "inject JSONL: uses 'estimated_tokens', not 'token_count'" \
-            "has_estimated=$HAS_ESTIMATED has_token_count=$HAS_TOKEN_COUNT line=$INJECTED_LINE"
+        fail_test "inject JSONL: uses 'tokens', not 'token_count'/'estimated_tokens'" \
+            "has_tokens=$HAS_TOKENS has_stale=$HAS_STALE line=$INJECTED_LINE"
     fi
 else
     fail_test "inject JSONL: log file not found" "path=$JSONL_LOG"
 fi
 
 # ---------------------------------------------------------------------------
-# ASSERTION 10 — advisor: JSONL event uses "estimated_tokens" not "token_count"
+# ASSERTION 10 — advisor: JSONL event uses "observed" not "token_count"/"estimated_tokens"
 # ---------------------------------------------------------------------------
 
 > "$JSONL_LOG"
 
 TMPFILE3="$(mktemp)"
-python3 -c "open('$TMPFILE3','wb').write(b'x'*600000)"
+python3 -c "
+import json
+line={'type':'assistant','message':{'role':'assistant','model':'claude-opus-4-8','usage':{'input_tokens':10000,'cache_read_input_tokens':600000,'cache_creation_input_tokens':50000,'output_tokens':100}},'uuid':'u1'}
+open('$TMPFILE3','w').write(json.dumps(line)+'\n')
+"
 
 UUID2="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 echo '{"session_id":"'"$UUID2"'","transcript_path":"'"$TMPFILE3"'","cwd":"/tmp"}' \
@@ -247,13 +257,13 @@ rm -f "$TMPFILE3" "$FAKE_CLAUDE_DIR/.compact_recommended_$UUID2"
 
 if [[ -f "$JSONL_LOG" ]]; then
     MARKER_LINE="$(grep '"event"' "$JSONL_LOG" | grep '"marker_written"' | tail -1)"
-    HAS_ESTIMATED="$(echo "$MARKER_LINE" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if 'estimated_tokens' in d else 'no')" 2>/dev/null || echo 'no')"
-    HAS_TOKEN_COUNT="$(echo "$MARKER_LINE" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if 'token_count' in d else 'no')" 2>/dev/null || echo 'no')"
-    if [[ "$HAS_ESTIMATED" == "yes" && "$HAS_TOKEN_COUNT" == "no" ]]; then
-        pass_test "advisor JSONL: uses 'estimated_tokens', not 'token_count'"
+    HAS_OBSERVED="$(echo "$MARKER_LINE" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if 'observed' in d else 'no')" 2>/dev/null || echo 'no')"
+    HAS_STALE="$(echo "$MARKER_LINE" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('yes' if ('token_count' in d or 'estimated_tokens' in d) else 'no')" 2>/dev/null || echo 'no')"
+    if [[ "$HAS_OBSERVED" == "yes" && "$HAS_STALE" == "no" ]]; then
+        pass_test "advisor JSONL: uses 'observed', not 'token_count'/'estimated_tokens'"
     else
-        fail_test "advisor JSONL: uses 'estimated_tokens', not 'token_count'" \
-            "has_estimated=$HAS_ESTIMATED has_token_count=$HAS_TOKEN_COUNT line=$MARKER_LINE"
+        fail_test "advisor JSONL: uses 'observed', not 'token_count'/'estimated_tokens'" \
+            "has_observed=$HAS_OBSERVED has_stale=$HAS_STALE line=$MARKER_LINE"
     fi
 else
     fail_test "advisor JSONL: log file not found" "path=$JSONL_LOG"
@@ -284,20 +294,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# ASSERTION 13 [NEW] — inject: COMPACT_THRESHOLD=80000 → advisory contains ">80k"
+# ASSERTION 13 — inject: advisory renders the marker's real token count (not the threshold)
 # ---------------------------------------------------------------------------
+# New design: the inject message reports actual occupancy (tokens/%/window), NOT the
+# threshold. The threshold override only governs WHETHER compact_advisor.py fires
+# (covered by the go-suite). Here we assert the marker's token value is rendered.
 
 echo "90000" > "$FAKE_CLAUDE_DIR/.compact_recommended_$UUID"
 
-INJECT_OUT="$(CLAUDE_BOOSTER_COMPACT_THRESHOLD=80000 \
-    echo '{"session_id":"'"$UUID"'","prompt":"hello","cwd":"/tmp"}' \
+INJECT_OUT="$(echo '{"session_id":"'"$UUID"'","prompt":"hello","cwd":"/tmp"}' \
     | HOME="$FAKE_HOME" CLAUDE_BOOSTER_COMPACT_THRESHOLD=80000 python3 "$INJECT_PATH" 2>/dev/null)"
 
 ADVISORY="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d['hookSpecificOutput']['additionalContext'])" "$INJECT_OUT" 2>/dev/null || echo '')"
-if echo "$ADVISORY" | grep -q ">80k"; then
-    pass_test "inject: THRESHOLD=80000 → advisory contains '>80k'"
+if echo "$ADVISORY" | grep -q "90,000 tok"; then
+    pass_test "inject: advisory renders real token count '90,000 tok'"
 else
-    fail_test "inject: THRESHOLD=80000 → advisory contains '>80k'" "advisory: '$ADVISORY'"
+    fail_test "inject: advisory renders real token count '90,000 tok'" "advisory: '$ADVISORY'"
 fi
 
 # ---------------------------------------------------------------------------

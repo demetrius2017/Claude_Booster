@@ -2,13 +2,17 @@
 """PostToolUse hook — advisory: write a one-shot marker when context is large.
 
 Purpose:
-    Estimate context size after every tool call by stat-ing the session transcript.
-    When the estimated token count crosses the threshold (default 120 000) and no
-    marker for this session exists yet, write a marker file so that the next
-    UserPromptSubmit hook can inject a one-line /compact reminder into the prompt.
+    Measure REAL context-window occupancy after every tool call by reading the
+    last assistant ``usage`` block from the session transcript (falling back to
+    a byte-size estimate if no usage block exists yet). When occupancy crosses
+    the effective threshold (default 60% of the actual window — 600k on a 1M
+    window) and no marker for this session exists yet, write a marker file so
+    the next UserPromptSubmit hook can inject a one-line /compact reminder.
 
-    This replaces self-discipline with deterministic automation: Lead no longer has
-    to remember to check context size; the harness signals proactively.
+    This replaces self-discipline with deterministic automation: Lead no longer
+    has to remember to check context size; the harness signals proactively. And
+    it no longer mis-fires at the old 200k-calibrated absolute 120k on machines
+    running a 1M-token window.
 
 Contract:
     stdin  — PostToolUse JSON: {session_id, transcript_path, cwd, ...}
@@ -19,8 +23,11 @@ Bypass:
     CLAUDE_BOOSTER_SKIP_COMPACT_ADVISOR=1  → exit 0 immediately, no-op
 
 Files:
-    ~/.claude/.compact_recommended_<session_id>  — one-shot marker (content = token estimate)
-    CLAUDE_BOOSTER_COMPACT_THRESHOLD             — env override for token threshold (default 120000)
+    ~/.claude/.compact_recommended_<session_id>  — one-shot marker
+        (content = "<observed_tokens> <window>", two space-separated ints)
+    CLAUDE_BOOSTER_CONTEXT_WINDOW   — env override for assumed window (default 1_000_000)
+    CLAUDE_BOOSTER_COMPACT_PCT      — env override for fire fraction (default 0.6)
+    CLAUDE_BOOSTER_COMPACT_THRESHOLD — absolute token override (back-compat; wins when set)
 """
 from __future__ import annotations
 
@@ -33,16 +40,22 @@ import time
 from pathlib import Path
 
 try:
-    from _gate_common import append_jsonl, iso_now
+    from _gate_common import (
+        append_jsonl,
+        iso_now,
+        real_context_tokens,
+        effective_compact_threshold,
+    )
 except ImportError:
     import pathlib as _pl
     sys.path.insert(0, str(_pl.Path(__file__).resolve().parent))
-    from _gate_common import append_jsonl, iso_now  # type: ignore[no-redef]
+    from _gate_common import (  # type: ignore[no-redef]
+        append_jsonl,
+        iso_now,
+        real_context_tokens,
+        effective_compact_threshold,
+    )
 
-try:
-    _THRESHOLD = int(os.environ.get("CLAUDE_BOOSTER_COMPACT_THRESHOLD", "120000"))
-except ValueError:
-    _THRESHOLD = 120000  # malformed env var → fall back silently to default
 _SKIP = os.environ.get("CLAUDE_BOOSTER_SKIP_COMPACT_ADVISOR", "")
 
 _SESSION_ID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -97,19 +110,26 @@ def main() -> int:
         except OSError:
             return 0  # can't unlink — treat as existing, skip
 
-    # Estimate tokens via transcript file size (bytes // 4 ≈ tokens)
+    # Prefer REAL context occupancy from the last assistant usage block.
+    # Fall back to byte-size estimate (bytes // 4 ≈ tokens) only when no
+    # usage block exists yet (e.g. very early in the session).
     try:
         size_bytes = os.stat(transcript_path).st_size
     except OSError:
         append_jsonl("compact_advisor.jsonl", {"ts": iso_now(), "event": "invalid_input", "reason": "stat_failed", "transcript_path": transcript_path[:200]})
         return 0
 
-    estimated_tokens = size_bytes // 4
+    real = real_context_tokens(transcript_path)
+    observed = real if real is not None else (size_bytes // 4)
+    observed = int(observed)
 
-    if estimated_tokens < _THRESHOLD:
+    threshold, window = effective_compact_threshold(observed)
+
+    if observed < threshold:
         return 0
 
-    # Write marker atomically to avoid partial writes / race conditions
+    # Write marker atomically to avoid partial writes / race conditions.
+    # Content: "<observed> <window>" (two space-separated ints).
     try:
         marker_dir = marker.parent
         with tempfile.NamedTemporaryFile(
@@ -119,10 +139,10 @@ def main() -> int:
             prefix=".compact_tmp_",
             suffix=f"_{session_id}",
         ) as tmp:
-            tmp.write(str(estimated_tokens))
+            tmp.write(f"{observed} {window}")
             tmp_path = tmp.name
         os.replace(tmp_path, marker)
-        append_jsonl("compact_advisor.jsonl", {"ts": iso_now(), "event": "marker_written", "session_id": session_id, "estimated_tokens": estimated_tokens, "threshold": _THRESHOLD})
+        append_jsonl("compact_advisor.jsonl", {"ts": iso_now(), "event": "marker_written", "session_id": session_id, "observed": observed, "threshold": threshold, "window": window, "source": "usage" if real is not None else "bytes"})
     except Exception:
         # Best-effort advisory: never raise, never fail the hook
         pass
@@ -131,4 +151,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception as exc:  # never let the advisory crash the hook
+        try:
+            sys.stderr.write(f"compact_advisor: unhandled exception: {exc}\n")
+        except Exception:
+            pass
+        sys.exit(0)
