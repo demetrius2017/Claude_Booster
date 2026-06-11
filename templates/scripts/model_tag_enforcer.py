@@ -167,14 +167,14 @@ except ImportError:
 # Pattern: [<tier>] or [<tier>-<suffix>] e.g. [sonnet], [opus-3], [haiku-4-5]
 _MODEL_TAG_RE = re.compile(
     r"\["
-    r"(?:sonnet|opus|haiku|inherit|claude)"
+    r"(?:fable|sonnet|opus|haiku|inherit|claude)"
     r"(?:[-\w.]*)"   # optional sub-tier / version suffix
     r"\]",
     re.IGNORECASE,
 )
 
 # Human-readable tier examples for the block message
-_TIER_EXAMPLES = "[sonnet], [opus], [haiku]"
+_TIER_EXAMPLES = "[sonnet], [opus], [haiku], [fable]"
 
 # Environment variables
 _SKIP_ENV = "CLAUDE_BOOSTER_SKIP_MODEL_TAG_ENFORCER"
@@ -299,7 +299,7 @@ def _find_model_tag(description: str):
 def _extract_tier(model_str: str) -> Optional[str]:
     """Extract tier keyword (opus/sonnet/haiku) from any model string format."""
     lower = model_str.lower()
-    for tier in ("opus", "sonnet", "haiku"):
+    for tier in ("fable", "opus", "sonnet", "haiku"):
         if tier in lower:
             return tier
     return None
@@ -318,7 +318,7 @@ def _infer_tag_from_model_param(model_param: Optional[str]) -> str:
         return "[inherit]"
 
     lower = model_param.lower()
-    for tier in ("opus", "sonnet", "haiku"):
+    for tier in ("fable", "opus", "sonnet", "haiku"):
         if tier in lower:
             return f"[{tier}]"
 
@@ -344,7 +344,7 @@ def _check_mismatch(tag_match, model_param: Optional[str]) -> Optional[str]:
     tag_text = tag_match.group(0).lower()
     lower_model = model_param.lower()
 
-    for tier in ("opus", "sonnet", "haiku"):
+    for tier in ("fable", "opus", "sonnet", "haiku"):
         tag_has_tier = tier in tag_text
         param_has_tier = tier in lower_model
         if tag_has_tier and not param_has_tier:
@@ -464,7 +464,7 @@ def main() -> int:
                 param_tier = _extract_tier(model_param) if model_param else None
                 rec_tier = _extract_tier(recommended_model)
                 if param_tier and rec_tier and param_tier != rec_tier:
-                    _TIER_RANK = {"haiku": 0, "sonnet": 1, "opus": 2}
+                    _TIER_RANK = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
                     param_rank = _TIER_RANK.get(param_tier, -1)
                     rec_rank = _TIER_RANK.get(rec_tier, -1)
                     if param_rank > rec_rank:
