@@ -1,6 +1,6 @@
 ---
-description: "Track and resolve session debts. /debt list shows inventory, /debt work picks highest priority, /debt review formats for handover."
-argument-hint: "[list|add|work|resolve|block|review] [args]"
+description: "Track and resolve session debts. /debt list shows inventory, /debt auto clears all HIGH+MED automatically (LOW stays the user's call), /debt work picks the highest priority, /debt review formats for handover."
+argument-hint: "[list|auto|add|work|resolve|block|review] [args]"
 ---
 
 Parse `$ARGUMENTS` and route to the matching mode below. No argument or `list` → run **LIST** mode. Otherwise match the first word.
@@ -135,6 +135,45 @@ Print: `Working on debt [<N>] <priority>: <description>`
 Create a task via `TaskCreate` with title = `debt[<N>]: <description>`.
 
 Begin implementation per the same Worker+Verifier rules as MODE: work above.
+
+---
+
+## MODE: auto
+
+**Automatically resolve every HIGH and MEDIUM debt; leave LOW debts for the user's decision.** This is the "clear the board" mode: HIGH/MED are the agent's to take without asking; LOW is a judgement call that stays with the user; `BLOCKED-EXTERNAL` is never touched.
+
+1. Run LIST mode internally to build the inventory.
+2. **If there are zero HIGH and zero MED open items** → skip straight to step 4 (nothing to auto-work).
+3. **Auto-work loop** — repeat until no HIGH or MED open items remain (hard cap: **12 iterations** to prevent runaway; if the cap is hit, stop and report what's left):
+   a. Select the first HIGH item; if none, the first MED item.
+   b. Print: `Auto-working debt [<N>] <priority>: <description>`
+   c. Resolve it by its nature:
+      - **Substantial code** (≥20 lines / any behaviour change / ≥2 files) → run it through **`/go`** (the Шестёрка) so it is designed, cross-provider verified, and KPI-recorded. Do NOT hand-write it inline.
+      - **Trivial** (config/doc/<20 lines, formatting, typo) → Lead edits directly.
+      - **Uncommitted-change debt** → commit it (with a real message). **Failing-test debt** → fix + re-run until green.
+   d. On success → `/debt resolve <N>` and commit. Re-run LIST (a fix may surface a NEW HIGH/MED follow-up, or close several at once).
+   e. **If a debt turns out to need the user** (a real external/auth/irreversible blocker surfaces per `core.md`) → `/debt block <N> "<unblock_action>"` and move on. **If a debt fails to resolve twice** → skip it, leave it open, report it, and move on (`core.md` Anti-Loop — never a third identical attempt).
+4. **Hand the rest to the user — STOP, do NOT auto-work LOW or BLOCKED:**
+   ```
+   /debt auto — done.
+   Auto-resolved <K> HIGH/MED debts:
+     [N] <priority> <description> → <how: /go PASS / committed / fixed> (<commit SHA>)
+     ...
+   <if any were skipped/blocked: list them with the reason>
+
+   Remaining LOW debts — YOUR call (I will not touch these without a go-ahead):
+     [N] LOW  <description>
+     ...
+   Reply with numbers to work (e.g. "work 4 6"), or "skip" to leave them.
+   ```
+   If there are `BLOCKED-EXTERNAL` items, list them separately as needs-human (unchanged) — they are not part of the LOW decision.
+   If after the loop there are zero LOW items too → print `Board clear — all HIGH/MED auto-resolved, no LOW remaining.`
+
+**[CRITICAL] Guardrails (auto mode is powerful — these are non-negotiable):**
+- NEVER auto-work a `LOW` item or a `BLOCKED-EXTERNAL` item — both require the user. LOW is explicitly the user's decision boundary.
+- NEVER invent debts to keep the loop running (`goal-loop-discipline.md` §3). The loop ends when the real HIGH/MED inventory is empty, not when you run out of obvious work.
+- Each auto-worked code debt MUST pass its own verification (the Шестёрка's exit-code test gate, or a real command for non-`/go` debts). "Looks done" is not resolved.
+- Re-run LIST every iteration — operate on the live inventory, not a stale snapshot.
 
 ---
 
