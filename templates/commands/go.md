@@ -207,20 +207,44 @@ Output only the verdict block. Be ruthless but concrete — a vague critique is 
 
 ---
 
-## Phase 2 — WORKER + VERIFIER (parallel)
+## Phase 2 — WORKER + VERIFIER (parallel, cross-provider)
 
 Run: `python3 ~/.claude/scripts/phase.py progress "3/5 worker_verifier"`
 
-Query model balancer for coding tier:
+Query the model balancer for the coding tier:
 ```bash
 python3 ~/.claude/scripts/model_balancer.py get coding
 ```
+It returns `{"provider": "<WP>", "model": "<WM>"}`. Call these the **Worker provider `WP`** and **Worker model `WM`**. Fallback if the balancer fails: `WP=anthropic, WM=sonnet`.
 
-Use the returned model for BOTH agents. Fallback if balancer fails: `model: "sonnet"`.
+### [CRITICAL] SHIP-2 — the Verifier runs on a DIFFERENT provider than the Worker
 
-**Spawn BOTH agents in ONE message as parallel tool calls, both with `run_in_background: true`.**
+A model verifying its own output shares its own blind spots — same-provider verification is the correlated-failure mode that the Fable→mono-provider regression introduced (consilium 2026-06-13, SHIP-2). The **Verifier provider `VP` is forced to the OTHER provider:**
 
-Do not wait for one before spawning the other. They run simultaneously.
+| Worker provider `WP` | Verifier provider `VP` | Verifier model |
+|----------------------|------------------------|----------------|
+| `codex-cli` (today's pinned state) | `anthropic` | `opus` |
+| `anthropic` | `codex-cli` | `gpt-5.5` |
+
+This guarantees Worker and Verifier never share a provider. The Verifier still sees ONLY the AC fields + PFD `verifier_assertions`/`invariants`/`branching_scenarios` (never the Worker's prompt or code) — cross-provider does not relax the knowledge boundary, it hardens it.
+
+### Spawn mechanics by provider
+
+The Agent tool spawns Claude models only; Codex spawns via the sandbox worker, which runs in an isolated git worktree and emits a unified diff on stdout (Lead applies each changed file via Edit/Write, so `dep_guard.py` / `financial_dml_guard.py` / `verify_gate.py` fire on every write).
+
+| Provider | Spawn channel | Background? |
+|----------|---------------|-------------|
+| `anthropic` | Agent tool, `model: <tier>`, `run_in_background: true` | yes |
+| `codex-cli` | Bash `~/.claude/scripts/codex_sandbox_worker.sh <model> < <prompt-file>` → diff on stdout; Lead applies via Edit/Write | no (foreground) |
+
+**Preserve parallelism — spawn the anthropic side as a background Agent FIRST, then run the codex side foreground** (the Agent runs concurrently in the background while Codex executes in its worktree). Because `VP` is forced to differ from `WP`, exactly one side is anthropic and one is codex-cli — never two foreground Bash calls, never two Agents.
+
+- **Today (`WP=codex-cli`):** (1) spawn the **Verifier** as a background Opus Agent (`model: "opus"`, `run_in_background: true`); (2) run the **Worker** via `codex_sandbox_worker.sh "$WM" < worker_prompt.txt`, capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier's test path when it returns.
+- **If `WP=anthropic`:** (1) spawn the **Worker** as a background Agent (`model: "$WM"`, `run_in_background: true`); (2) run the **Verifier** via `codex_sandbox_worker.sh gpt-5.5 < verifier_prompt.txt`, apply the emitted test file via Write; (3) collect the Worker's artifact when it returns.
+
+The Worker and Verifier **prompts are identical regardless of provider** — only the spawn channel differs. Use the prompt blocks below verbatim.
+
+**Degradation (cross-provider is a quality optimization, NOT a safety gate):** if the required other-provider channel is unavailable (e.g. the `codex` binary is missing, or Codex auth fails), fall back to a same-provider Verifier on the Agent tool and **log the degradation** in the Phase 4 verdict line (`cross-provider: DEGRADED — Verifier on same provider as Worker (<reason>)`). Do NOT wedge the pipeline over it — a same-provider test is weaker than cross-provider but still far better than no test.
 
 ---
 
@@ -400,7 +424,7 @@ Classify the failure using this decision tree. Read the test output carefully be
 | Is it environment: wrong path, missing dependency, permission error, runtime not available? | **E-failure** |
 
 **V-failure (Verifier overstepped):**
-Respawn Verifier with the same prompt as Phase 2, plus:
+Respawn Verifier on the **same provider channel `VP`** as Phase 2 (cross-provider invariant holds across retries — the Verifier stays on the opposite provider from the Worker), with the same prompt, plus:
 ```
 CORRECTION: Your previous test was rejected (V-failure) because it asserted:
   <specific assertion that overstepped>
@@ -414,7 +438,7 @@ Inject the failed Worker's session context:
 ```bash
 python3 ~/.claude/scripts/session_context.py --agent "<Worker agent description>" --no-thinking
 ```
-Respawn Worker with the same Phase 2 prompt, plus:
+Respawn Worker on the **same provider channel `WP`** as Phase 2 (Verifier stays on `VP`, the opposite provider), with the same prompt, plus:
 ```
 CORRECTION: Your implementation failed the Verifier's test (W-failure).
 
@@ -496,6 +520,8 @@ On retry, always include the failed agent's session context (via `session_contex
 3. **Verifier MUST NOT see Worker's prompt or implementation approach.**
    The Verifier's prompt contains ONLY: AC fields (Objective, Artifact path, Expected observable behavior, Acceptance emphasis) + PFD sections (verifier_assertions, invariants, branching_scenarios). Nothing else.
    Independence is the mechanism that prevents self-evaluation bias.
+
+   **The Verifier MUST run on a different provider than the Worker (SHIP-2).** Same-provider verification shares the Worker's blind spots — that is the correlated-failure mode the mono-provider regression introduced. `WP=codex-cli → Verifier=Opus`; `WP=anthropic → Verifier=codex gpt-5.5`. Exactly one of {Worker, Verifier} is anthropic and one is codex-cli. Cross-provider HARDENS the knowledge boundary (it never relaxes it). If the other-provider channel is unavailable, degrade to same-provider and LOG it — this is a quality optimization, not a safety gate, so it must not wedge the pipeline.
 
 4. **Lead MUST NOT evaluate Worker's code quality subjectively.**
    Exit code from Verifier's test = the ONLY verdict mechanism.
