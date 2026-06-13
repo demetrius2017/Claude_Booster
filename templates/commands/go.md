@@ -478,6 +478,16 @@ Append any of these that apply (honest status, not silent drop):
 - `diff review: <CLEAN | N MED/LOW advisory findings — list them as follow-ups | SKIPPED (trivial diff)>`
 - `cross-provider: <OK | DEGRADED (<reason>)>` (if the Verifier or reviewer fell back to same-provider in Phase 2/3B)
 
+**Record the KPI outcome (SHIP instrumentation — proves the pipeline reduces rework):**
+```bash
+python3 ~/.claude/scripts/kpi_rework.py record \
+  --task "<short Objective>" --outcome pass \
+  --worker-spawns <1 + number of W/R Worker re-spawns> \
+  --verifier-fails <number of test-fail cycles that occurred: V + W + R retries> \
+  [--category <defect>:<count> for each classified retry]
+```
+First-pass-clean run → `--worker-spawns 1 --verifier-fails 0` (no `--category`). For each retry that happened, tag the defect category (W/V/A/R → category): A-failure → `contract_ambiguity`; V-failure → `weak_verification`; W-failure → `missed_failure_mode` (or `integration_mismatch` / `capability` if that fits better); R-failure (Phase 3B HIGH) → `integration_mismatch` (or the finding's axis). A CONTRACT_AMBIGUOUS caught at Phase 1B and resolved pre-code is NOT a retry — it is prevented rework, so it does not count toward `verifier-fails`.
+
 Run: `python3 ~/.claude/scripts/phase.py progress clear`
 
 Remove the .go_active marker (absolute last action):
@@ -573,6 +583,15 @@ Aggregated failure:
 
 Recommended next action: <specific concrete next step — not a question>
 ```
+
+**Record the KPI outcome (failed run still counts — it is the rework signal):**
+```bash
+python3 ~/.claude/scripts/kpi_rework.py record \
+  --task "<short Objective>" --outcome fail_exhausted \
+  --worker-spawns <total Worker spawns> --verifier-fails <total test-fail cycles> \
+  [--category <defect>:<count> for each classified retry]
+```
+
 Run: `python3 ~/.claude/scripts/phase.py progress clear`
 
 Remove the .go_active marker:
