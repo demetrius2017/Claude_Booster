@@ -40,11 +40,12 @@ Complete the AC and re-run /go. Do not proceed without a complete AC.
 
 Then STOP. Do NOT spawn any agents.
 
-**If AC is complete:** write the .go_active marker so the go_gate hook allows Agent spawns during this pipeline run:
+**If AC is complete:** write the .go_active marker so the go_gate hook allows Agent spawns during this pipeline run. Write a **run tag** into the marker — it scopes this run's RECON findings (Phase 1) and the post-pipeline debt clear (Phase 4):
 ```bash
-touch "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
+RUNTAG="go:$(date +%s)"
+printf '%s\n' "$RUNTAG" > "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
 ```
-Then proceed to Phase 1.
+Remember `RUNTAG` for the rest of the pipeline (go_gate checks marker *existence*, not content — the tag is for debt scoping). Then proceed to Phase 1.
 
 ---
 
@@ -105,6 +106,7 @@ Produce a PFD with ALL of the following sections (per flow-designer.md §4 schem
 - `worker_directives` — imperative ("MUST..."), rationale (which failure_mode/gap this prevents), enforcement type
 - `verifier_assertions` — assertion (what to test), type (temporal/branching/invariant/freshness/cascade), how (concrete test approach), derived_from (failure_mode ID or invariant)
 - `branch_tree.mermaid` — visual graph of operations and outcomes (all non-success terminals shown)
+- `adjacent_findings` — **RECON-as-review output.** While reading the existing code to build the PFD, do NOT just study it — REVIEW it critically, the way a code reviewer would. Every defect, inaccuracy, wrong assumption, missing guard, dead code, or risky pattern you notice in the code you read becomes an entry here. This is separate from `failure_modes` (those are about the NEW artifact); `adjacent_findings` is about the EXISTING surrounding code. Each entry: `location` (file:line), `severity` (HIGH = real bug / MED = inaccuracy or latent risk / LOW = smell or style), `in_radius` (true if it sits in the artifact being built OR a direct caller/helper this task touches; false if it is tangential code you happened to read), `issue` (one line), `fix` (one line). Empty list is allowed ONLY if the code you read was genuinely clean — say so explicitly rather than omitting the section.
 
 Quality criteria — your PFD FAILS internal review if:
 - Any operation has only one outcome (happy path only)
@@ -128,6 +130,13 @@ Output:
 ```
 Flow Designer complete. PFD: <N> failure modes, <M> worker directives, <K> verifier assertions.
 ```
+
+**RECON-as-review harvest — log each `adjacent_findings` entry as a scoped debt:**
+For every entry in the PFD's `adjacent_findings`, run:
+```bash
+/debt add "<issue> — fix: <fix> (<location>)" --priority <HIGH|MED|LOW> --origin "$RUNTAG" --in-radius <true|false>
+```
+These are findings about EXISTING code, scoped to this run via `$RUNTAG`. They are NOT worked now — they are cleared at the very end (Phase 4 post-pipeline) by `/debt auto --scope "$RUNTAG"`, which auto-fixes only the in-radius HIGH/MED and surfaces the rest to the user. Output: `RECON review: +<X> adjacent findings logged (<a> in-radius, <b> adjacent).`
 
 Save the full PFD text for Phase 1B.
 
@@ -497,24 +506,30 @@ First-pass-clean run → `--worker-spawns 1 --verifier-fails 0` (no `--category`
 
 Run: `python3 ~/.claude/scripts/phase.py progress clear`
 
-Remove the .go_active marker (the pipeline is now complete):
+Capture the run tag, then remove the .go_active marker (the pipeline is now complete):
 ```bash
-rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+RUNTAG="$(cat "$ROOT/.claude/.go_active" 2>/dev/null)"   # the tag written at Phase 0
+rm -f "$ROOT/.claude/.go_active"
 ```
 
-### Post-pipeline — auto-clear the debt board (HIGH/MED only)
+### Post-pipeline — clear THIS run's debts (scoped to the Шестёрка)
 
-After a clean PASS, run `/debt auto` so every HIGH and MEDIUM debt is resolved automatically and LOW debts are handed back to the user. This keeps the board clean after each delivered artifact.
+After a clean PASS, clear only the debts **this run produced** — the `adjacent_findings` RECON logged in Phase 1 (origin `$RUNTAG`) — NOT the whole board:
+```
+/debt auto --scope "$RUNTAG"
+```
+Scoped `/debt auto` auto-fixes only the **in-radius** HIGH/MED findings (the artifact and the direct callers/helpers this task touched) and **surfaces the out-of-radius (adjacent) HIGH/MED + all LOW to you** — fixing tangential code would widen this task's blast radius beyond its scope. Pre-existing debts from other work are untouched.
 
 **[CRITICAL] Recursion guard — SKIP this step entirely if EITHER is true:**
-- the marker `<project>/.claude/.debt_auto_active` exists (this `/go` was itself spawned BY `/debt auto` to resolve a code debt — running `/debt auto` again would recurse), OR
-- env `CLAUDE_BOOSTER_NO_POST_GO_DEBT=1` is set (the user wants just this one task, no board-clearing).
+- the marker `<project>/.claude/.debt_auto_active` exists (this `/go` was itself spawned BY `/debt auto` to resolve a code debt — running it again would recurse), OR
+- env `CLAUDE_BOOSTER_NO_POST_GO_DEBT=1` is set (the user wants just this one task, no debt clearing).
 
 ```bash
-# guard check before invoking /debt auto:
-test -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.debt_auto_active" && echo "SKIP post-/go /debt auto (nested under /debt auto)" || echo "RUN /debt auto"
+# guard check before invoking the scoped /debt auto:
+test -f "$ROOT/.claude/.debt_auto_active" && echo "SKIP post-/go debt clear (nested under /debt auto)" || echo "RUN /debt auto --scope $RUNTAG"
 ```
-If the guard says RUN and `CLAUDE_BOOSTER_NO_POST_GO_DEBT` is unset → invoke `/debt auto`. Otherwise skip and finish.
+If the guard says RUN and `CLAUDE_BOOSTER_NO_POST_GO_DEBT` is unset → invoke `/debt auto --scope "$RUNTAG"`. Otherwise skip and finish.
 
 Done.
 

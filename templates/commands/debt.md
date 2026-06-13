@@ -71,19 +71,22 @@ If both sections are empty: print `No open debts — session clean.` and stop.
 
 ## MODE: add
 
-Parse: `add <description>`. If no description, print usage and exit.
+Parse: `add <description> [--priority HIGH|MED|LOW] [--origin <tag>] [--in-radius true|false]`. If no description, print usage and exit.
+
+- `--priority` — defaults to `MED` if omitted.
+- `--origin` — a scope tag (e.g. a `/go` run tag like `go:1718300000`). Defaults to `session`. Lets `/debt auto --scope <tag>` operate on just this run's debts.
+- `--in-radius` — `true` if the debt is inside the artifact being built OR a direct caller/helper the current task touches; `false` if it's a tangential finding in adjacent code. Defaults to `true`. Only meaningful together with `--origin` (a scoped clear auto-fixes in-radius items and surfaces out-of-radius ones to the user).
 
 Read `.claude/.session_debts.json` (return `[]` if file absent or unreadable).
 
 Append a new entry:
 ```json
-{"id": <next integer>, "description": "<description>", "priority": "MED", "added_at": "<ISO-8601 timestamp>", "status": "open"}
+{"id": <next integer>, "description": "<description>", "priority": "<HIGH|MED|LOW>", "origin": "<tag|session>", "in_radius": <true|false>, "added_at": "<ISO-8601 timestamp>", "status": "open"}
 ```
 
 Write back to `.claude/.session_debts.json`. Print:
 ```
-Added debt #<id>: "<description>" [priority: MED]
-To change priority: edit .claude/.session_debts.json directly.
+Added debt #<id>: "<description>" [priority: <P>] [origin: <tag>] [<in-radius|adjacent>]
 ```
 
 **[CRITICAL] Do NOT `/debt add` speculative or invented items to "show progress"** — especially under an active `/goal` (see `goal-loop-discipline.md` §3). Debt is for real, independently-actionable work. If a task's only precondition is a pending user authorization, it is NOT independently actionable — use `/debt block` (below), not `add`.
@@ -140,7 +143,15 @@ Begin implementation per the same Worker+Verifier rules as MODE: work above.
 
 ## MODE: auto
 
-**Automatically resolve every HIGH and MEDIUM debt; leave LOW debts for the user's decision.** This is the "clear the board" mode: HIGH/MED are the agent's to take without asking; LOW is a judgement call that stays with the user; `BLOCKED-EXTERNAL` is never touched.
+Parse: `auto [--scope <tag>]`.
+
+**Automatically resolve HIGH and MEDIUM debts; leave LOW debts for the user's decision; never touch `BLOCKED-EXTERNAL`.**
+
+- **`--scope <tag>` (used by `/go`)** — operate ONLY on debts whose `origin == <tag>` (this one pipeline run's findings), not the whole board. Within scope, the in-radius/adjacent split applies:
+  - **in-radius HIGH/MED** (`in_radius: true` — the artifact or a direct caller/helper the task touched) → **auto-fix** (this is the whole point of clearing within the Шестёрка).
+  - **out-of-radius / adjacent HIGH/MED** (`in_radius: false` — tangential findings RECON noticed in surrounding code) → **do NOT auto-fix; surface them to the user as a review block** (they may be real, but fixing them would expand this task's blast radius beyond its scope).
+  - **LOW (any)** → surface to the user.
+- **No `--scope` (manual `/debt auto`)** — operate on the whole board: every HIGH/MED auto-worked regardless of radius, LOW to the user. (`in_radius` is ignored without a scope.)
 
 **[CRITICAL] Recursion guard.** `/go` Phase 4 invokes `/debt auto` automatically after a PASS, and `/debt auto` resolves code debts BY invoking `/go` — without a guard this recurses explosively. So:
 ```bash
@@ -152,10 +163,13 @@ Any `/go` spawned for a code debt below will see this marker and SKIP its own po
 rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.debt_auto_active"
 ```
 
-1. Write the recursion-guard marker (above). Then run LIST mode internally to build the inventory.
-2. **If there are zero HIGH and zero MED open items** → skip straight to step 4 (nothing to auto-work).
-3. **Auto-work loop** — repeat until no HIGH or MED open items remain (hard cap: **12 iterations** to prevent runaway; if the cap is hit, stop and report what's left):
-   a. Select the first HIGH item; if none, the first MED item.
+1. Write the recursion-guard marker (above). Then run LIST mode internally to build the inventory. **If `--scope <tag>` was given, filter the inventory to debts whose `origin == <tag>` from here on** (everything else stays untouched).
+2. Determine the **auto-work set**: HIGH/MED items that are eligible for auto-fix.
+   - With `--scope`: only items with `in_radius: true`. Items with `in_radius: false` (adjacent) are NOT auto-worked — they go to the user review block in step 4.
+   - Without `--scope`: all HIGH/MED items.
+   **If the auto-work set is empty** → skip straight to step 4 (nothing to auto-work).
+3. **Auto-work loop** — repeat until the auto-work set is empty (hard cap: **12 iterations** to prevent runaway; if the cap is hit, stop and report what's left):
+   a. Select the first HIGH item in the auto-work set; if none, the first MED item in it.
    b. Print: `Auto-working debt [<N>] <priority>: <description>`
    c. Resolve it by its nature:
       - **Substantial code** (≥20 lines / any behaviour change / ≥2 files) → run it through **`/go`** (the Шестёрка) so it is designed, cross-provider verified, and KPI-recorded. Do NOT hand-write it inline.
@@ -163,21 +177,24 @@ rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.debt_auto_ac
       - **Uncommitted-change debt** → commit it (with a real message). **Failing-test debt** → fix + re-run until green.
    d. On success → `/debt resolve <N>` and commit. Re-run LIST (a fix may surface a NEW HIGH/MED follow-up, or close several at once).
    e. **If a debt turns out to need the user** (a real external/auth/irreversible blocker surfaces per `core.md`) → `/debt block <N> "<unblock_action>"` and move on. **If a debt fails to resolve twice** → skip it, leave it open, report it, and move on (`core.md` Anti-Loop — never a third identical attempt).
-4. **Hand the rest to the user — STOP, do NOT auto-work LOW or BLOCKED:**
+4. **Hand the rest to the user — STOP, do NOT auto-work it:** remove the recursion-guard marker first, then print:
    ```
-   /debt auto — done.
-   Auto-resolved <K> HIGH/MED debts:
+   /debt auto<scope?> — done.
+   Auto-resolved <K> in-radius HIGH/MED debts:
      [N] <priority> <description> → <how: /go PASS / committed / fixed> (<commit SHA>)
      ...
    <if any were skipped/blocked: list them with the reason>
 
-   Remaining LOW debts — YOUR call (I will not touch these without a go-ahead):
+   Adjacent findings (out-of-radius — RECON noticed these in surrounding code; fixing
+   them would widen this task's scope, so they're YOUR call):
+     [N] <HIGH|MED>  <description>  (<file:line>)
+     ...
+   Remaining LOW debts — YOUR call:
      [N] LOW  <description>
      ...
    Reply with numbers to work (e.g. "work 4 6"), or "skip" to leave them.
    ```
-   If there are `BLOCKED-EXTERNAL` items, list them separately as needs-human (unchanged) — they are not part of the LOW decision.
-   If after the loop there are zero LOW items too → print `Board clear — all HIGH/MED auto-resolved, no LOW remaining.`
+   The "Adjacent findings" block appears only in scoped mode (it lists the out-of-radius HIGH/MED). `BLOCKED-EXTERNAL` items, if any, are listed separately as needs-human. If nothing remains for the user → print `Board clear — all in-radius HIGH/MED auto-resolved, nothing left for you.`
 
 **[CRITICAL] Guardrails (auto mode is powerful — these are non-negotiable):**
 - NEVER auto-work a `LOW` item or a `BLOCKED-EXTERNAL` item — both require the user. LOW is explicitly the user's decision boundary.
