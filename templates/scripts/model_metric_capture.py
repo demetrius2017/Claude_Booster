@@ -17,9 +17,11 @@ Contract:
     sample to ~/.claude/logs/model_metric_capture_sample.jsonl and exits.
 
     For Bash tools: inserts a row only when the command invokes codex_worker.sh
-    or "codex exec -m" with a model in the known allowlist; uses token-boundary
-    anchored regex to avoid matching file paths, grep invocations, or heredoc
-    fragments.  provider=codex-cli, duration_ms=NULL.
+    or "codex exec -m" with a model in the known allowlist; leading shell
+    env-assignment prefixes are stripped before matching so
+    CLAUDE_BOOSTER_TASK_CATEGORY=<category> can annotate Codex calls. Uses
+    top-level duration_ms when present and valid (NULL when absent), with
+    num_turns=1 and per_turn_ms=duration_ms.
 
 CLI:
     echo '<json-event>' | python3 model_metric_capture.py
@@ -29,6 +31,8 @@ Limitations:
 
 ENV:
     CLAUDE_BOOSTER_SKIP_METRIC_CAPTURE=1  -- skip all processing, exit 0.
+    CLAUDE_BOOSTER_METRICS_DB  -- SQLite target override for tests/controlled runs.
+    CLAUDE_BOOSTER_TASK_CATEGORY  -- leading-prefix category hint for Codex calls.
 
 Files:
     ~/.claude/rolling_memory.db  -- target SQLite database (model_metrics table).
@@ -42,6 +46,7 @@ import re
 import sqlite3
 import sys
 from datetime import datetime
+from urllib.parse import quote
 
 DB_PATH = os.path.expanduser("~/.claude/rolling_memory.db")
 LOGS_DIR = os.path.expanduser("~/.claude/logs")
@@ -62,6 +67,21 @@ _CODEX_ALLOWLIST = frozenset({
     "gpt-5.3-codex-spark",
     "gpt-5.2",
 })
+
+_KNOWN_TASK_CATEGORIES = frozenset({
+    "trivial",
+    "recon",
+    "medium",
+    "coding",
+    "hard",
+    "consilium_bio",
+    "audit_external",
+    "lead",
+    "high_blast_radius",
+})
+
+_RE_LEADING_ENV = re.compile(r'^(?:\s*[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+')
+_RE_CODEX_CATEGORY = re.compile(r'(?:^|\s)CLAUDE_BOOSTER_TASK_CATEGORY=([a-z_]+)(?:\s|$)')
 
 # Codex command patterns — Group 1 captures the model token.
 # Anchor `[/;&|]` matches path separator (full-path invocations like
@@ -103,6 +123,43 @@ def _task_category(subagent_type: str, description: str) -> str:
     if "audit" in desc or "consilium" in desc:
         return "hard"
     return "medium"
+
+
+def _get_db_path() -> str:
+    """Return the metrics DB path, allowing tests to redirect writes."""
+    return os.environ.get("CLAUDE_BOOSTER_METRICS_DB") or DB_PATH
+
+
+def _sqlite_uri_for_path(path: str) -> str:
+    """Build a SQLite file URI without letting special path chars break query args."""
+    return f"file:{quote(path, safe='/')}?synchronous=NORMAL"
+
+
+def _valid_duration_ms(value):
+    """Accept integer durations while rejecting bool and all non-int values."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _strip_leading_env(command: str) -> str:
+    """Remove leading shell env-assignment tokens from a command string."""
+    match = _RE_LEADING_ENV.match(command)
+    if not match:
+        return command
+    return command[match.end():]
+
+
+def _codex_task_category(command: str) -> str:
+    """Read a validated Codex category only from the leading env prefix."""
+    match = _RE_LEADING_ENV.match(command)
+    if not match:
+        return "medium"
+    category_match = _RE_CODEX_CATEGORY.search(match.group(0))
+    if not category_match:
+        return "medium"
+    category = category_match.group(1)
+    return category if category in _KNOWN_TASK_CATEGORIES else "medium"
 
 
 def _find_usage(event: dict):
@@ -236,10 +293,13 @@ def handle_event(event: dict) -> bool:
     if tool_name == "Bash":
         tool_input = event.get("tool_input") or {}
         command = tool_input.get("command") or ""
-        model = _match_codex_command(command)
+        bare = _strip_leading_env(command)
+        model = _match_codex_command(bare)
         if model is not None:
-            _insert_row(PROVIDER_CODEX, model, "medium",
-                        None, None, None,
+            duration_ms = _valid_duration_ms(event.get("duration_ms"))
+            per_turn_ms = duration_ms if duration_ms is not None else None
+            _insert_row(PROVIDER_CODEX, model, _codex_task_category(command),
+                        duration_ms, 1, per_turn_ms,
                         None, None, session_id, project_root)
             return True
 
@@ -252,7 +312,7 @@ def _insert_row(provider, model, task_category,
     # isolation_level=None -> autocommit; PRAGMA synchronous=NORMAL trades
     # one fsync per commit for ~3-8ms savings per PostToolUse invocation.
     conn = sqlite3.connect(
-        f"file:{DB_PATH}?synchronous=NORMAL",
+        _sqlite_uri_for_path(_get_db_path()),
         timeout=2.0, isolation_level=None, uri=True,
     )
     try:
