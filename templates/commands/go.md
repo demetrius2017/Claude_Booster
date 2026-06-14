@@ -65,7 +65,7 @@ Use the returned provider/model for the Flow Designer. Fallback if balancer fail
 | Provider from `get hard` | Flow Designer spawn path |
 |---|---|
 | `anthropic` or balancer error | Spawn ONE Flow Designer via the **Agent tool** with the returned model; fallback `model: "opus"`. **NOT `run_in_background`** — Lead waits for the result before Phase 1B. |
-| `codex-cli` | Run the Flow Designer via Bash: `~/.claude/scripts/codex_worker.sh <model> < <prompt-file>`, piping the Flow Designer prompt on stdin and capturing stdout as the YAML PFD. This is the read-only TEXT channel: the Flow Designer emits a PFD, not code. Lead waits; this is a foreground Bash call. |
+| `codex-cli` | Run the Flow Designer via Bash: `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh <model> < <prompt-file>`, piping the Flow Designer prompt on stdin and capturing stdout as the YAML PFD. The `CLAUDE_BOOSTER_TASK_CATEGORY=hard` prefix tags this Codex call's telemetry as the `hard` tier (debt #1 — without it the balancer logs every Codex call as `medium` and can never score coding/hard). This is the read-only TEXT channel: the Flow Designer emits a PFD, not code. Lead waits; this is a foreground Bash call. |
 
 **Flow Designer agent prompt:**
 
@@ -157,7 +157,7 @@ The Flow Designer drafted the PFD on the `hard` tier. This phase has a **differe
 
 - Check what `python3 ~/.claude/scripts/model_balancer.py get hard` returned for Phase 1.
 - **If Flow Designer's provider was NOT `anthropic`** (e.g. `codex-cli:gpt-5.5` — today's pinned state): spawn ONE Challenge **Agent** with `model: "opus"` explicitly. **NOT `run_in_background`** — Lead waits.
-- **If Flow Designer's provider WAS `anthropic`** (balancer routed `hard` to Claude): run the challenge via Bash instead, to stay cross-provider — `~/.claude/scripts/codex_worker.sh gpt-5.5 < <prompt-file>` — capture stdout as the critique. (Codex is read-only analysis here; it produces a critique, never code.)
+- **If Flow Designer's provider WAS `anthropic`** (balancer routed `hard` to Claude): run the challenge via Bash instead, to stay cross-provider — `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh gpt-5.5 < <prompt-file>` (the `hard` prefix tags the telemetry; see Phase 1) — capture stdout as the critique. (Codex is read-only analysis here; it produces a critique, never code.)
 
 Either way the prompt is identical:
 
@@ -276,7 +276,7 @@ The Agent tool spawns Claude models only; Codex spawns via the sandbox worker, w
 
 **Preserve parallelism — spawn the anthropic side as a background Agent FIRST, then run the codex side foreground** (the Agent runs concurrently in the background while Codex executes in its worktree). Because `VP` is forced to differ from `WP`, exactly one side is anthropic and one is codex-cli — never two foreground Bash calls, never two Agents.
 
-- **Today (`WP=codex-cli`):** (1) spawn the **Verifier** as a background Opus Agent (`model: "opus"`, `run_in_background: true`); (2) run the **Worker** via `codex_sandbox_worker.sh "$WM" < worker_prompt.txt`, capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier's test path when it returns.
+- **Today (`WP=codex-cli`):** (1) spawn the **Verifier** as a background Opus Agent (`model: "opus"`, `run_in_background: true`); (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/codex_sandbox_worker.sh "$WM" < worker_prompt.txt` (the `coding` prefix tags this Codex call's telemetry as the `coding` tier — debt #1), capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier's test path when it returns.
 - **If `WP=anthropic`:** (1) spawn the **Worker** as a background Agent (`model: "$WM"`, `run_in_background: true`); (2) run the **Verifier** via `codex_sandbox_worker.sh gpt-5.5 < verifier_prompt.txt`, apply the emitted test file via Write; (3) collect the Worker's artifact when it returns.
 
 The Worker and Verifier **prompts are identical regardless of provider** — only the spawn channel differs. Use the prompt blocks below verbatim.
@@ -445,7 +445,7 @@ The Verifier tested *observable behavior* but never saw the code. This phase giv
 
 **Provider rule:** the reviewer MUST run on a different provider than the Worker (it reads the Worker's code, so it must not be the author's own model). Same mapping as the Verifier:
 - `WP=codex-cli` → reviewer = Opus **Agent** (`model: "opus"`), read-only.
-- `WP=anthropic` → reviewer = `~/.claude/scripts/codex_worker.sh gpt-5.5 < review_prompt.txt` (read-only text analysis — produces findings, never code).
+- `WP=anthropic` → reviewer = `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh gpt-5.5 < review_prompt.txt` (read-only text analysis — produces findings, never code; the `hard` prefix tags the telemetry — debt #1).
 
 Collect the diff first: `git -C "$(git rev-parse --show-toplevel)" diff -- <changed paths>` (or read the files the Worker wrote).
 
