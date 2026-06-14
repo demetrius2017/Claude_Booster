@@ -36,12 +36,14 @@
 #       calls, package installs) that are NOT reverted by worktree removal.
 #
 # ENV:
-#     CODEX_BIN — override Codex binary path (default: /opt/homebrew/bin/codex)
-#     TMPDIR    — base for worktree path (default: /tmp)
+#     CODEX_BIN              — override Codex binary path (default: /opt/homebrew/bin/codex)
+#     CODEX_REASONING_EFFORT — Codex effort for delegated workers (default: medium)
+#     TMPDIR                 — base for worktree path (default: /tmp)
 
 set -euo pipefail
 
 CODEX_BIN="${CODEX_BIN:-/opt/homebrew/bin/codex}"
+CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-medium}"
 
 # --- argument check ---
 if [[ $# -lt 1 ]]; then
@@ -95,6 +97,7 @@ done
 # --- run Codex in worktree (stdout→stderr so it doesn't mix with diff) ---
 CODEX_EXIT=0
 "$CODEX_BIN" exec \
+    -c "model_reasoning_effort=\"$CODEX_REASONING_EFFORT\"" \
     -C "$WORKTREE_PATH" \
     -s workspace-write \
     --ephemeral \

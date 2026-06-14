@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CODEX_BIN="/opt/homebrew/bin/codex"
+CODEX_BIN="${CODEX_BIN:-/opt/homebrew/bin/codex}"
+CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-medium}"
 
 if [[ $# -lt 1 ]]; then
     echo "usage: codex_worker.sh <MODEL> [extra args...]" >&2
@@ -16,4 +17,8 @@ if [[ ! -x "$CODEX_BIN" ]]; then
     exit 127
 fi
 
-exec "$CODEX_BIN" exec --skip-git-repo-check -m "$MODEL" "$@" -
+exec "$CODEX_BIN" exec \
+    -c "model_reasoning_effort=\"$CODEX_REASONING_EFFORT\"" \
+    --skip-git-repo-check \
+    -m "$MODEL" \
+    "$@" -

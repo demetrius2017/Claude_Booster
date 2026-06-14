@@ -45,6 +45,10 @@ Execute the command behavior, not the literal Claude Code tool names.
   ids or names plus their final messages. If no Codex subagent tool is available,
   state that full independent-agent parity is unavailable and run only a local
   second pass; do not label that fallback as a full Booster multi-agent result.
+- When spawning Codex subagents, pass `reasoning_effort: "medium"` unless the
+  user explicitly requested a higher effort for that delegate. Do not omit it:
+  omitted effort inherits the Lead session and can accidentally spawn delegates
+  as `gpt-5.5 high`.
 - Claude model names (`haiku`, `sonnet`, `opus`) are guidance only. Use Codex's
   available subagent defaults unless a model can be pinned safely.
 - PAL/GPT external review: use PAL if the MCP tools exist. If not, spawn a
