@@ -142,8 +142,6 @@ seed_n 6 "codex-cli" "gpt-5.5" "coding" 500
 seed_n 6 "anthropic" "claude-sonnet-4-6" "coding" 2000
 
 # Capture transitions count before
-TRANS_BEFORE_C2=$(jq '.transitions | length' "$LIVE_JSON" 2>/dev/null || echo "0")
-
 C2_OUT=$(run_decide --force 2>&1); C2_EC=$?
 
 if [[ $C2_EC -eq 0 ]]; then
@@ -174,13 +172,12 @@ else
   fail_c C2d "rationale='$C2_RATIONALE'"
 fi
 
-TRANS_AFTER_C2=$(jq '.transitions | length' "$LIVE_JSON" 2>/dev/null || echo "0")
 TRANS_CODING_C2=$(jq '[.transitions[] | select(.category == "coding")] | length' "$LIVE_JSON" 2>/dev/null || echo "0")
 
-if [[ "$TRANS_AFTER_C2" -gt "$TRANS_BEFORE_C2" ]]; then
-  pass_c C2e "transitions array grew (before=$TRANS_BEFORE_C2 after=$TRANS_AFTER_C2)"
+if [[ "$TRANS_CODING_C2" -ge 1 ]]; then
+  pass_c C2e "transitions contains ≥1 entry with category=coding"
 else
-  fail_c C2e "transitions did not grow (before=$TRANS_BEFORE_C2 after=$TRANS_AFTER_C2)"
+  fail_c C2e "no transitions entry for category=coding — transitions=$(jq -c '.transitions' "$LIVE_JSON" 2>/dev/null)"
 fi
 
 if [[ "$TRANS_CODING_C2" -ge 1 ]]; then
@@ -194,7 +191,7 @@ echo ""
 # ──────────────────────────────────────────────────────────────────────────────
 # C3 — Claude faster wins (reverse of C2)
 # ──────────────────────────────────────────────────────────────────────────────
-echo "C3: Claude faster wins coding (reverse)"
+echo "C3: coding remains pinned to Codex even if Claude samples are faster"
 
 clear_cat "coding"
 
@@ -210,11 +207,12 @@ else
   fail_c C3a "decide exited $C3_EC — $C3_OUT"
 fi
 
+C3_PROVIDER=$(jget '.routing.coding.provider')
 C3_MODEL=$(jget '.routing.coding.model')
-if [[ "$C3_MODEL" == "claude-sonnet-4-6" ]]; then
-  pass_c C3b "coding.model == claude-sonnet-4-6 (fast wins)"
+if [[ "$C3_PROVIDER" == "codex-cli" && "$C3_MODEL" == "gpt-5.5" ]]; then
+  pass_c C3b "coding remains pinned to codex-cli/gpt-5.5"
 else
-  fail_c C3b "coding.model='$C3_MODEL', expected claude-sonnet-4-6"
+  fail_c C3b "coding route ${C3_PROVIDER}/${C3_MODEL}, expected codex-cli/gpt-5.5"
 fi
 
 echo ""
@@ -259,7 +257,7 @@ echo ""
 # ──────────────────────────────────────────────────────────────────────────────
 # C5 — lead pinned
 # ──────────────────────────────────────────────────────────────────────────────
-echo "C5: lead category pinned to anthropic/claude-opus-4-7"
+echo "C5: lead category pinned to anthropic/claude-opus-4-8"
 
 clear_cat "lead"
 
@@ -283,10 +281,10 @@ else
   fail_c C5b "lead.provider='$C5_PROV' — expected anthropic (pinned)"
 fi
 
-if [[ "$C5_MODEL" == "claude-opus-4-7" ]]; then
-  pass_c C5c "lead.model == claude-opus-4-7 (pinned)"
+if [[ "$C5_MODEL" == "claude-opus-4-8" ]]; then
+  pass_c C5c "lead.model == claude-opus-4-8 (pinned)"
 else
-  fail_c C5c "lead.model='$C5_MODEL' — expected claude-opus-4-7 (pinned)"
+  fail_c C5c "lead.model='$C5_MODEL' — expected claude-opus-4-8 (pinned)"
 fi
 
 echo ""

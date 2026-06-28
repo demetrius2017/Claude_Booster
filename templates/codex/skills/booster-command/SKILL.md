@@ -51,11 +51,17 @@ Execute the command behavior, not the literal Claude Code tool names.
   as `gpt-5.5 high`.
 - Claude model names (`haiku`, `sonnet`, `opus`) are guidance only. Use Codex's
   available subagent defaults unless a model can be pinned safely.
-- PAL/GPT external review: use PAL if the MCP tools exist. If not, spawn a
-  separate Codex review subagent when subagents are available and label it
-  clearly as "Codex second opinion", not as PAL/GPT. If neither PAL nor
-  subagents are available, mark the external-review step as unavailable with the
-  missing tool evidence.
+- PAL/GPT external review: use PAL if the MCP tools exist. If not, use the
+  Z.ai third-model runner when `ZAI_API_KEY` is present:
+  `printf '%s\n' '<review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`.
+  Label it exactly as "GLM-5.2 via Z.ai". If Z.ai is unavailable but Grok CLI
+  is authenticated, use:
+  `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --budget-turns 3`.
+  Label it exactly as "Grok via xAI". If PAL, Z.ai, and Grok are unavailable,
+  spawn a separate Codex review subagent when subagents are available and label
+  it clearly as "Codex second opinion", not as PAL/GPT or Z.ai. If none are
+  available, mark the external-review step as unavailable with the missing tool
+  evidence.
 - Claude session JSONL paths under `~/.claude/projects/...` become the newest
   relevant Codex session JSONL under `~/.codex/sessions/...` when preparing a
   Codex handover. If a Claude session is relevant, mention both.
@@ -78,11 +84,19 @@ is Codex (`codex_sandbox_worker.sh` / `codex_worker.sh`). On Codex CLI the roles
   `WP=codex-cli → Verifier=Opus` / `WP=anthropic → Verifier=codex` tables as
   "Worker on the native model → the other role on the other provider," and vice
   versa.
-- If the other-provider channel is unavailable on this CLI, apply the spec's
-  documented DEGRADATION: run a same-provider second pass and label the result
-  `cross-provider: DEGRADED (<reason>)`. NEVER claim cross-provider when it
-  degraded. It is a quality optimization, not a safety gate — do not wedge the
-  pipeline over it.
+- If `ZAI_API_KEY` is present, GLM-5.2 via `~/.claude/scripts/zai_cli.py` is a
+  third-model read-only channel for Challenge, external audit, edge-harvest, and
+  diff-review. It does not replace the exit-code Judge/Verifier unless a future
+  audited command explicitly makes it write-capable.
+- If Grok CLI is authenticated, Grok via `~/.claude/scripts/grok_cli.py` is a
+  fourth-model read-only review channel, and `~/.claude/scripts/grok_sandbox_worker.sh`
+  is a write-capable code-worker channel that must run in an isolated worktree
+  and return a diff.
+- If the other-provider, Z.ai, or Grok channel is unavailable on this CLI, apply the
+  spec's documented DEGRADATION: run a same-provider second pass and label the
+  result `cross-provider: DEGRADED (<reason>)`. NEVER claim cross-provider when
+  it degraded. It is a quality optimization, not a safety gate — do not wedge
+  the pipeline over it.
 - `phase.py`, `model_balancer.py`, and `kpi_rework.py` (the `go` Phase 4 KPI
   `record`/`report`) are plain `python3 ~/.claude/scripts/<name>.py ...` and run
   identically on both CLIs — invoke them verbatim, including the auto-`record`

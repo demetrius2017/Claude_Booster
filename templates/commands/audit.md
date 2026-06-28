@@ -1,5 +1,5 @@
 ---
-description: "Multi-agent code audit — parallel lens-specific agents (correctness, security, performance, architecture, data integrity, operational) + mandatory PAL external review. Each auditor does independent RECON and returns a structured verdict."
+description: "Multi-agent code audit — parallel lens-specific agents (correctness, security, performance, architecture, data integrity, operational) + external PAL/Z.ai review. Each auditor does independent RECON and returns a structured verdict."
 argument-hint: "<topic> [--scope <path>] [--focus <lens1,lens2>]"
 ---
 
@@ -68,23 +68,31 @@ Audit lenses selected: correctness, security, data-integrity
 
 ## Phase 2 — PARALLEL AUDIT (spawn all **selected** lens agents in ONE message)
 
-**[CRITICAL] Spawn all selected lens agents AND the PAL external review IN A SINGLE MESSAGE as parallel tool calls, each with `run_in_background: true`.** Do not wait for one to finish before starting another. PAL runs in parallel with the auditors — not after.
+**[CRITICAL] Spawn all selected lens agents AND external review IN A SINGLE MESSAGE as parallel tool calls, each with `run_in_background: true` when the tool supports it.** Do not wait for one to finish before starting another. External review runs in parallel with the auditors — not after.
+
+External-review order:
+1. PAL/GPT (`mcp__pal__codereview` or `mcp__pal__second_opinion`) is the primary external expert when PAL is available.
+2. Z.ai GLM-5.2 is the third-model reviewer when `ZAI_API_KEY` is present. Run it via:
+   `printf '%s\n' '<review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`
+3. xAI Grok is the fourth-model reviewer when Grok CLI is authenticated. Run it via:
+   `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --budget-turns 3`
+4. If PAL is unavailable, GLM-5.2 is mandatory fallback. If GLM is unavailable but Grok is authenticated, Grok is the mandatory fallback. If PAL, Z.ai, and Grok are all unavailable, label the run `external-review: DEGRADED (PAL unavailable; ZAI_API_KEY absent; Grok unauthenticated)` and continue with the selected lenses.
 
 Spawn only the lenses selected in Phase 1. Do not spawn auditors for unselected lenses.
 
 Each auditor agent is `subagent_type: "general-purpose"`, `model: "sonnet"`.
-PAL runs as a tool call in the same batch.
+PAL runs as a tool call in the same batch when available. GLM-5.2 and Grok run as read-only Bash reviewers and must receive the same Verified Facts Brief and key file list.
 
 ### Progress output
 
-Before spawning, output one line: `Starting audit: <N> lenses + PAL`
+Before spawning, output one line: `Starting audit: <N> lenses + <external reviewers>`
 
 As each background agent completes, output a cumulative progress line:
 ```
 Audit ▰▱▱▱▱▱▱ 1/<total> · <lens> ✓ (<verdict>)
 Audit ▰▰▱▱▱▱▱ 2/<total> · <lens> ✓ · <lens> ✓
 ```
-Where `<total>` is the number of selected lenses + 1 (PAL), or just the number of lenses if PAL is unavailable. Fill in lens names and verdicts (PASS/FAIL/CONCERN) as each returns. **Do NOT begin Phase 3 synthesis until ALL agents have returned.**
+Where `<total>` is the number of selected lenses plus every available external reviewer (PAL, GLM-5.2, and/or Grok), or just the selected lenses if external review degraded. Fill in lens names and verdicts (PASS/FAIL/CONCERN) as each returns. **Do NOT begin Phase 3 synthesis until ALL agents/reviewers have returned.**
 
 Every agent receives:
 - The **Verified Facts Brief** from Phase 0
@@ -522,11 +530,11 @@ Use the Shared Verdict Format above. Finding prefix: O. Extra field: `oncall_imp
 
 ---
 
-### PAL External Review (runs in parallel with auditors)
+### External Review (runs in parallel with auditors)
 
-In the same spawn batch as the auditors, also call the PAL MCP for an external opinion. Use `mcp__pal__codereview` if the topic refers to specific files; use `mcp__pal__second_opinion` if the topic is broader.
+In the same spawn batch as the auditors, also call the external reviewers.
 
-**[MANDATORY] PAL is not optional.** A /audit without PAL is incomplete.
+**[MANDATORY] Some external review is required.** Preferred is PAL/GPT plus GLM-5.2. A /audit with neither PAL nor GLM-5.2 is degraded and must say so in the report.
 
 PAL call parameters:
 - `relevant_files`: array of the key file paths from the Verified Facts Brief (Lead pre-identified these in Phase 0)
@@ -535,6 +543,12 @@ PAL call parameters:
 - `findings`: (leave empty for codereview; or pass Lead's initial concern for second_opinion)
 
 PAL returns its verdict in its own format. Include it verbatim in the report under §PAL External Review.
+
+GLM-5.2 call:
+- Use `~/.claude/scripts/zai_cli.py review --budget 5`.
+- Pass the Verified Facts Brief, audit topic, key file paths, and the same finding format.
+- The GLM reviewer is read-only. It must not edit files, run network calls, or access secrets.
+- Include its verdict verbatim in the report under §GLM-5.2 External Review.
 
 ---
 
@@ -551,7 +565,8 @@ Build the verdict matrix:
 | correctness | PASS/CONCERN/FAIL | n | n | n |
 | security | ... | | | |
 | ... | | | | |
-| PAL | PASS/CONCERN/FAIL | n | n | n |
+| PAL/GPT | PASS/CONCERN/FAIL/DEGRADED | n | n | n |
+| GLM-5.2 | PASS/CONCERN/FAIL/DEGRADED | n | n | n |
 | **COMBINED** | **PASS/CONCERN/FAIL** | **total** | **total** | **total** |
 
 **Combined verdict logic:**

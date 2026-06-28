@@ -43,6 +43,7 @@ from pathlib import Path
 # Kept local to avoid importing model_balancer in the hot SessionStart path.
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_CODEX = "codex-cli"
+PROVIDER_ZAI = "zai-cli"
 
 # Supervisor quota ceiling (matches supervisor/quota.py session_token_cap).
 # Display only — quota enforcement lives in the supervisor itself.
@@ -134,10 +135,16 @@ def _build_balancer_summary(data: dict | None) -> str:
         coding_val = fmt("coding")
         hard_val = fmt("hard")
         audit_val = fmt("audit_external")
+        audit_secondary_val = fmt("audit_secondary")
+        audit_tertiary_val = fmt("audit_tertiary")
+        hackathon_coder_val = fmt("hackathon_coder")
 
         line = (
             f"  * date={decision_date} ({freshness}) — "
-            f"lead={lead_val}, coding={coding_val}, hard={hard_val}, audit={audit_val}"
+            f"lead={lead_val}, coding={coding_val}, hard={hard_val}, "
+            f"audit={audit_val}, audit_secondary={audit_secondary_val}, "
+            f"audit_tertiary={audit_tertiary_val}, "
+            f"hackathon_coder={hackathon_coder_val}"
         )
         return f"{header}\n{line}"
     except Exception as exc:  # noqa: BLE001

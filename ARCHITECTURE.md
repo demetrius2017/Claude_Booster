@@ -63,6 +63,8 @@ C4Container
     System_Ext(codex_cli, "Codex CLI", "OpenAI codex binary; Worker/audit provider via codex_worker.sh + codex_sandbox_worker.sh")
     System_Ext(anthropic_api, "Anthropic API", "consolidate() Haiku synthesis + token counting (Anthropic SDK)")
     System_Ext(pal_mcp, "PAL MCP", "External second-opinion/audit provider (gpt-5.5) for audit_external category")
+    System_Ext(zai_api, "Z.ai API", "Anthropic-compatible GLM-5.2 endpoint for third-model read-only review")
+    System_Ext(grok_cli, "Grok CLI", "xAI Grok Build CLI; fourth-model review and sandboxed code worker")
     System_Ext(git, "Git", "Version control: installer, check_booster_update, verify_gate, codex_sandbox worktree")
     System_Ext(filesystem, "~/.claude/ filesystem", "Target directory for all deployed artifacts")
 
@@ -93,6 +95,8 @@ C4Container
     Rel(balancer, sqlite_db, "reads", "model_metrics 14-day p50 latency")
     Rel(balancer, balancer_json, "writes", "decide() atomic; pinned categories preserved")
     Rel(balancer, pal_mcp, "routes", "audit_external → gpt-5.5")
+    Rel(balancer, zai_api, "routes", "audit_secondary / hackathon_external → glm-5.2[1m] via zai_cli.py")
+    Rel(balancer, grok_cli, "routes", "audit_tertiary → grok-composer-2.5-fast; hackathon_coder → grok-build")
     Rel(balancer, codex_cli, "routes", "coding/hard → codex-cli gpt-5.5 (pinned)")
 
     Rel(supervisor, sqlite_db, "reads/writes", "supervisor_decisions + supervisor_quota")
@@ -116,6 +120,9 @@ C4Container
 | `rolling_memory.py::init_db()` | db PRAGMA user_version | CREATE/ALTER/INDEX/TRIGGER (schema v8) | get_connection() path | Schema migration — atomic FTS migration in BEGIN IMMEDIATE; broken = corrupt DB |
 | `model_balancer.py::decide()` | model_balancer.json, db:model_metrics (14-day p50), openai_models.json | model_balancer.json (atomic), rolling .bak (max 7) | SessionStart hook, `model_balancer.py decide` CLI | Routing — broken = wrong provider/model per category. Pinned {lead, high_blast_radius, coding, hard} never overwritten by active scorer |
 | `model_balancer.py::get_routing()` | model_balancer.json (cached) | n/a | memory_session_start, supervisor runtime, delegating Lead | Routing reads — broken = agents fall back to static tier map |
+| `zai_cli.py::main()` | stdin prompt, ZAI_API_KEY env, Claude Code CLI | stdout model response | `/audit`, `/consilium`, `/go`, `/hackathon` external-review fallback | Third-model review — broken = PAL fallback collapses to same-provider review; must never persist API keys |
+| `grok_cli.py::main()` | stdin prompt, Grok CLI auth/config | stdout model response, model_metrics row | `/audit`, `/hackathon`, `/go` external-review fallback | Fourth-model review — broken = provider diversity drops to PAL/Z.ai only |
+| `grok_sandbox_worker.sh` | stdin task, git repo, Grok CLI auth/config | stdout unified diff from isolated worktree | `/hackathon`, `/go` write-capable Grok contestant | Grok coding lane — broken = no fourth-provider code worker; must not write directly to main checkout |
 | `model_metric_capture.py::main()` | stdin (PostToolUse JSON), tool_response.usage | db:model_metrics, logs/model_metric_capture_sample.jsonl | Claude Code PostToolUse hook | Balancer starvation — broken = no latency/token telemetry → passive routing forever |
 | `claude_max_tracker.py::main()` | stdin (Stop/usage JSON) | db:claude_max_usage (INSERT OR REPLACE) | Claude Code Stop hook | Weekly-max feed — broken = `_get_weekly_max_pct()` blind, balancer can't throttle |
 | `go_gate.py::main()` | stdin (PreToolUse JSON), .phase, .go_active marker | exit 0/2, logs/go_gate_decisions.jsonl | Claude Code PreToolUse/Agent hook | /go pipeline enforcement — broken = Worker spawns bypass Flow Designer→Verifier in IMPLEMENT |

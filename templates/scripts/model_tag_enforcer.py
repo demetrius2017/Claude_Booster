@@ -195,7 +195,8 @@ _BALANCER_PATH = os.path.expanduser("~/.claude/model_balancer.json")
 
 _VALID_CATEGORIES = frozenset({
     "coding", "high_blast_radius", "trivial", "recon", "medium",
-    "hard", "consilium_bio", "audit_external",
+    "hard", "consilium_bio", "audit_external", "audit_secondary",
+    "audit_tertiary", "hackathon_external", "hackathon_coder",
 })
 
 _CATEGORY_TAG_RE = re.compile(
@@ -284,6 +285,53 @@ def _build_routing_block_message(
         "  - Explore agents (subagent_type: Explore) that need tool access",
         "",
         "To bypass: CLAUDE_BOOSTER_SKIP_MODEL_TAG_ENFORCER=1",
+    ])
+
+
+def _build_zai_advisory_message(category: str, model: str, description: str) -> str:
+    """Build stderr guidance for routes that should use Z.ai via zai_cli.py."""
+    preview = description[:80] + ("..." if len(description) > 80 else "")
+    return "\n".join([
+        f"model_tag_enforcer: model_balancer routes '{category}' to zai-cli:{model}.",
+        "",
+        f"  Description: {preview!r}",
+        f"  Category:    {category}",
+        f"  Required:    Z.ai GLM-5.2 read-only external reviewer",
+        "",
+        "Use Bash with the Z.ai runner instead of Agent:",
+        "  printf '%s\\n' '<review prompt>' | ZAI_API_KEY=\"$ZAI_API_KEY\" "
+        "~/.claude/scripts/zai_cli.py review --budget 5",
+        "",
+        "If ZAI_API_KEY is absent, use PAL/GPT or log cross-provider: DEGRADED.",
+    ])
+
+
+def _build_grok_advisory_message(category: str, model: str, description: str) -> str:
+    """Build stderr guidance for routes that should use Grok CLI."""
+    preview = description[:80] + ("..." if len(description) > 80 else "")
+    if category == "hackathon_coder" or category == "coding":
+        command = (
+            "  printf '%s\\n' '<task>' | "
+            f"~/.claude/scripts/grok_sandbox_worker.sh {model}"
+        )
+        role = "xAI Grok write-capable sandbox worker"
+    else:
+        command = (
+            "  printf '%s\\n' '<review prompt>' | "
+            f"~/.claude/scripts/grok_cli.py review --model {model} --budget-turns 3"
+        )
+        role = "xAI Grok read-only external reviewer"
+    return "\n".join([
+        f"model_tag_enforcer: model_balancer routes '{category}' to grok-cli:{model}.",
+        "",
+        f"  Description: {preview!r}",
+        f"  Category:    {category}",
+        f"  Required:    {role}",
+        "",
+        "Use Bash with the Grok runner instead of Agent:",
+        command,
+        "",
+        "If Grok CLI is unauthenticated, use another provider and log cross-provider: DEGRADED.",
     ])
 
 
@@ -453,6 +501,38 @@ def main() -> int:
                     "ts": iso_now(),
                     "gate": "model_tag_enforcer",
                     "decision": DECISION_ADVISORY_CODEX,
+                    "category": category,
+                    "provider": provider,
+                    "recommended_model": recommended_model,
+                    "description_excerpt": description[:120],
+                    "session_id": payload.get("session_id", ""),
+                })
+
+            elif provider == "zai-cli" and not _high_effort:
+                msg = _build_zai_advisory_message(
+                    category, recommended_model, description
+                )
+                print(f"model_tag_enforcer [advisory]: {msg}", file=sys.stderr)
+                append_jsonl(ENFORCER_LOG_NAME, {
+                    "ts": iso_now(),
+                    "gate": "model_tag_enforcer",
+                    "decision": "advisory_zai",
+                    "category": category,
+                    "provider": provider,
+                    "recommended_model": recommended_model,
+                    "description_excerpt": description[:120],
+                    "session_id": payload.get("session_id", ""),
+                })
+
+            elif provider == "grok-cli" and not _high_effort:
+                msg = _build_grok_advisory_message(
+                    category, recommended_model, description
+                )
+                print(f"model_tag_enforcer [advisory]: {msg}", file=sys.stderr)
+                append_jsonl(ENFORCER_LOG_NAME, {
+                    "ts": iso_now(),
+                    "gate": "model_tag_enforcer",
+                    "decision": "advisory_grok",
                     "category": category,
                     "provider": provider,
                     "recommended_model": recommended_model,

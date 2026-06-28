@@ -79,6 +79,8 @@ _MAX_BACKUPS = 7
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_CODEX = "codex-cli"
 PROVIDER_PAL = "pal"
+PROVIDER_ZAI = "zai-cli"
+PROVIDER_GROK = "grok-cli"
 
 # Neutral fallback for unknown models (e.g. gpt-5.3-codex variants not in
 # openai_models.json yet). Sits between Sonnet (17) and Haiku (13).
@@ -106,6 +108,20 @@ _QUALITY_SCORES_ANTHROPIC: dict[str, int] = {
     "claude-opus-4-8": 20,
     "claude-sonnet-4-6": 17,
     "claude-haiku-4-5": 13,
+}
+
+_QUALITY_SCORES_ZAI: dict[str, int] = {
+    # Artificial Analysis Intelligence Index: GLM-5.2 ≈ 51 vs Opus 4.8 ≈ 61.
+    # The internal 0..20 scale intentionally keeps it below Opus and above
+    # Sonnet as a cheap but capable external-review model.
+    "glm-5.2[1m]": 18,
+    "glm-5.2": 18,
+    "glm-5.2-air": 15,
+}
+
+_QUALITY_SCORES_GROK: dict[str, int] = {
+    "grok-build": 18,
+    "grok-composer-2.5-fast": 16,
 }
 
 # Pinned categories — their routing is NEVER overwritten by active logic.
@@ -138,6 +154,10 @@ DEFAULTS: dict = {
         "hard":           {"provider": PROVIDER_CODEX,     "model": "gpt-5.5"},
         "consilium_bio":  {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-4-8"},
         "audit_external": {"provider": PROVIDER_PAL,       "model": "gpt-5.5"},
+        "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.2[1m]"},
+        "audit_tertiary": {"provider": PROVIDER_GROK,      "model": "grok-composer-2.5-fast"},
+        "hackathon_external": {"provider": PROVIDER_ZAI,   "model": "glm-5.2[1m]"},
+        "hackathon_coder": {"provider": PROVIDER_GROK,     "model": "grok-build"},
         "lead":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-4-8"},
         "high_blast_radius": {
             "provider": PROVIDER_ANTHROPIC,
@@ -235,7 +255,7 @@ def _build_refreshed(prior: dict) -> dict:
     Preserves routing shape; only updates decision_date and valid_until.
     """
     today = _today_utc()
-    refreshed = dict(prior)
+    refreshed = _with_default_routes(prior)
     refreshed["decision_date"] = today
     refreshed["valid_until"] = _valid_until_str()
     return refreshed
@@ -248,6 +268,15 @@ def _build_bootstrap() -> dict:
     decision["decision_date"] = today
     decision["valid_until"] = _valid_until_str()
     return decision
+
+
+def _with_default_routes(data: dict) -> dict:
+    """Return a copy of *data* with any newly introduced default routes added."""
+    merged = copy.deepcopy(data)
+    routing = merged.setdefault("routing", {})
+    for category, default_route in DEFAULTS["routing"].items():
+        routing.setdefault(category, copy.deepcopy(default_route))
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +294,8 @@ def _load_intelligence_scores() -> dict[str, int]:
         return _cached_intelligence_scores
 
     scores: dict[str, int] = dict(_QUALITY_SCORES_ANTHROPIC)
+    scores.update(_QUALITY_SCORES_ZAI)
+    scores.update(_QUALITY_SCORES_GROK)
 
     try:
         if _OAI_MODELS_PATH.exists():
@@ -450,6 +481,8 @@ def _active_decide(prior: dict) -> dict:
     budget_pcts: dict[str, float] = {
         PROVIDER_ANTHROPIC: weekly_max_pct,
         PROVIDER_CODEX: codex_pct,
+        PROVIDER_ZAI: 0.0,
+        PROVIDER_GROK: 0.0,
     }
 
     # Ensure DB exists before attempting reads
@@ -645,9 +678,15 @@ def decide(*, force: bool = False) -> dict:
     force_active = os.environ.get("CLAUDE_BALANCER_FORCE_ACTIVE", "0") == "1" or force
     disable_active = os.environ.get("CLAUDE_BALANCER_DISABLE_ACTIVE", "0") == "1"
 
+    merged_defaults = False
+    if prior is not None:
+        merged_prior = _with_default_routes(prior)
+        merged_defaults = merged_prior != prior
+        prior = merged_prior
+
     if prior is not None and prior.get("decision_date") == today and not force_active:
         # Already fresh — but a scheduled change may have become due mid-day
-        if _apply_scheduled_changes(prior):
+        if _apply_scheduled_changes(prior) or merged_defaults:
             _write_atomic(prior)
         _cached_decision = prior
         return prior
@@ -686,7 +725,8 @@ def current_decision() -> dict:
     """Return in-effect decision dict (load once, cache)."""
     global _cached_decision
     if _cached_decision is None:
-        _cached_decision = _load_file() or _build_bootstrap()
+        loaded = _load_file()
+        _cached_decision = _with_default_routes(loaded) if loaded else _build_bootstrap()
     return _cached_decision
 
 

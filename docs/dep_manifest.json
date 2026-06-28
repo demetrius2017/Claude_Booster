@@ -155,7 +155,31 @@
       "writes_to": [],
       "called_by": ["memory_session_start", "supervisor runtime", "cli:model_balancer.py get", "delegating Lead"],
       "critical": true,
-      "notes": "Returns {provider, model, [applies_to]} for a category. Cached on first call (_cached_decision). Providers: anthropic | codex-cli | pal."
+      "notes": "Returns {provider, model, [applies_to]} for a category. Cached on first call (_cached_decision). Providers: anthropic | codex-cli | pal | zai-cli | grok-cli."
+    },
+    "zai_cli": {
+      "file": "templates/scripts/zai_cli.py::main",
+      "reads_from": ["external:stdin prompt", "env:ZAI_API_KEY", "external:claude CLI"],
+      "writes_to": ["external:stdout"],
+      "called_by": ["templates/commands/audit.md", "templates/commands/consilium.md", "templates/commands/go.md", "templates/commands/hackathon.md"],
+      "critical": false,
+      "notes": "Read-only third-model external reviewer via Z.ai Anthropic-compatible GLM-5.2 endpoint. Does not store API keys or edit files; exits 64 if ZAI_API_KEY is absent."
+    },
+    "grok_cli": {
+      "file": "templates/scripts/grok_cli.py::main",
+      "reads_from": ["external:stdin prompt", "external:Grok CLI auth/config"],
+      "writes_to": ["external:stdout", "db:model_metrics"],
+      "called_by": ["templates/commands/audit.md", "templates/commands/go.md", "templates/commands/hackathon.md"],
+      "critical": false,
+      "notes": "Read-only fourth-model external reviewer through xAI Grok CLI. Denies edit/write tools in review mode and records best-effort model_metrics rows."
+    },
+    "grok_sandbox_worker": {
+      "file": "templates/scripts/grok_sandbox_worker.sh",
+      "reads_from": ["external:stdin task", "external:git worktree", "external:Grok CLI auth/config"],
+      "writes_to": ["external:stdout unified diff", "external:temporary git worktree"],
+      "called_by": ["templates/commands/go.md", "templates/commands/hackathon.md"],
+      "critical": false,
+      "notes": "Write-capable Grok code worker. Runs in a detached git worktree, captures git diff on stdout, and cleans the worktree on exit; Lead must apply and verify the diff."
     },
     "model_metric_capture": {
       "file": "templates/scripts/model_metric_capture.py::main",

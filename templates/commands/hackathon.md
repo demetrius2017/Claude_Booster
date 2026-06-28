@@ -27,7 +27,7 @@ Unlike `/consilium` (opinions) and paired Worker+Verifier (one implementation), 
    - Criteria are observable-behavior assertions (exit codes, file contents, stdout patterns, curl responses)
    - No LLM judgment allowed anywhere in the Judge Mandate
 
-4. **Pick contestants** — 2–3 Workers. Default: equal footing (all the same model) to isolate the *approach* difference. **When invoked as a /go SHIP-4 escalation:** spawn candidates ACROSS providers instead (e.g. one Opus Agent + one Codex `codex_sandbox_worker.sh gpt-5.5`) — there the goal is provider diversity, not just prompt diversity. More contestants = more compute + better odds of the optimal solution.
+4. **Pick contestants** — 2–3 Workers. Default: equal footing (all the same model) to isolate the *approach* difference. **When invoked as a /go SHIP-4 escalation:** spawn candidates ACROSS providers instead (e.g. one Opus Agent + one Codex `codex_sandbox_worker.sh gpt-5.5`; when `ZAI_API_KEY` is present, add one GLM-5.2 read-only design/review contestant or external reviewer via `~/.claude/scripts/zai_cli.py`; when Grok CLI is authenticated, add one write-capable Grok contestant via `~/.claude/scripts/grok_sandbox_worker.sh grok-build`) — there the goal is provider diversity, not just prompt diversity. More contestants = more compute + better odds of the optimal solution.
 
 ## Phase 2 — Competition (all Workers in ONE message, parallel)
 
@@ -86,7 +86,12 @@ Only TEST coverage is unioned across candidates; CODE stays single-author. This 
 ## Phase 5 — External audit (recommended for critical features)
 
 After winner is selected:
-- `mcp__pal__codereview` — GPT second opinion on winning implementation
+- `mcp__pal__codereview` — GPT second opinion on winning implementation when PAL is available
+- GLM-5.2 third-model review when `ZAI_API_KEY` is present:
+  `printf '%s\n' '<winner review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`
+- Grok fourth-model review when Grok CLI is authenticated:
+  `printf '%s\n' '<winner review prompt>' | ~/.claude/scripts/grok_cli.py review --budget-turns 3`
+- If PAL is unavailable, GLM-5.2 is mandatory fallback. If GLM is unavailable but Grok is authenticated, Grok is the mandatory fallback. If all external channels are unavailable, record `external-review: DEGRADED (PAL unavailable; ZAI_API_KEY absent; Grok unauthenticated)`.
 - Address any HIGH findings before committing
 - Save judge report to `reports/hackathon_YYYY-MM-DD_<topic>.md` and git commit
 

@@ -9,7 +9,8 @@ MIRROR_SCRIPT="/Users/dmitrijnazarov/Projects/Claude_Booster/templates/scripts/m
 LIVE_JSON="$HOME/.claude/model_balancer.json"
 BACKUP="/tmp/mb_test_backup_$$.json"
 TEMP_JSON="/tmp/mb_test_temp.json"
-STALE_BAK="$HOME/.claude/model_balancer.json.bak.2025-01-01"
+STALE_DATE=$(python3 -c "from datetime import datetime, timedelta, timezone; print((datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d'))")
+STALE_BAK="$HOME/.claude/model_balancer.json.bak.$STALE_DATE"
 
 PASS=0
 FAIL=0
@@ -83,9 +84,9 @@ fi
 
 echo ""
 
-# ── C4: All 9 categories exit 0 with provider+model ──────────────────────────
-echo "C4: All 9 categories return provider+model"
-CATEGORIES=(trivial recon medium coding hard consilium_bio audit_external lead high_blast_radius)
+# ── C4: All categories exit 0 with provider+model ────────────────────────────
+echo "C4: All routing categories return provider+model"
+CATEGORIES=(trivial recon medium coding hard consilium_bio audit_external audit_secondary hackathon_external lead high_blast_radius)
 for cat in "${CATEGORIES[@]}"; do
   OUT=$(python3 model_balancer.py get "$cat" 2>&1) && EC=0 || EC=$?
   if [[ $EC -eq 0 ]]; then
@@ -169,7 +170,7 @@ d = json.load(open('$LIVE_JSON'))
 rationale = str(d).lower()
 routing = d.get('routing', d)
 # Accept either 'bootstrap' in rationale OR all main categories have provider=anthropic
-categories = ['trivial', 'recon', 'medium', 'coding', 'hard', 'consilium_bio', 'lead']
+categories = ['trivial', 'recon', 'medium', 'coding', 'hard', 'consilium_bio', 'audit_secondary', 'hackathon_external', 'lead']
 all_anthropic = all(
   routing.get(cat, {}).get('provider','') == 'anthropic'
   for cat in categories
@@ -200,12 +201,13 @@ echo ""
 # ── C8: Stale-file regeneration ───────────────────────────────────────────────
 echo "C8: Stale file triggers regeneration with backup"
 TODAY=$(today_utc)
+rm -f "$STALE_BAK" "$HOME/.claude/model_balancer.json.bak.$STALE_DATE"* 2>/dev/null || true
 # Write a clearly stale file
 python3 -c "
 import json
 stale = {
-  'decision_date': '2025-01-01',
-  'valid_until': '2025-01-02T00:00:00Z',
+  'decision_date': '$STALE_DATE',
+  'valid_until': '${STALE_DATE}T23:59:59Z',
   'source': 'test',
   'routing': {
     'coding': {'provider': 'anthropic', 'model': 'STALE-MARKER'},
@@ -232,10 +234,10 @@ else
   fail "stale file regeneration: decision_date '$REGEN_DATE' != today '$TODAY'"
 fi
 
-if [[ -f "$STALE_BAK" ]]; then
-  pass "backup file exists: $STALE_BAK"
+if compgen -G "$HOME/.claude/model_balancer.json.bak.$STALE_DATE*" > /dev/null; then
+  pass "backup file exists for stale $STALE_DATE decision"
 else
-  fail "backup file NOT created at $STALE_BAK"
+  fail "backup file NOT created for stale $STALE_DATE decision"
 fi
 
 # Cleanup stale backup (trap will also do it, but be explicit)

@@ -82,6 +82,7 @@ Use the returned provider/model for the Flow Designer. Fallback if balancer fail
 |---|---|
 | `anthropic` or balancer error | Spawn ONE Flow Designer via the **Agent tool** with the returned model; fallback `model: "opus"`. **NOT `run_in_background`** — Lead waits for the result before Phase 1B. |
 | `codex-cli` | Run the Flow Designer via Bash: `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh <model> < <prompt-file>`, piping the Flow Designer prompt on stdin and capturing stdout as the YAML PFD. The `CLAUDE_BOOSTER_TASK_CATEGORY=hard` prefix tags this Codex call's telemetry as the `hard` tier (debt #1 — without it the balancer logs every Codex call as `medium` and can never score coding/hard). This is the read-only TEXT channel: the Flow Designer emits a PFD, not code. Lead waits; this is a foreground Bash call. |
+| `zai-cli` | Run the Flow Designer via Bash: `printf '%s\n' "$PROMPT" \| ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5 --model <model>`. Use only when `ZAI_API_KEY` is present; otherwise fall back and log `zai-cli unavailable`. |
 
 **Flow Designer agent prompt:**
 
@@ -172,8 +173,8 @@ The Flow Designer drafted the PFD on the `hard` tier. This phase has a **differe
 **Provider rule — the challenge MUST run on a different provider than the Flow Designer (this is the whole point — a model cannot find its own blind spots):**
 
 - Check what `python3 ~/.claude/scripts/model_balancer.py get hard` returned for Phase 1.
-- **If Flow Designer's provider was NOT `anthropic`** (e.g. `codex-cli:gpt-5.5` — today's pinned state): spawn ONE Challenge **Agent** with `model: "opus"` explicitly. **NOT `run_in_background`** — Lead waits.
-- **If Flow Designer's provider WAS `anthropic`** (balancer routed `hard` to Claude): run the challenge via Bash instead, to stay cross-provider — `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh gpt-5.5 < <prompt-file>` (the `hard` prefix tags the telemetry; see Phase 1) — capture stdout as the critique. (Codex is read-only analysis here; it produces a critique, never code.)
+- **If Flow Designer's provider was `codex-cli` or `zai-cli`**: spawn ONE Challenge **Agent** with `model: "opus"` explicitly. **NOT `run_in_background`** — Lead waits.
+- **If Flow Designer's provider WAS `anthropic`** (balancer routed `hard` to Claude): prefer GLM-5.2 when `ZAI_API_KEY` is present — `printf '%s\n' "$PROMPT" | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`; otherwise run the challenge via Bash to stay cross-provider — `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh gpt-5.5 < <prompt-file>` (the `hard` prefix tags the telemetry; see Phase 1) — capture stdout as the critique. (Z.ai/Codex are read-only analysis here; they produce a critique, never code.)
 
 Either way the prompt is identical:
 
@@ -253,7 +254,7 @@ Before spawning the Worker, decide whether this task warrants COMPETING implemen
 **If both → escalate to `/hackathon`** for the implementation stage:
 - Pass the PFD-augmented Artifact Contract as the hackathon Artifact Contract.
 - Seed the Judge Mandate from the PFD `verifier_assertions` + `invariants` — the deterministic acceptance the Шестёрка already derived.
-- Spawn the 2–3 candidates ACROSS providers (e.g. one Opus Agent + one Codex `codex_sandbox_worker.sh gpt-5.5`) so the tournament tests provider diversity, not just prompt diversity.
+- Spawn the 2–3 candidates ACROSS providers (e.g. one Opus Agent + one Codex `codex_sandbox_worker.sh gpt-5.5`). When `ZAI_API_KEY` is present, include GLM-5.2 via `~/.claude/scripts/zai_cli.py review` for design critique, edge harvest, or external diff review. When Grok CLI is authenticated, include Grok via `~/.claude/scripts/grok_sandbox_worker.sh grok-build` as a write-capable contestant or via `~/.claude/scripts/grok_cli.py review` as a fourth-model reviewer. Z.ai is a third-model review lane by default; Grok may be a code worker only through the sandbox worker; neither should be the deterministic Judge unless the Judge remains an executable test runner with exit-code scoring.
 - The hackathon's deterministic Judge (exit-code score, winner-take-all) REPLACES the single cross-provider Verifier for this run — same no-LLM-judgment axiom, stronger evidence. It includes the SHIP-4 **edge-test harvest** (losers' test coverage unioned into the winner's suite; see `hackathon.md` Phase 4).
 - When the hackathon returns a winner, **resume the Шестёрка at Phase 3B** (diff-review the winner) → Phase 4 verdict. Skip the standard single-Worker path below.
 - Log it in the verdict: `implementation: /hackathon (N candidates, winner cN, score X/Y)`.
@@ -276,8 +277,10 @@ A model verifying its own output shares its own blind spots — same-provider ve
 |----------------------|------------------------|----------------|
 | `codex-cli` (today's pinned state) | `anthropic` | `opus` |
 | `anthropic` | `codex-cli` | `gpt-5.5` |
+| `zai-cli` | `anthropic` or `codex-cli` | `opus` preferred, else `gpt-5.5` |
+| `grok-cli` | `anthropic` or `codex-cli` | `opus` preferred, else `gpt-5.5` |
 
-This guarantees Worker and Verifier never share a provider. The Verifier still sees ONLY the AC fields + PFD `verifier_assertions`/`invariants`/`branching_scenarios` (never the Worker's prompt or code) — cross-provider does not relax the knowledge boundary, it hardens it.
+This guarantees Worker and Verifier never share a provider. The Verifier still sees ONLY the AC fields + PFD `verifier_assertions`/`invariants`/`branching_scenarios` (never the Worker's prompt or code) — cross-provider does not relax the knowledge boundary, it hardens it. Z.ai/GLM-5.2 is currently a read-only third-model lane for Challenge, edge-harvest, and Diff-review unless a future audited commit adds a write-capable Z.ai worker. Grok may write code only through `grok_sandbox_worker.sh`, which isolates writes in a git worktree and returns a diff for Lead review.
 
 (The table reads from the Claude-CLI viewpoint. The real invariant is "Worker and Verifier on DIFFERENT providers", which is provider-symmetric: on Codex CLI the native model is gpt-5.5 and "the other provider" is Claude. When this command runs under Codex via the bridge, the `booster-command` skill's "Cross-provider stages" adapter handles the mirror + the degrade-and-log fallback. The same applies to the Phase 1B Challenge and Phase 3B Diff-review.)
 
@@ -289,15 +292,18 @@ The Agent tool spawns Claude models only; Codex spawns via the sandbox worker, w
 |----------|---------------|-------------|
 | `anthropic` | Agent tool, `model: <tier>`, `run_in_background: true` | yes |
 | `codex-cli` | Bash `~/.claude/scripts/codex_sandbox_worker.sh <model> < <prompt-file>` → diff on stdout; Lead applies via Edit/Write | no (foreground) |
+| `zai-cli` | Bash `~/.claude/scripts/zai_cli.py review` → read-only analysis; no diff output | no (foreground) |
+| `grok-cli` | Bash `~/.claude/scripts/grok_sandbox_worker.sh <model> < <prompt-file>` → diff on stdout; Lead applies via Edit/Write, or `grok_cli.py review` for read-only analysis | no (foreground) |
 
 **Preserve parallelism — spawn the anthropic side as a background Agent FIRST, then run the codex side foreground** (the Agent runs concurrently in the background while Codex executes in its worktree). Because `VP` is forced to differ from `WP`, exactly one side is anthropic and one is codex-cli — never two foreground Bash calls, never two Agents.
 
 - **Today (`WP=codex-cli`):** (1) spawn the **Verifier** as a background Opus Agent (`model: "opus"`, `run_in_background: true`); (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/codex_sandbox_worker.sh "$WM" < worker_prompt.txt` (the `coding` prefix tags this Codex call's telemetry as the `coding` tier — debt #1), capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier's test path when it returns.
 - **If `WP=anthropic`:** (1) spawn the **Worker** as a background Agent (`model: "$WM"`, `run_in_background: true`); (2) run the **Verifier** via `codex_sandbox_worker.sh gpt-5.5 < verifier_prompt.txt`, apply the emitted test file via Write; (3) collect the Worker's artifact when it returns.
+- **If `WP=grok-cli`:** (1) spawn the **Verifier** as a background Opus Agent when available, else Codex; (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/grok_sandbox_worker.sh "$WM" < worker_prompt.txt`, capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier result.
 
 The Worker and Verifier **prompts are identical regardless of provider** — only the spawn channel differs. Use the prompt blocks below verbatim.
 
-**Degradation (cross-provider is a quality optimization, NOT a safety gate):** if the required other-provider channel is unavailable (e.g. the `codex` binary is missing, or Codex auth fails), fall back to a same-provider Verifier on the Agent tool and **log the degradation** in the Phase 4 verdict line (`cross-provider: DEGRADED — Verifier on same provider as Worker (<reason>)`). Do NOT wedge the pipeline over it — a same-provider test is weaker than cross-provider but still far better than no test.
+**Degradation (cross-provider is a quality optimization, NOT a safety gate):** if the required other-provider channel is unavailable (e.g. the `codex` binary is missing, Codex auth fails, or `ZAI_API_KEY` is absent), fall back to another available provider or a same-provider Verifier on the Agent tool and **log the degradation** in the Phase 4 verdict line (`cross-provider: DEGRADED — Verifier on same provider as Worker (<reason>)`). Do NOT wedge the pipeline over it — a same-provider test is weaker than cross-provider but still far better than no test.
 
 ---
 
@@ -459,9 +465,11 @@ The Verifier tested *observable behavior* but never saw the code. This phase giv
 
 **Skip criteria (log the skip in the verdict):** the diff is trivial — docs/comments only, or < ~15 changed lines with no logic / control-flow / IO. Otherwise the review runs.
 
-**Provider rule:** the reviewer MUST run on a different provider than the Worker (it reads the Worker's code, so it must not be the author's own model). Same mapping as the Verifier:
+**Provider rule:** the reviewer MUST run on a different provider than the Worker (it reads the Worker's code, so it must not be the author's own model). Prefer GLM-5.2 as a third-model reviewer when `ZAI_API_KEY` is present and the Worker is not `zai-cli`; otherwise use the same mapping as the Verifier:
 - `WP=codex-cli` → reviewer = Opus **Agent** (`model: "opus"`), read-only.
-- `WP=anthropic` → reviewer = `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh gpt-5.5 < review_prompt.txt` (read-only text analysis — produces findings, never code; the `hard` prefix tags the telemetry — debt #1).
+- `WP=anthropic` → reviewer = GLM-5.2 via `~/.claude/scripts/zai_cli.py review` when available, else `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh gpt-5.5 < review_prompt.txt` (read-only text analysis — produces findings, never code; the `hard` prefix tags the telemetry — debt #1).
+- `WP=zai-cli` → reviewer = Opus Agent preferred, else Codex.
+- `WP=grok-cli` → reviewer = GLM-5.2 via `~/.claude/scripts/zai_cli.py review` when available, else Opus Agent/Codex.
 
 Collect the diff first: `git -C "$(git rev-parse --show-toplevel)" diff -- <changed paths>` (or read the files the Worker wrote).
 
