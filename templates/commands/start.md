@@ -6,7 +6,7 @@ description: "Initialize a session: read README, handover, knowledge base, telem
 Before each numbered step below, run: `python3 ~/.claude/scripts/phase.py progress "<N>/4 <step_label>"`
 After the final step completes, run: `python3 ~/.claude/scripts/phase.py progress clear`
 
-Steps: `1/4 readme`, `2/4 knowledge_base`, `3/4 plan`
+Steps: `1/4 readme`, `2/4 knowledge_base`, `3/4 context_receipt`, `4/4 plan`
 (Step 0 is a phase-set command, not a tracked step — tracking begins at step 1.)
 
 0. **Set phase:** `python3 ~/.claude/scripts/phase.py set RECON` — session initialization is information gathering; this exempts diagnostic commands from the delegation gate.
@@ -32,4 +32,20 @@ Steps: `1/4 readme`, `2/4 knowledge_base`, `3/4 plan`
      `python ~/.claude/scripts/rolling_memory.py forget --id <N>` AND drop
      it from the next handover's First-step. Silently re-listing the topic
      without answering Q1–Q4 means the next /start re-fires the block.
-3. `EnterPlanMode` → summary report + action plan (informed by prior reports) → the user's approval → `ExitPlanMode`
+3. **[CRITICAL] Emit a Context Receipt before planning.** This is the session's
+   permit-to-work. It must be present before any code/config edit, deploy,
+   migration, or coding Agent/Worker spawn. Format:
+
+   ```
+   Context Receipt:
+     Architecture: <ARCHITECTURE.md read|absent>; dep_manifest: <read|absent>; touched components: <list|unknown until task topic known>
+     Incidents: <none|N read: source paths + do-not-repeat constraints>
+     Handover required reading: <none|paths read>
+     Code cross-check: <files/functions grepped/read during /start>
+   ```
+
+   Hard stop: if `start-context` listed incident sources and they were not read,
+   or if `## Required reading` listed existing files and they were not read, do
+   not proceed to planning. Read them first. Reports decay, but unread incident
+   reports are an explicit "blind agent" failure.
+4. `EnterPlanMode` → summary report + action plan (informed by prior reports and the Context Receipt) → the user's approval → `ExitPlanMode`

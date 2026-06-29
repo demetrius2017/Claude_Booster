@@ -104,9 +104,30 @@ is Codex (`codex_sandbox_worker.sh` / `codex_worker.sh`). On Codex CLI the roles
 
 ## Execution Rules
 
+- **Pre-Work Context Gate:** before any command step that can lead to a code/config
+  edit, deploy, migration, or coding subagent/worker spawn, build and state a
+  `Context Receipt`:
+  - Read `ARCHITECTURE.md` and `docs/dep_manifest.json` if they exist; extract
+    touched components, critical flags, callers, feeds, and downstream consumers.
+  - Run rolling memory start context for the project via MCP
+    `memory_start_context(scope=<repo root>)` or
+    `python ~/.claude/scripts/rolling_memory.py start-context --scope "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"`.
+    If it lists `=== INCIDENT REGISTER ===` or `=== INCIDENT WARNINGS ===`, read
+    every incident source before planning and carry forward the production impact,
+    trigger, mitigation, recurrence guard, and "do not repeat" constraints.
+  - Read the latest handover `## Summary`, `## Required reading`, and `## First
+    step` sections when the command is starting a work session or continuing a
+    prior thread; read every existing Required reading file before editing.
+  - Cross-check architecture and memory claims against current code with `rg` or
+    file reads before using them as facts.
+  - Inject the relevant receipt lines into any subagent/worker prompt; subagents
+    do not inherit the Lead's conversation memory automatically.
 - Always perform RECON against current code/config before reports or opinions.
 - For `consilium`, `audit`, and `architecture`, build a Verified Facts Brief
   before spawning subagents.
+- For `go`, the Artifact Contract is incomplete unless it contains both
+  `Architecture Context:` and `Incident Warnings:` fields populated from the
+  Context Receipt.
 - Save generated reports to the same repo paths the original command specifies,
   usually `reports/`.
 - Do not invent top-level Codex slash commands. If bare `/consilium` is

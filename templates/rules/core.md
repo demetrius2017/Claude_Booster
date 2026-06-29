@@ -36,6 +36,41 @@ The default Claude Code shell on macOS is zsh, which has `nomatch` enabled by de
 - **`/compact` mid-task** when the conversation has accumulated long tool outputs (file dumps, large grep results, agent transcripts) that are no longer load-bearing for the current step.
 - **Automated advisory:** `compact_advisor.py` (PostToolUse hook) measures transcript size after every tool call; when estimated tokens cross 120k, it writes a one-shot marker. The next `UserPromptSubmit` hook (`compact_advisor_inject.py`) injects a reminder into the prompt and clears the marker. So Lead doesn't need to self-check — the harness signals proactively. Bypass via `CLAUDE_BOOSTER_SKIP_COMPACT_ADVISOR=1`.
 
+# [CRITICAL] Pre-Work Context Gate — do not edit blind
+
+Before any non-trivial code/config edit or any coding Agent/Worker spawn, the Lead
+MUST have a fresh **Context Receipt** in the current session:
+
+1. **Architecture:** read `ARCHITECTURE.md` and `docs/dep_manifest.json` if they
+   exist. Extract the touched components, critical flags, callers, feeds, and
+   downstream consumers. If absent, state `architecture: absent` and treat that
+   absence as a project risk, not permission to skip dependency analysis.
+2. **Incident memory:** run
+   `python ~/.claude/scripts/rolling_memory.py start-context --scope "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"`
+   (or the equivalent rolling_memory MCP `memory_start_context`). If it returns
+   `=== INCIDENT REGISTER ===` or `=== INCIDENT WARNINGS ===`, read every listed
+   incident source before planning. Extract: production impact, trigger,
+   mitigation, recurrence guard, and every "do not repeat" constraint.
+3. **Project handover:** read the latest handover `## Summary`, `## Required
+   reading`, and `## First step` sections. Read every `Required reading` file
+   that still exists before editing.
+4. **Code truth:** cross-check any architecture/memory claim against current
+   code with `rg`/file reads before using it as a fact.
+
+The receipt format is:
+
+```
+Context Receipt:
+  Architecture: <ARCHITECTURE.md read|absent>; dep_manifest: <read|absent>; touched components: <list|unknown>
+  Incidents: <none|N read: source paths + do-not-repeat constraints>
+  Handover required reading: <none|paths read>
+  Code cross-check: <files/functions grepped/read>
+```
+
+No edit, patch, migration, deploy, or coding Agent spawn is considered valid
+without this receipt. If a subagent/worker is spawned, inject the relevant receipt
+lines into its prompt; agents do not inherit the Lead's memory automatically.
+
 # Work Principles
 - **[CRITICAL] 51% Rule — do not ask clarifying questions you can answer yourself.**
   If you estimate ≥51% confidence in the answer from available context (code, memory, prior session, reports, obvious defaults), **act on your best guess** and state the assumption in one line ("Assuming X because Y — correct if wrong"). Do NOT interrupt with "which option do you want?" / "should I proceed?" / "did you mean X or Y?" when the evidence already points to an answer.

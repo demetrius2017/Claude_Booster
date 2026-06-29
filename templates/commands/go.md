@@ -21,6 +21,8 @@ Check that the Artifact Contract contains ALL of these mandatory fields:
 |-------|-------------|
 | `Objective:` | One sentence — what the system should do after this change |
 | `Verified Facts Brief:` | Current state evidence with file:line references (NOT docs or memory alone) |
+| `Architecture Context:` | `ARCHITECTURE.md` / `docs/dep_manifest.json` consulted or absent, touched components, critical flags, callers, feeds, downstream consumers, and code cross-check evidence |
+| `Incident Warnings:` | Incident register result: `none` OR source paths read plus production impact, trigger, mitigation, recurrence guard, and "do not repeat" constraints |
 | `Artifact path:` | Where Worker writes the result |
 | `Expected observable behavior:` | What an external observer sees (curl response, file content, stdout, etc.) |
 | `Acceptance emphasis:` | What Verifier must specifically check |
@@ -55,6 +57,12 @@ Load the production incident register before any Flow Designer work:
 python ~/.claude/scripts/rolling_memory.py start-context --scope "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
 
+Cross-check the command output against the Artifact Contract's
+`Incident Warnings:` field. If the command lists incidents but the field says
+`none`, the Artifact Contract is stale or incomplete: pause, read every incident
+source, update `Incident Warnings:`, then continue. Do not spawn Flow Designer
+from a stale incident view.
+
 If the output contains `=== INCIDENT REGISTER ===` or `=== INCIDENT WARNINGS ===`:
 
 1. Read every listed incident source path before Phase 1.
@@ -62,6 +70,24 @@ If the output contains `=== INCIDENT REGISTER ===` or `=== INCIDENT WARNINGS ===
 3. Add a compact `Incident Warnings` block to the Flow Designer prompt immediately before the Artifact Contract.
 
 Do not treat incidents as `error_lesson`, `audit`, or `consilium` rows. They are a separate high-priority memory lane for post-deploy production incidents.
+
+### Architecture context gate (mandatory after AC validation, before Flow Designer)
+
+Cross-check the Artifact Contract's `Architecture Context:` against current
+project files:
+
+1. Read `ARCHITECTURE.md` and `docs/dep_manifest.json` if they exist.
+2. Identify touched components, any `critical: true` entries, `called_by`,
+   `feeds`, downstream consumers, protected tables/paths, and stale-doc risks.
+3. Verify the relevant entries against current code with `rg`/file reads before
+   treating them as facts.
+4. If either architecture file is absent, keep going only after the field says
+   so explicitly and the Flow Designer prompt includes `Architecture Context:
+   absent`.
+
+If `Architecture Context:` is missing, says `unknown`, or does not name the
+files checked, `/go` remains blocked. A Worker that only sees a code fragment is
+not allowed to write production code.
 
 ---
 
