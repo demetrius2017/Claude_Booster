@@ -154,7 +154,7 @@ def test_t2_dry_run_no_bridge() -> None:
 # ─── T3: --yes installs bridge manifest with correct counts ──────────────────
 
 def test_t3_yes_installs_bridge_manifest() -> None:
-    label = "T3: --yes installs bridge manifest (bridge_id, skills=16, prompts=15, command_specs=15)"
+    label = "T3: --yes installs bridge manifest (bridge_id, skills=17, prompts=16, command_specs=16)"
     home = _fresh_home()
     try:
         result = _run(
@@ -193,12 +193,12 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         command_specs = list(commands_dir.glob("*.md")) if commands_dir.exists() else []
 
         errors = []
-        if len(skills) != 16:
-            errors.append(f"skills={len(skills)}, expected 16")
-        if len(prompts) != 15:
-            errors.append(f"prompts={len(prompts)}, expected 15")
-        if len(command_specs) != 15:
-            errors.append(f"command_specs={len(command_specs)}, expected 15")
+        if len(skills) != 17:
+            errors.append(f"skills={len(skills)}, expected 17")
+        if len(prompts) != 16:
+            errors.append(f"prompts={len(prompts)}, expected 16")
+        if len(command_specs) != 16:
+            errors.append(f"command_specs={len(command_specs)}, expected 16")
 
         if errors:
             _fail(label, "; ".join(errors))

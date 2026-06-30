@@ -12,6 +12,7 @@ Booster command:
 - `handover` or `/handover`
 - `consilium <topic>` or `/consilium <topic>`
 - `audit <topic>` or `/audit <topic>`
+- `code-review [topic]` or `/code-review [topic]`
 - `architecture [--update]` or `/architecture [--update]`
 - `go <artifact contract>` or `/go <artifact contract>`
 - `debt <mode>` or `/debt <mode>`
