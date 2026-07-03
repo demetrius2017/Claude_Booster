@@ -1,6 +1,6 @@
 ---
-description: "Execute Шестёрка+ (Flow Designer → Challenge → Prototype Gate → Worker + Verifier → Test → Diff-review → Verdict) — hardcoded, non-skippable cross-provider pipeline."
-argument-hint: "<Artifact Contract — structured text with Objective, Verified Facts, etc.>"
+description: "Execute Шестёрка+ / Семёрка-F when opt-in (Flow Designer → Challenge → Prototype Gate → Worker + Verifier → Test → Diff-review → Verdict) — hardcoded, non-skippable cross-provider pipeline."
+argument-hint: "[fable] <Artifact Contract — structured text with Objective, Verified Facts, etc.>"
 ---
 
 ## Progress tracking
@@ -11,9 +11,84 @@ Steps: `1/7 flow_designer`, `2/7 challenge`, `3/7 prototype_gate`, `4/7 worker_v
 
 ---
 
+## Opt-in mode — `/go fable` / Семёрка-F
+
+If the first non-flag token in `$ARGUMENTS` is `fable`, consume it as an
+opt-in mode selector and run the normal `/go` pipeline with **Fable as Quality
+Chair for this run**. Fable is not Lead, not Worker, not Verifier, not the final
+judge, and not a default route. The Booster Lead still owns orchestration,
+evidence, retries, git state, budget caps, and the final exit-code verdict.
+This mode MUST NOT mutate `~/.claude/model_balancer.json`.
+
+`/go fable` changes exactly two artifact-mediated gates:
+
+1. **Phase 1B Challenge** runs as `Fable Challenge` when the budget gate allows
+   it. It reviews the Flow Designer's PFD and emits typed additions plus a
+   `fable_watchlist`.
+2. **Phase 3B Diff-review** runs as `Fable Diff-review` when the budget gate
+   allows it. It closes the `fable_watchlist` item-by-item against the final
+   diff and test evidence.
+
+Context continuity is artifact-only. Do not rely on hidden Fable chat memory.
+The Phase 1B reconciliation MUST persist all Fable context into the augmented
+PFD under:
+
+```yaml
+fable_control:
+  enabled: true
+  mode: quality_chair
+  max_fable_calls: 2
+  calls_used: <0|1|2>
+  degraded: false
+  downgrade_reason: null
+  challenge_session: <session id/path or none>
+  diff_review_session: <session id/path or none>
+  watchlist:
+    - id: FBL-001
+      origin: fable-challenge
+      severity: HIGH | MED | LOW
+      concern: <specific risk>
+      close_criteria: <observable closure condition>
+      required_evidence: <test/assertion/file:line/prototype evidence>
+      target_phase: prototype | worker | verifier | diff_review
+      status: OPEN | CLOSED | PARTIAL
+      closure_evidence: null
+  rework_log:
+    - from_phase: <2|6>
+      to_phase: flow_designer | prototype_gate | worker | verifier | user
+      reason: DESIGN_REWORK | PROTOTYPE_REWORK | IMPLEMENTATION_REWORK | VERIFIER_REWORK | CONTRACT_AMBIGUOUS
+      evidence: <specific finding id/output>
+```
+
+Budget guardrails:
+
+- Hard cap: **at most 2 Fable calls per `/go fable` run**: one Challenge call
+  and one Diff-review call. Worker retries, verifier retries, debugging,
+  failing-test triage, and repeated post-rework reviews MUST NOT call Fable.
+- Before each Fable call, check current usage/routing context. If the weekly
+  usage snapshot is `>=80%`, or Fable is unavailable, set
+  `fable_control.degraded=true`, record `downgrade_reason`, and run the same
+  gate on the normal audit/external review lane using the persisted
+  `fable_watchlist` contract.
+- If the final diff is large, first use the cheap lane to produce a
+  watchlist-oriented diff summary and pass only the relevant slices plus the
+  `fable_watchlist` to Fable.
+- Fable usage lines are estimates only. Run
+  `python3 ~/.claude/scripts/fable_usage.py refresh-display` after any Fable
+  call and include the output if non-empty.
+
+Progress labels remain seven segments; annotate the two upgraded gates instead
+of adding hidden phases: `2/7 challenge(fable)` and `6/7 diff_review(fable)`.
+
+---
+
 ## Phase 0 — AC VALIDATION (Lead, mandatory before any agent spawns)
 
-Parse `$ARGUMENTS` as the Artifact Contract. It may also be formulated in the preceding conversation context if the user said "run /go" after building the AC together.
+Parse `$ARGUMENTS` as the Artifact Contract. If the first non-flag token is
+`fable`, set `GO_FABLE=1`, remove that token from the Artifact Contract text,
+and apply the opt-in Семёрка-F rules above. It may also be formulated in the
+preceding conversation context if the user said "run /go" after building the AC
+together.
 
 Check that the Artifact Contract contains ALL of these mandatory fields:
 
@@ -155,6 +230,9 @@ Produce a PFD with ALL of the following sections (per flow-designer.md §4 schem
 - `prototype_plan` — read-only executable proof plan: data sources, commands/notebook/script path, exact comparisons, invariants to prove before Worker, expected handoff artifact
 - `verifier_assertions` — assertion (what to test), type (temporal/branching/invariant/freshness/cascade), how (concrete test approach), derived_from (failure_mode ID or invariant)
 - `role_handoff_contract` — exact payload each downstream role receives from the previous role; include fields, artifact paths, allowed writes, forbidden state changes, and pass/fail criteria
+- `fable_control` — required only when `GO_FABLE=1`; use the schema from
+  `/go fable` above, initialized with `enabled: true`, `calls_used: 0`, and
+  empty `watchlist`/`rework_log`
 - `branch_tree.mermaid` — visual graph of operations and outcomes (all non-success terminals shown)
 - `adjacent_findings` — **RECON-as-review output.** While reading the existing code to build the PFD, do NOT just study it — REVIEW it critically, the way a code reviewer would. Every defect, inaccuracy, wrong assumption, missing guard, dead code, or risky pattern you notice in the code you read becomes an entry here. This is separate from `failure_modes` (those are about the NEW artifact); `adjacent_findings` is about the EXISTING surrounding code. Each entry: `location` (file:line), `severity` (HIGH = real bug / MED = inaccuracy or latent risk / LOW = smell or style), `in_radius` (true if it sits in the artifact being built OR a direct caller/helper this task touches; false if it is tangential code you happened to read), `issue` (one line), `fix` (one line). Empty list is allowed ONLY if the code you read was genuinely clean — say so explicitly rather than omitting the section.
 
@@ -197,13 +275,21 @@ Save the full PFD text for Phase 1B.
 
 ## Phase 1B — PFD ADVERSARIAL CHALLENGE (cross-provider, Opus)
 
-Run: `python3 ~/.claude/scripts/phase.py progress "2/7 challenge"`
+Run: `python3 ~/.claude/scripts/phase.py progress "2/7 challenge"` (or
+`"2/7 challenge(fable)"` when `GO_FABLE=1`)
 
 The Flow Designer drafted the PFD on the `hard` tier. This phase has a **different-provider** reviewer attack that PFD **before any code is written** — the cheapest place to catch rework. (Consilium 2026-06-13: contract ambiguity + missed failure modes are ~65% of returns-to-code; model capability is ~5%. Design-time is where the strong model earns its keep — see `reports/consilium_2026-06-13_dual_model_rework_reduction.md`, SHIP-1.)
 
 **Provider rule — the challenge MUST run on a different provider than the Flow Designer (this is the whole point — a model cannot find its own blind spots):**
 
 - Check what `python3 ~/.claude/scripts/model_balancer.py get hard` returned for Phase 1.
+- **If `GO_FABLE=1` and the budget gate allows it**: run exactly ONE read-only
+  Fable Challenge (`claude --print --model fable` or the strongest available
+  Fable channel) with edit/write/deploy tools disabled. This consumes the
+  Challenge Fable call budget and must update `fable_control.calls_used`. If
+  Fable is unavailable or weekly usage is `>=80%`, set
+  `fable_control.degraded=true`, record `downgrade_reason`, and use the normal
+  cross-provider Challenge mapping below with the same output contract.
 - **If Flow Designer's provider was `codex-cli` or `zai-cli`**: spawn ONE Challenge **Agent** with `model: "opus"` explicitly. **NOT `run_in_background`** — Lead waits.
 - **If Flow Designer's provider WAS `anthropic`** (balancer routed `hard` to Claude): prefer GLM-5.2 when `ZAI_API_KEY` is present — `printf '%s\n' "$PROMPT" | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`; otherwise run the challenge via Bash to stay cross-provider — `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh gpt-5.5 < <prompt-file>` (the `hard` prefix tags the telemetry; see Phase 1) — capture stdout as the critique. (Z.ai/Codex are read-only analysis here; they produce a critique, never code.)
 
@@ -252,11 +338,48 @@ CONTRACT_AMBIGUITY (only if CONTRACT_AMBIGUOUS):
 Output only the verdict block. Be ruthless but concrete — a vague critique is worse than none.
 ```
 
+**Additional output contract when `GO_FABLE=1`:**
+
+The Fable Challenge (or degraded replacement reviewer) MUST use this verdict
+shape instead of the base `VERDICT` line:
+
+```text
+FABLE_CHALLENGE_VERDICT:
+  status: SOUND | ADDITIVE_GAPS | DESIGN_REWORK | CONTRACT_AMBIGUOUS
+  target_phase: proceed | flow_designer | user
+  pfd_revision_required: true | false
+  additions:
+    new_failure_modes: [...]
+    new_worker_directives: [...]
+    new_verifier_assertions: [...]
+    new_prototype_checks: [...]
+    invariant_fixes: [...]
+  fable_watchlist:
+    - id: FBL-001
+      origin: fable-challenge
+      severity: HIGH | MED | LOW
+      concern: <specific risk>
+      close_criteria: <observable closure condition>
+      required_evidence: <test/assertion/file:line/prototype evidence>
+      target_phase: prototype | worker | verifier | diff_review
+  contract_ambiguity:
+    - <exact AC field + what is undefined + what must be specified>
+```
+
+`SOUND` means no watchlist item is required. `ADDITIVE_GAPS` means the PFD is
+structurally sound but must absorb the additions and watchlist. `DESIGN_REWORK`
+means the Flow Designer's model is wrong enough that a bullet-point patch would
+hide the defect; return to Phase 1 with a Rework Packet. `CONTRACT_AMBIGUOUS`
+means pause for user clarification.
+
 **After Challenge returns — Lead reconciles (additive, deterministic):**
 
 - **VERDICT: SOUND** → PFD unchanged. Output `Challenge: SOUND — PFD held.` Proceed to Phase 1C with the original PFD.
 - **VERDICT: GAPS_FOUND** → APPEND the agent's `new_failure_modes`, `new_worker_directives`, `new_verifier_assertions`, `new_prototype_checks`, and `invariant_fixes` into the PFD's corresponding sections. **Additive only** — the challenge may ADD requirements, never delete the Flow Designer's. Output `Challenge: GAPS_FOUND — +<a> failure modes, +<b> directives, +<c> assertions, +<d> prototype checks folded into PFD.` Proceed to Phase 1C with the **augmented PFD**.
-- **VERDICT: CONTRACT_AMBIGUOUS** → A-class signal caught at design time (far cheaper than a post-implementation A/W-failure). STOP and surface to the user:
+- **FABLE_CHALLENGE_VERDICT: SOUND** → PFD unchanged except `fable_control.calls_used`/session metadata. Proceed to Phase 1C.
+- **FABLE_CHALLENGE_VERDICT: ADDITIVE_GAPS** → APPEND the additions and write every `fable_watchlist` item into `fable_control.watchlist` with `status: OPEN`. Tag every addition with `origin: fable-challenge`. Proceed to Phase 1C with the augmented PFD.
+- **FABLE_CHALLENGE_VERDICT: DESIGN_REWORK** → return to Phase 1, not Phase 1C. Build a Rework Packet containing the original AC, prior PFD, the Fable critique, mandatory PFD changes, and current `fable_control.rework_log`; append a log row `{from_phase: 2, to_phase: flow_designer, reason: DESIGN_REWORK}`. Re-run Flow Designer once with this packet. Hard cap: one Fable-triggered design rework before code; a second design-rework request becomes `CONTRACT_AMBIGUOUS` and pauses for the user.
+- **VERDICT: CONTRACT_AMBIGUOUS** or **FABLE_CHALLENGE_VERDICT: CONTRACT_AMBIGUOUS** → A-class signal caught at design time (far cheaper than a post-implementation A/W-failure). STOP and surface to the user:
   ```
   /go PAUSED — PFD challenge found the Artifact Contract ambiguous:
     <the ambiguity from the challenge>
@@ -391,6 +514,7 @@ Every role hands over a concrete artifact, not a prose impression:
 | Prototyper | Verifier | Regression assertions derived from proven facts and invariants | Worker's implementation approach |
 | Worker | Verifier/Test | Artifact path only; Verifier still uses AC/PFD/prototype assertions, not Worker prompt | Worker's prompt/reasoning |
 | Worker/Test | Diff Reviewer | Git diff + AC + PFD + Prototype Handoff + test output | Permission to edit code |
+| Fable Challenge | Fable Diff-review | `fable_control.watchlist` + rework_log persisted in the augmented PFD | Hidden Fable chat memory |
 
 This handoff standard is the anti-loop mechanism: a downstream role may build on
 evidence, but may not inherit an upstream role's unproven opinion.
@@ -486,6 +610,10 @@ produce the artifact at the specified path. Do not explain plans. Do not ask for
 
 <INSERT FULL PFD — the Phase 1B-augmented version if the challenge returned GAPS_FOUND, else the Phase 1 original>
 
+When `GO_FABLE=1`, this PFD includes `fable_control.watchlist`. Treat every
+watchlist item assigned to `worker` as a MUST-level directive and preserve the
+evidence needed to close it later.
+
 ---
 
 ## Prototype Handoff
@@ -544,6 +672,9 @@ Acceptance emphasis: <INSERT Acceptance emphasis FROM AC>
 
 ### Verifier assertions
 <INSERT verifier_assertions SECTION FROM PFD ONLY>
+
+### Fable watchlist assertions (only when GO_FABLE=1)
+<INSERT fable_control.watchlist items whose target_phase is verifier or whose required_evidence is a test/assertion>
 
 ### Prototype regression assertions
 <INSERT regression assertions from Prototype Handoff, if any>
@@ -632,13 +763,22 @@ After both agents complete:
 
 **Run only if Phase 3 returned exit=0.** If the test failed, skip straight to Phase 4 fail-classification — there is nothing to review yet.
 
-Run: `python3 ~/.claude/scripts/phase.py progress "6/7 diff_review"`
+Run: `python3 ~/.claude/scripts/phase.py progress "6/7 diff_review"` (or
+`"6/7 diff_review(fable)"` when `GO_FABLE=1`)
 
 The Verifier tested *observable behavior* but never saw the code. This phase gives the **diff itself** a second look by a different-provider reviewer — to catch defects that emerge at implementation time and that a behavioral test does not exercise: integration breakage, reinvented helpers, security holes, dead/over-broad churn. Per consilium 2026-06-13 (SHIP-3): design-time review cannot see these — they live in the written code.
 
 **Skip criteria (log the skip in the verdict):** the diff is trivial — docs/comments only, or < ~15 changed lines with no logic / control-flow / IO. Otherwise the review runs.
 
 **Provider rule:** the reviewer MUST run on a different provider than the Worker (it reads the Worker's code, so it must not be the author's own model). Prefer GLM-5.2 as a third-model reviewer when `ZAI_API_KEY` is present and the Worker is not `zai-cli`; otherwise use the same mapping as the Verifier:
+- **If `GO_FABLE=1` and the budget gate allows it**: run exactly ONE read-only
+  Fable Diff-review. The prompt MUST include only the AC, Prototype Handoff,
+  test output, final diff or watchlist-oriented diff slices, and
+  `fable_control.watchlist`. This consumes the second and final Fable call.
+  If Fable is unavailable, weekly usage is `>=80%`, or a Fable call was already
+  consumed by a retry/recheck, set `fable_control.degraded=true`, record
+  `downgrade_reason`, and run the normal reviewer below against the same
+  watchlist contract.
 - `WP=codex-cli` → reviewer = Opus **Agent** (`model: "opus"`), read-only.
 - `WP=anthropic` → reviewer = GLM-5.2 via `~/.claude/scripts/zai_cli.py review` when available, else `CLAUDE_BOOSTER_TASK_CATEGORY=hard ~/.claude/scripts/codex_worker.sh gpt-5.5 < review_prompt.txt` (read-only text analysis — produces findings, never code; the `hard` prefix tags the telemetry — debt #1).
 - `WP=zai-cli` → reviewer = Opus Agent preferred, else Codex.
@@ -656,6 +796,9 @@ You are a Post-Implementation Diff Reviewer. The code below already PASSED its a
 
 ## Prototype Handoff
 <INSERT Prototype Handoff from Phase 1C, or Prototype Gate N/A reason>
+
+## Fable Control (only when GO_FABLE=1)
+<INSERT fable_control SECTION FROM AUGMENTED PFD, especially fable_watchlist and rework_log>
 
 ## Diff under review
 <INSERT git diff OF THE WORKER'S CHANGES>
@@ -678,9 +821,49 @@ FINDINGS (each):
 Only HIGH findings block. A vague finding is noise — omit it.
 ```
 
+**Additional output contract when `GO_FABLE=1`:**
+
+```text
+FABLE_DIFF_REVIEW_VERDICT:
+  status: PASS | REWORK_REQUIRED | CONTRACT_AMBIGUOUS
+  watchlist_closure:
+    - id: FBL-001
+      status: CLOSED | OPEN | PARTIAL
+      evidence: <file:line, test name, prototype fact, or missing evidence>
+      target_phase_if_open: worker | verifier | prototype | flow_designer | user
+  findings:
+    - severity: HIGH | MED | LOW
+      class: implementation | verifier_gap | prototype_gap | design_gap | contract_gap
+      target_phase: worker | verifier | prototype_gate | flow_designer | user
+      fix_directive: <imperative directive>
+```
+
+Fable Diff-review must close the watchlist item-by-item. It does not get a
+free-form veto and it does not mark PASS. It either proves each item closed
+with evidence, or routes a typed rework request to the correct phase.
+
 **Lead reconciliation:**
 - **VERDICT CLEAN, or only MED/LOW findings** → review passes. Log MED/LOW in the Phase 4 verdict line (advisory — surface them, do not silently drop, do not auto-fix). Proceed to Phase 4 PASS.
 - **Any HIGH finding** → **R-failure**: respawn the Worker on the same provider `WP` with the HIGH `fix_directive`s appended to its prompt, plus the failed-attempt session context (`session_context.py --agent "<Worker desc>" --no-thinking`). Then **re-run Phase 3 (the SAME Verifier test — it MUST stay green)** and **re-run this Phase 3B review**. R counts toward the 3-retry cap (shared with V/W). The reviewer never edits code — only the Worker does, and the unchanged test still gates.
+- **FABLE_DIFF_REVIEW_VERDICT: PASS** → mark every closed item in
+  `fable_control.watchlist` with `status: CLOSED` and `closure_evidence`. Proceed
+  to Phase 4 PASS if the normal review also has no blocking HIGH finding.
+- **FABLE_DIFF_REVIEW_VERDICT: REWORK_REQUIRED** → route by `target_phase` /
+  `target_phase_if_open`:
+  - `implementation` / `worker` → R-failure; respawn Worker, re-run Phase 3,
+    then re-run diff-review with the **normal reviewer** using the persisted
+    watchlist. Do not spend a third Fable call.
+  - `verifier_gap` / `verifier` → V-failure; respawn Verifier to add/repair the
+    missing assertion, then re-run Phase 3. Do not respawn Worker unless the new
+    test fails against the implementation.
+  - `prototype_gap` / `prototype_gate` → return to Phase 1C Prototype Gate with
+    the missing read-only proof added to the prototype plan.
+  - `design_gap` / `flow_designer` → return to Phase 1 with a Rework Packet and
+    append `{from_phase: 6, to_phase: flow_designer, reason: DESIGN_REWORK}` to
+    `fable_control.rework_log`. Hard cap: one post-implementation design rework;
+    a second becomes `CONTRACT_AMBIGUOUS`.
+  - `contract_gap` / `user` → pause for user clarification.
+- **FABLE_DIFF_REVIEW_VERDICT: CONTRACT_AMBIGUOUS** → pause for user clarification.
 
 **Why this preserves the axiom:** the reviewer produces findings, never code, and never overrides the test verdict. A HIGH finding routes to a Worker fix that must still pass the unchanged Verifier test — so PASS stays "exit code of the test", never "the reviewer approved it".
 
@@ -698,6 +881,7 @@ Run: `python3 ~/.claude/scripts/phase.py progress "7/7 verdict"`
 Append any of these that apply (honest status, not silent drop):
 - `prototype gate: <PASS | N/A (<reason>)>`
 - `diff review: <CLEAN | N MED/LOW advisory findings — list them as follow-ups | SKIPPED (trivial diff)>`
+- `fable control: <off | PASS (N/N watchlist items closed, calls_used X/2) | DEGRADED (<reason>) | REWORK routed to <phase>>`
 - `cross-provider: <OK | DEGRADED (<reason>)>` (if the Verifier or reviewer fell back to same-provider in Phase 2/3B)
 
 **Record the KPI outcome (SHIP instrumentation — proves the pipeline reduces rework):**
@@ -878,5 +1062,16 @@ On retry, always include the failed agent's session context (via `session_contex
    Do NOT skip Phase 3. Do NOT infer pass/fail from reading the code.
    The test runs, or the pipeline is incomplete.
 
-6. **Phase 3B diff review (SHIP-3) runs on PASS, on a different provider than the Worker, and produces findings — never code.**
+6. **`/go fable` MUST keep Fable as Quality Chair, not Lead.**
+   Fable may challenge the PFD and close the final `fable_watchlist`; it may
+   route typed rework requests to Flow Designer, Prototype, Worker, Verifier, or
+   the user. Fable MUST NOT write code, write tests, spawn workers, change
+   `model_balancer.json`, mark final PASS, or participate in debugging/polling
+   loops. Context between Fable calls MUST be carried by `fable_control` in the
+   PFD, not by hidden session memory. Hard cap: two Fable calls per run. If the
+   cap, availability, or `>=80%` weekly-usage budget gate blocks Fable, the same
+   watchlist contract runs on the normal review lane and the verdict records
+   `fable control: DEGRADED`.
+
+7. **Phase 3B diff review (SHIP-3) runs on PASS, on a different provider than the Worker, and produces findings — never code.**
    It is conditional (skipped for a trivial diff, logged) and gated (only after the test is green). A HIGH finding routes to a Worker fix that must re-pass the SAME unchanged test (R-failure, counts toward the retry cap). The reviewer never edits code and never overrides the test verdict — PASS stays "test exit code", never "reviewer approved".

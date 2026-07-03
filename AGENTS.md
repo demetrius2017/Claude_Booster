@@ -16,7 +16,7 @@ Booster command:
 - `audit <topic>` or `/audit <topic>`
 - `code-review [model] [topic]` or `/code-review [model] [topic]`
 - `architecture [--update]` or `/architecture [--update]`
-- `go <artifact contract>` or `/go <artifact contract>`
+- `go [fable] <artifact contract>` or `/go [fable] <artifact contract>`
 - `debt <mode>` or `/debt <mode>`
 - `phase`, `update`, `lead`, `delegate`, `audit-trace`, `hackathon`,
   `verify-after-edit`, `verify-flow`
