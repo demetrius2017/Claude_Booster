@@ -88,9 +88,26 @@ if [ -f "$progress_file" ]; then
     read -r progress < "$progress_file" 2>/dev/null
 fi
 
+fable_info=""
+fable_cache="${HOME}/.claude/fable_usage_summary.json"
+if [ -f "$fable_cache" ] && command -v jq >/dev/null 2>&1; then
+    fable_enabled=$(jq -r 'select(.display_enabled == true) | .display_enabled // empty' "$fable_cache" 2>/dev/null)
+    if [ "$fable_enabled" = "true" ]; then
+        current_session=""
+        if [ -n "$input" ]; then
+            current_session=$(printf '%s' "$input" | jq -r '.session_id // .sessionId // empty' 2>/dev/null)
+        fi
+        fable_session=$(jq -r '.last_task.session_id // empty' "$fable_cache" 2>/dev/null)
+        fable_last=$(jq -r '.last_task.cost_usd // empty' "$fable_cache" 2>/dev/null)
+        if [ -n "$current_session" ] && [ "$current_session" = "$fable_session" ] && [ -n "$fable_last" ] && [ "$fable_last" != "0.0000" ]; then
+            fable_info=" | Fable session est \$${fable_last}"
+        fi
+    fi
+fi
+
 if [ -n "$progress" ]; then
-    printf '[%s] %s%s\n' "$phase" "$progress" "$model_info"
+    printf '[%s] %s%s%s\n' "$phase" "$progress" "$model_info" "$fable_info"
 else
-    printf '[%s]%s\n' "$phase" "$model_info"
+    printf '[%s]%s%s\n' "$phase" "$model_info" "$fable_info"
 fi
 exit 0

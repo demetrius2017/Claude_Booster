@@ -84,12 +84,12 @@ else
   fail_t S3 "second run crashed (exit $?); output: $(cat /tmp/s3_out.txt)"
 fi
 
-# ── S4: DB schema v8 + claude_max_usage table ─────────────────────────────────
+# ── S4: DB schema v8+ + claude_max_usage table ────────────────────────────────
 db_ver=$(sqlite3 "$DB" "PRAGMA user_version;" 2>/dev/null)
-if [[ "$db_ver" -eq 8 ]]; then
-  pass_t S4a "DB schema version = 8"
+if [[ "$db_ver" -ge 8 ]]; then
+  pass_t S4a "DB schema version = $db_ver (>= 8)"
 else
-  fail_t S4a "DB schema version = $db_ver (expected 8)"
+  fail_t S4a "DB schema version = $db_ver (expected >= 8)"
 fi
 
 tbl=$(sqlite3 "$DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='claude_max_usage';" 2>/dev/null)

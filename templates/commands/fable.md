@@ -27,6 +27,12 @@ specific question.
   `~/.claude/model_balancer.json`.
 - The Lead owns the decision. Fable gives advice; the Lead synthesizes and
   decides what to do next.
+- After the Fable call completes, run
+  `python3 ~/.claude/scripts/fable_usage.py refresh-display` and append its
+  output if it prints anything. This refreshes the current UTC month from
+  Claude/Codex transcript stores before printing. These lines are
+  API-equivalent / credit-rate estimates from the shared ledger/cache, not an
+  actual billing ledger. If the command is quiet, omit the spend block.
 - If Fable is unavailable, say it is unavailable and stop. Do not silently
   substitute Codex, PAL, Z.ai, Grok, Opus, or Sonnet.
 
@@ -59,6 +65,8 @@ Verdict: <Fable's position>
 Key reasoning: <short synthesis>
 Risks/unknowns: <what Fable could not verify>
 
+<output of: python3 ~/.claude/scripts/fable_usage.py refresh-display, if non-empty>
+
 Lead synthesis
 Decision: <Lead's recommendation>
 What I will do: <next action, or "no action" if this was advisory only>
@@ -88,4 +96,3 @@ Return:
 3. Risks or unknowns
 4. Recommended next action for the Lead
 ```
-

@@ -106,7 +106,12 @@ if not logger.handlers:
 #   REPLACE). Indexes on session_id and ts_utc for 7-day rolling queries.
 #   FTS NOT touched. claude_max_tracker.py (StopSession hook) writes here;
 #   model_balancer._get_weekly_max_pct() reads here.
-SCHEMA_VERSION = 8
+# v8 → v9 (2026-07-03, Fable 5 usage visibility): add immutable
+#   fable_usage_events ledger for API-equivalent credit-rate estimates.
+#   event_key UNIQUE dedupes repeated Stop hook runs and duplicate transcript
+#   rows. Costs are stored as integer USD nanounits so presentation rounding is
+#   the only rounding step. FTS NOT touched.
+SCHEMA_VERSION = 9
 
 ROLLING_LIMITS = {
     "directive": 50,
@@ -292,6 +297,47 @@ CREATE INDEX IF NOT EXISTS idx_claude_max_ts
     ON claude_max_usage (ts_utc);
 """
 
+_CREATE_FABLE_USAGE_EVENTS = """
+CREATE TABLE IF NOT EXISTS fable_usage_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_key TEXT NOT NULL,
+    assistant_message_id TEXT,
+    source_path TEXT NOT NULL,
+    line_number INTEGER NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    task_key TEXT NOT NULL DEFAULT '',
+    project_root TEXT,
+    ts_utc TEXT NOT NULL,
+    month_utc TEXT NOT NULL,
+    model TEXT NOT NULL,
+    canonical_model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0 CHECK(input_tokens >= 0),
+    cache_creation_5m_tokens INTEGER NOT NULL DEFAULT 0 CHECK(cache_creation_5m_tokens >= 0),
+    cache_creation_1h_tokens INTEGER NOT NULL DEFAULT 0 CHECK(cache_creation_1h_tokens >= 0),
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0 CHECK(cache_read_tokens >= 0),
+    output_tokens INTEGER NOT NULL DEFAULT 0 CHECK(output_tokens >= 0),
+    cost_usd_nanos INTEGER NOT NULL DEFAULT 0 CHECK(cost_usd_nanos >= 0),
+    pricing_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fable_usage_event_key
+    ON fable_usage_events(event_key);
+CREATE INDEX IF NOT EXISTS idx_fable_usage_month
+    ON fable_usage_events(month_utc, ts_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_fable_usage_task
+    ON fable_usage_events(task_key, ts_utc DESC);
+CREATE TRIGGER IF NOT EXISTS fable_usage_events_no_update
+BEFORE UPDATE ON fable_usage_events
+BEGIN
+    SELECT RAISE(ABORT, 'fable_usage_events is immutable');
+END;
+CREATE TRIGGER IF NOT EXISTS fable_usage_events_no_delete
+BEFORE DELETE ON fable_usage_events
+BEGIN
+    SELECT RAISE(ABORT, 'fable_usage_events is immutable');
+END;
+"""
+
 # ---------------------------------------------------------------------------
 # Connection
 # ---------------------------------------------------------------------------
@@ -440,6 +486,7 @@ def init_db() -> None:
         script_parts.append(_CREATE_TRIGGERS)
         script_parts.append(_CREATE_MODEL_METRICS)
         script_parts.append(_CREATE_CLAUDE_MAX_USAGE)
+        script_parts.append(_CREATE_FABLE_USAGE_EVENTS)
         if should_rebuild_fts:
             script_parts.append(
                 "INSERT INTO agent_memory_fts(agent_memory_fts) VALUES('rebuild');\n"
@@ -459,6 +506,8 @@ def init_db() -> None:
                 logger.info("migrated to schema version 7 (model_metrics table, corrected schema)")
             elif version < 8:
                 logger.info("migrated to schema version 8 (claude_max_usage table, weekly_max_pct live feed)")
+            elif version < 9:
+                logger.info("migrated to schema version 9 (fable_usage_events ledger)")
             else:
                 logger.info("DB initialized at schema version %d", SCHEMA_VERSION)
     except Exception:

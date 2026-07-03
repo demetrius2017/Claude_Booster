@@ -69,6 +69,13 @@ Execute the command behavior, not the literal Claude Code tool names.
   Codex handover. If a Claude session is relevant, mention both.
 - Claude hooks are not assumed to be active in Codex. Preserve the evidence
   discipline in assistant output even when no hook enforces it.
+- Fable usage visibility is shared across Claude CLI and Codex CLI via
+  `python3 ~/.claude/scripts/fable_usage.py`. After `$fable` or
+  `code-review fable`, run
+  `python3 ~/.claude/scripts/fable_usage.py refresh-display` and include its
+  output if non-empty. This refreshes the current UTC month from Claude/Codex
+  transcript stores before printing. The wording is intentionally
+  API-equivalent / credit-rate estimate language, not an actual billing ledger.
 
 ### Cross-provider stages (SHIP-1..4 in `go` and `hackathon`)
 

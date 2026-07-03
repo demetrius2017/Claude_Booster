@@ -107,6 +107,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
+STATUSLINE_TEST_HOME="$(make_tmpdir)/home"
+mkdir -p "$STATUSLINE_TEST_HOME"
+
 # ─────────────────────────────────────────────────────────────
 echo ""
 echo "=== Section 1: File existence and permissions ==="
@@ -127,7 +130,7 @@ printf 'IMPLEMENT' > "$TMPDIR_A/.claude/.phase"
 
 PHASE_OUTPUT=""
 PHASE_EXIT=0
-PHASE_OUTPUT=$(cd "$TMPDIR_A" && bash "$STATUSLINE") || PHASE_EXIT=$?
+PHASE_OUTPUT=$(cd "$TMPDIR_A" && HOME="$STATUSLINE_TEST_HOME" bash "$STATUSLINE") || PHASE_EXIT=$?
 
 assert_exit_zero "phase read — exit code is 0 when .phase=IMPLEMENT" "$PHASE_EXIT"
 assert_eq        "phase read — output is [IMPLEMENT]"                 "[IMPLEMENT]" "$PHASE_OUTPUT"
@@ -137,7 +140,7 @@ TMPDIR_B="$(make_tmpdir)"
 
 DEFAULT_OUTPUT=""
 DEFAULT_EXIT=0
-DEFAULT_OUTPUT=$(cd "$TMPDIR_B" && bash "$STATUSLINE") || DEFAULT_EXIT=$?
+DEFAULT_OUTPUT=$(cd "$TMPDIR_B" && HOME="$STATUSLINE_TEST_HOME" bash "$STATUSLINE") || DEFAULT_EXIT=$?
 
 assert_exit_zero "default phase — exit code is 0 when .phase missing" "$DEFAULT_EXIT"
 assert_eq        "default phase — output is [RECON] when .phase missing" "[RECON]" "$DEFAULT_OUTPUT"
@@ -149,7 +152,7 @@ printf '' > "$TMPDIR_C/.claude/.phase"
 
 EMPTY_OUTPUT=""
 EMPTY_EXIT=0
-EMPTY_OUTPUT=$(cd "$TMPDIR_C" && bash "$STATUSLINE") || EMPTY_EXIT=$?
+EMPTY_OUTPUT=$(cd "$TMPDIR_C" && HOME="$STATUSLINE_TEST_HOME" bash "$STATUSLINE") || EMPTY_EXIT=$?
 
 assert_exit_zero "empty phase — exit code is 0 when .phase is empty" "$EMPTY_EXIT"
 assert_eq        "empty phase — output is [RECON] when .phase is empty" "[RECON]" "$EMPTY_OUTPUT"
@@ -160,11 +163,11 @@ echo "=== Section 3: Output format — exactly one [PHASE_NAME] line ==="
 # ─────────────────────────────────────────────────────────────
 
 # Reuse TMPDIR_A for a known-phase check; verify format
-LINE_COUNT=$(cd "$TMPDIR_A" && bash "$STATUSLINE" | wc -l | tr -d ' ')
+LINE_COUNT=$(cd "$TMPDIR_A" && HOME="$STATUSLINE_TEST_HOME" bash "$STATUSLINE" | wc -l | tr -d ' ')
 assert_eq "phase output — exactly one line" "1" "$LINE_COUNT"
 
 # The single output line must match the pattern [A-Z_]+
-FORMAT_CHECK=$(cd "$TMPDIR_A" && bash "$STATUSLINE")
+FORMAT_CHECK=$(cd "$TMPDIR_A" && HOME="$STATUSLINE_TEST_HOME" bash "$STATUSLINE")
 if echo "$FORMAT_CHECK" | grep -qE '^\[[A-Z_]+\]$'; then
     pass "phase output — matches [PHASE_NAME] format"
 else

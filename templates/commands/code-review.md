@@ -63,6 +63,12 @@ If the selected reviewer channel is unavailable, say so plainly and stop the
 review; do not silently fall back to another model. If the selected reviewer is
 `fable`, do not reinterpret the request as `/fable` or `/consilium`: this is
 still the `/code-review` protocol, just with Fable as the review model.
+After any `review_model=fable` review pass, run
+`python3 ~/.claude/scripts/fable_usage.py refresh-display` and append its output
+if it prints anything. This refreshes the current UTC month from Claude/Codex
+transcript stores before printing. The spend lines are API-equivalent /
+credit-rate estimates from the shared Fable usage ledger/cache, not an actual
+billing ledger.
 
 Default scope:
 
