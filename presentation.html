@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Claude Booster — memory & a self-enforcing quality pipeline for Claude Code</title>
-<meta name="description" content="Claude Code forgets everything between sessions and grades its own homework. Claude Booster gives it cross-session memory and a gated pipeline where no model ever checks its own code.">
+<title>Claude Booster — память и самопроверяющийся пайплайн качества для Claude Code</title>
+<meta name="description" content="Claude Code забывает всё между сессиями и проверяет тот же код, который только что написал. Claude Booster даёт агенту накопительную память и пайплайн, где ни одна модель не проверяет свою работу.">
 <style>
   :root{
     --ink:#0D1013; --panel:#151A20; --panel-2:#1B222A; --line:#2A333D;
@@ -74,11 +74,11 @@
   .hero{padding:76px 0 40px}
   .hero .eyebrow{margin-bottom:22px}
   .hero h1{
-    font-size:clamp(34px,6vw,62px); font-weight:800; letter-spacing:-.03em;
+    font-size:clamp(32px,5.6vw,60px); font-weight:800; letter-spacing:-.03em;
   }
   .hero h1 .amber{color:var(--accent)}
   .hero .lede{
-    margin-top:26px; max-width:60ch; font-size:clamp(17px,2.2vw,21px);
+    margin-top:26px; max-width:62ch; font-size:clamp(17px,2.2vw,21px);
     color:var(--text-dim);
   }
   .hero .lede b{color:var(--text); font-weight:600}
@@ -111,18 +111,18 @@
 
   /* ---------- section shell ---------- */
   section{padding:64px 0; border-top:1px solid var(--border)}
-  .sec-head{max-width:64ch}
-  .sec-head h2{font-size:clamp(24px,3.4vw,34px); font-weight:700; letter-spacing:-.02em; margin-top:14px}
+  .sec-head{max-width:66ch}
+  .sec-head h2{font-size:clamp(23px,3.4vw,34px); font-weight:700; letter-spacing:-.02em; margin-top:14px}
   .sec-head p{color:var(--text-dim); margin-top:14px; font-size:18px}
 
   /* ---------- problem log ---------- */
   .log{margin-top:34px; border:1px solid var(--border); border-radius:12px; overflow:hidden; font-family:var(--mono); font-size:14px}
-  .log-row{display:grid; grid-template-columns:110px 1fr; gap:0; border-top:1px solid var(--border)}
+  .log-row{display:grid; grid-template-columns:128px 1fr; gap:0; border-top:1px solid var(--border)}
   .log-row:first-child{border-top:0}
   .log-row .t{padding:14px 16px; color:var(--fail); background:var(--surface-2); border-right:1px solid var(--border); white-space:nowrap}
   .log-row .m{padding:14px 16px; color:var(--text-dim)}
   .log-row .m b{color:var(--text); font-weight:600}
-  @media (max-width:600px){ .log-row{grid-template-columns:88px 1fr} .log-row .t{font-size:12px; padding:12px 10px} }
+  @media (max-width:600px){ .log-row{grid-template-columns:100px 1fr} .log-row .t{font-size:12px; padding:12px 10px} }
 
   /* ---------- pillars ---------- */
   .pillars{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:36px}
@@ -138,7 +138,7 @@
   .flow{margin-top:40px}
   .flow-track{display:flex; gap:0; align-items:stretch; overflow-x:auto; padding-bottom:8px}
   .stage{
-    flex:1 0 150px; min-width:150px; background:var(--surface); border:1px solid var(--border);
+    flex:1 0 160px; min-width:160px; background:var(--surface); border:1px solid var(--border);
     border-radius:12px; padding:16px 15px; position:relative; margin-right:26px;
   }
   .stage:last-child{margin-right:0}
@@ -156,7 +156,7 @@
   /* ---------- command catalog ---------- */
   .cluster{margin-top:40px}
   .cluster > h3{font-family:var(--mono); font-size:14px; font-weight:700; color:var(--text); letter-spacing:.02em;
-    display:flex; align-items:baseline; gap:12px}
+    display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
   .cluster > h3 span{color:var(--text-faint); font-weight:400; font-size:13px; letter-spacing:0; font-family:var(--sans)}
   .grid{display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-top:16px}
   @media (max-width:760px){ .grid{grid-template-columns:1fr} }
@@ -165,19 +165,19 @@
   .cmd .name{font-family:var(--mono); font-size:15px; font-weight:700; color:var(--accent)}
   .cmd .does{margin-top:9px; font-size:14.5px; color:var(--text)}
   .cmd .kills{margin-top:10px; font-size:13.5px; color:var(--text-dim); display:flex; gap:8px}
-  .cmd .kills::before{content:"kills"; font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+  .cmd .kills::before{content:"убивает"; font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
     color:var(--fail); border:1px solid color-mix(in srgb,var(--fail) 35%,var(--border)); border-radius:5px; padding:1px 6px; height:fit-content; white-space:nowrap; margin-top:2px}
 
   /* ---------- install ---------- */
   .install{text-align:center}
-  .install h2{font-size:clamp(26px,4vw,40px); font-weight:800; letter-spacing:-.02em}
-  .install p{color:var(--text-dim); margin:16px auto 0; max-width:52ch}
-  .copybox{margin:32px auto 0; max-width:640px; background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  .install h2{font-size:clamp(24px,4vw,38px); font-weight:800; letter-spacing:-.02em}
+  .install p{color:var(--text-dim); margin:16px auto 0; max-width:56ch}
+  .copybox{margin:32px auto 0; max-width:660px; background:var(--surface); border:1px solid var(--border); border-radius:12px;
     display:flex; align-items:center; text-align:left; overflow:hidden}
   .copybox code{font-family:var(--mono); font-size:14px; padding:18px 20px; color:var(--text); flex:1; overflow-x:auto; white-space:nowrap}
   .copybox code .p{color:var(--accent)}
   .copybox button{font-family:var(--mono); font-size:12px; border:0; border-left:1px solid var(--border); background:var(--surface-2);
-    color:var(--text-dim); padding:18px 18px; cursor:pointer; align-self:stretch}
+    color:var(--text-dim); padding:18px 18px; cursor:pointer; align-self:stretch; white-space:nowrap}
   .copybox button:hover{color:var(--text)}
   .steps{display:flex; justify-content:center; flex-wrap:wrap; gap:10px 26px; margin-top:30px; font-family:var(--mono); font-size:13px; color:var(--text-dim)}
   .steps b{color:var(--accent)}
@@ -203,43 +203,43 @@
   <div class="wrap">
     <div class="brand"><span class="dot"></span>claude&nbsp;booster</div>
     <nav>
-      <a href="#problem">the problem</a>
-      <a href="#pipeline">the pipeline</a>
-      <a href="#commands">commands</a>
-      <a href="#install" class="ghost">install</a>
-      <button id="theme" type="button" aria-label="Toggle color theme">◐ theme</button>
+      <a href="#problem">проблема</a>
+      <a href="#pipeline">пайплайн</a>
+      <a href="#commands">команды</a>
+      <a href="#install" class="ghost">установка</a>
+      <button id="theme" type="button" aria-label="Переключить тему">◐ тема</button>
     </nav>
   </div>
 </div>
 
 <header class="hero">
   <div class="wrap">
-    <div class="eyebrow reveal">Memory &amp; a quality pipeline for Claude&nbsp;Code</div>
-    <h1 class="reveal">Your agent forgets everything by morning —<br><span class="amber">and grades its own homework.</span></h1>
-    <p class="lede reveal">Claude Code has no memory across sessions and reviews the same code it just wrote. Claude Booster fixes both: it gives your agent a <b>compounding memory</b> and a <b>gated pipeline where no model ever checks its own work</b>. One <code>python&nbsp;install.py</code> — Mac or Linux.</p>
+    <div class="eyebrow reveal">Память и пайплайн качества для Claude&nbsp;Code</div>
+    <h1 class="reveal">Агент забывает всё к утру —<br><span class="amber">и сам ставит себе зачёт.</span></h1>
+    <p class="lede reveal">Claude Code не помнит ничего между сессиями и проверяет тот же код, который только что написал. Claude Booster чинит и то, и другое: даёт агенту <b>накопительную память</b> и <b>пайплайн с гейтами, где ни одна модель не проверяет свою собственную работу</b>. Одна команда <code>python&nbsp;install.py</code> — Mac или Linux.</p>
     <div class="cta-row reveal">
-      <a class="btn btn-primary" href="#install">→ Install in 60 seconds</a>
-      <a class="btn btn-ghost" href="#pipeline">See how /go works</a>
+      <a class="btn btn-primary" href="#install">→ Установить за 60 секунд</a>
+      <a class="btn btn-ghost" href="#pipeline">Как работает /go</a>
     </div>
 
     <div class="term reveal" aria-hidden="true">
       <div class="term-head">
         <span class="tl"></span><span class="tl"></span><span class="tl"></span>
-        <span class="name">~/your-project — claude code + booster</span>
+        <span class="name">~/твой-проект — claude code + booster</span>
       </div>
       <div class="term-body">
-<span class="c"># 08:59 — you open a fresh session</span><br>
+<span class="c"># 08:59 — открываешь свежую сессию</span><br>
 <span class="p">&gt;</span> <span class="u">/start</span><br>
-<span class="c">  reading yesterday's handover… knowledge base… telemetry…</span><br>
-<span class="ok">  ✓ context rehydrated. no re-explaining the stack today.</span><br>
+<span class="c">  читаю вчерашний handover… базу знаний… телеметрию…</span><br>
+<span class="ok">  ✓ контекст восстановлен. сегодня не нужно заново объяснять стек.</span><br>
 <br>
-<span class="p">&gt;</span> <span class="u">/go add rate-limit to the ingest worker</span><br>
+<span class="p">&gt;</span> <span class="u">/go добавь rate-limit в воркер ingest</span><br>
 <span class="c">  flow-designer → challenge → prototype gate → worker ‖ verifier</span><br>
-<span class="c">  running the verifier's test…</span><br>
-<span class="ok">  ✓ exit 0 — verdict is a green test, not "looks good to me"</span><br>
+<span class="c">  запускаю тест верификатора…</span><br>
+<span class="ok">  ✓ exit 0 — вердикт это зелёный тест, а не «выглядит норм»</span><br>
 <br>
 <span class="p">&gt;</span> <span class="u">/handover</span><br>
-<span class="ok">  ✓ saved. tomorrow's /start picks up exactly here</span><span class="cursor"></span>
+<span class="ok">  ✓ сохранено. завтрашний /start продолжит ровно отсюда</span><span class="cursor"></span>
       </div>
     </div>
   </div>
@@ -248,17 +248,17 @@
 <section id="problem">
   <div class="wrap">
     <div class="sec-head reveal">
-      <div class="eyebrow">By week three of daily use</div>
-      <h2>The friction isn't the model. It's everything it forgets.</h2>
-      <p>None of these are model-intelligence problems. They're memory, discipline, and self-review problems — exactly the layer an orchestration tool can fix.</p>
+      <div class="eyebrow">К третьей неделе ежедневной работы</div>
+      <h2>Трение не в модели. А во всём, что она забывает.</h2>
+      <p>Ни одна из этих проблем — не про интеллект модели. Это память, дисциплина и самопроверка — ровно тот слой, который чинит инструмент оркестрации.</p>
     </div>
     <div class="log reveal">
-      <div class="log-row"><div class="t">re-explain</div><div class="m">You describe the stack, conventions and failure modes <b>every single session</b>.</div></div>
-      <div class="log-row"><div class="t">re-invent</div><div class="m">Claude rewrites a helper <b>you already have</b> — because it didn't grep first.</div></div>
-      <div class="log-row"><div class="t">re-ask</div><div class="m">The same clarifying questions, day after day. <b>"npm or pnpm?"</b> — you answered yesterday.</div></div>
-      <div class="log-row"><div class="t">self-review</div><div class="m">The model that <b>wrote</b> the code is the one that <b>approves</b> it. Correlated blind spots ship.</div></div>
-      <div class="log-row"><div class="t">flat time</div><div class="m">Code that's correct at T=0 and <b>wrong at T+1</b> — the async callback, the partial fill, the stale cache.</div></div>
-      <div class="log-row"><div class="t">zero-start</div><div class="m">Every new project starts from scratch. <b>Hard-won lessons don't transfer.</b></div></div>
+      <div class="log-row"><div class="t">объясняю</div><div class="m">Ты описываешь стек, конвенции и режимы отказа <b>каждую сессию заново</b>.</div></div>
+      <div class="log-row"><div class="t">изобретаю</div><div class="m">Claude переписывает хелпер, <b>который у тебя уже есть</b> — потому что не сделал grep.</div></div>
+      <div class="log-row"><div class="t">переспрашиваю</div><div class="m">Те же уточняющие вопросы день за днём. <b>«npm или pnpm?»</b> — ты ответил вчера.</div></div>
+      <div class="log-row"><div class="t">самооценка</div><div class="m">Модель, которая <b>написала</b> код — она же его и <b>одобряет</b>. Коррелированные слепые зоны уходят в прод.</div></div>
+      <div class="log-row"><div class="t">плоское время</div><div class="m">Код, верный в T=0 и <b>неверный в T+1</b> — async-колбэк, частичное исполнение, устаревший кэш.</div></div>
+      <div class="log-row"><div class="t">старт с нуля</div><div class="m">Каждый новый проект — с чистого листа. <b>Добытые потом уроки не переносятся.</b></div></div>
     </div>
   </div>
 </section>
@@ -266,28 +266,28 @@
 <section id="why">
   <div class="wrap">
     <div class="sec-head reveal">
-      <div class="eyebrow">Three mechanisms</div>
-      <h2>What Booster actually installs</h2>
-      <p>Not prompts. A memory engine, a self-enforcing pipeline, and cost-aware model routing — wired into Claude Code as rules and hooks.</p>
+      <div class="eyebrow">Три механизма</div>
+      <h2>Что Booster на самом деле устанавливает</h2>
+      <p>Не промпты. Движок памяти, самопроверяющийся пайплайн и учитывающий стоимость роутинг моделей — вшиты в Claude Code как правила и хуки.</p>
     </div>
     <div class="pillars">
       <div class="pillar reveal">
-        <div class="n">01 · memory</div>
-        <h3>Temporal-causal memory</h3>
-        <p>Standard memory stores facts. Booster stores <b>causal chains</b>: what was tried → what happened → what was concluded → what's still open. A stuck-loop detector fires when the same problem reappears without a verified resolution.</p>
-        <span class="tag">kills "re-discover the same bug every week"</span>
+        <div class="n">01 · память</div>
+        <h3>Темпорально-причинная память</h3>
+        <p>Обычная память хранит факты. Booster хранит <b>причинные цепочки</b>: что пробовали → что случилось → что заключили → что осталось открытым. Детектор застреваний срабатывает, когда та же проблема всплывает без проверенного решения.</p>
+        <span class="tag">убивает «заново нахожу тот же баг каждую неделю»</span>
       </div>
       <div class="pillar reveal">
-        <div class="n">02 · pipeline</div>
-        <h3>The шестёрка — /go</h3>
-        <p>Six gated stages, cross-provider. The <b>strong model thinks</b> (design critique, independent verification, diff review); the <b>fast flat-fee model types</b>. No model ever reviews its own code, and the verdict is a test's exit code.</p>
-        <span class="tag">kills self-review &amp; flat-snapshot bugs</span>
+        <div class="n">02 · пайплайн</div>
+        <h3>Шестёрка — /go</h3>
+        <p>Шесть гейтов, кросс-провайдер. <b>Сильная модель думает</b> (критика дизайна, независимая верификация, ревью диффа); <b>быстрая flat-fee модель печатает</b>. Ни одна модель не ревьюит свой код, а вердикт — exit code теста.</p>
+        <span class="tag">убивает самопроверку и баги «плоского снимка»</span>
       </div>
       <div class="pillar reveal">
-        <div class="n">03 · routing</div>
-        <h3>Smart model routing</h3>
-        <p>Haiku for lookups, Sonnet for coding, Opus for hard reasoning, flat-fee Codex where it's equivalent. The right model for each task — measured daily from real latency and budget telemetry, not a static guess.</p>
-        <span class="tag">kills paying Opus rates for a grep</span>
+        <div class="n">03 · роутинг</div>
+        <h3>Умный роутинг моделей</h3>
+        <p>Haiku для поиска, Sonnet для кода, Opus для сложных рассуждений, flat-fee Codex где эквивалентно. Правильная модель под задачу — считается ежедневно по реальной телеметрии латентности и бюджета, а не по статичной догадке.</p>
+        <span class="tag">убивает оплату Opus-ставки за grep</span>
       </div>
     </div>
   </div>
@@ -296,21 +296,21 @@
 <section id="pipeline">
   <div class="wrap">
     <div class="sec-head reveal">
-      <div class="eyebrow">/go &nbsp;·&nbsp; the pipeline you can't cheat</div>
-      <h2>One command. Six stages. No model checks its own work.</h2>
-      <p>When you delegate coding through <code>/go</code>, a hook physically blocks any shortcut. Stages marked <span style="color:var(--accent)">amber</span> run on a <b>different provider</b> than the author — a built-in second set of eyes.</p>
+      <div class="eyebrow">/go &nbsp;·&nbsp; пайплайн, который нельзя обмануть</div>
+      <h2>Одна команда. Шесть стадий. Ни одна модель не проверяет свою работу.</h2>
+      <p>Когда делегируешь код через <code>/go</code>, хук физически блокирует любой обход. Стадии, отмеченные <span style="color:var(--accent)">янтарём</span>, идут на <b>другом провайдере</b>, чем автор — встроенная вторая пара глаз.</p>
     </div>
     <div class="flow reveal">
       <div class="flow-track">
-        <div class="stage"><div class="s-n">STAGE 1</div><h4>Flow Designer</h4><div class="who">maps failure modes &amp; temporal traps — before any code</div></div>
-        <div class="stage"><div class="s-n">STAGE 2</div><h4>Challenge</h4><div class="who x">✗ attacks the plan · cross-provider</div></div>
-        <div class="stage"><div class="s-n">STAGE 3</div><h4>Prototype Gate</h4><div class="who">proves the data hypothesis read-only</div></div>
-        <div class="stage"><div class="s-n">STAGE 4</div><h4>Worker ‖ Verifier</h4><div class="who x">verifier never sees the worker's code</div></div>
-        <div class="stage verdict"><div class="s-n">STAGE 5</div><h4>Test run</h4><div class="who">exit code = verdict</div></div>
-        <div class="stage"><div class="s-n">STAGE 6</div><h4>Diff review</h4><div class="who x">✗ reads the final diff · cross-provider</div></div>
+        <div class="stage"><div class="s-n">СТАДИЯ 1</div><h4>Flow Designer</h4><div class="who">размечает режимы отказа и временные ловушки — до кода</div></div>
+        <div class="stage"><div class="s-n">СТАДИЯ 2</div><h4>Challenge</h4><div class="who x">✗ атакует план · кросс-провайдер</div></div>
+        <div class="stage"><div class="s-n">СТАДИЯ 3</div><h4>Prototype Gate</h4><div class="who">проверяет гипотезу о данных в read-only</div></div>
+        <div class="stage"><div class="s-n">СТАДИЯ 4</div><h4>Worker ‖ Verifier</h4><div class="who x">верификатор не видит код воркера</div></div>
+        <div class="stage verdict"><div class="s-n">СТАДИЯ 5</div><h4>Прогон теста</h4><div class="who">exit code = вердикт</div></div>
+        <div class="stage"><div class="s-n">СТАДИЯ 6</div><h4>Ревью диффа</h4><div class="who x">✗ читает финальный дифф · кросс-провайдер</div></div>
       </div>
       <div class="flow-note">
-        <p><b>Why this beats a single smart agent:</b> ~65% of returns-to-code are contract ambiguity + missed failure modes — caught at <b>design time</b>, not by a more capable typist. Every <code>/go</code> run auto-records its outcome to a rework KPI, so the pipeline's effectiveness is <b>measured, not assumed</b>.</p>
+        <p><b>Почему это лучше одного умного агента:</b> ~65% возвратов-к-коду — это неоднозначность контракта + пропущенные режимы отказа. Их ловят на <b>этапе дизайна</b>, а не более способным «печатником». Каждый запуск <code>/go</code> автоматически пишет исход в rework-KPI, поэтому эффективность пайплайна <b>измеряется, а не предполагается</b>.</p>
       </div>
     </div>
   </div>
@@ -319,49 +319,49 @@
 <section id="commands">
   <div class="wrap">
     <div class="sec-head reveal">
-      <div class="eyebrow">18 slash commands</div>
-      <h2>The toolbox — grouped by the job it does</h2>
-      <p>You'll live in the first cluster daily. The rest you reach for when the work calls for it.</p>
+      <div class="eyebrow">18 slash-команд</div>
+      <h2>Инструментарий — сгруппирован по задаче</h2>
+      <p>В первом кластере ты живёшь ежедневно. Остальное берёшь, когда этого требует работа.</p>
     </div>
 
     <div class="cluster reveal">
-      <h3>Daily loop <span>— memory across sessions</span></h3>
+      <h3>Ежедневный цикл <span>— память между сессиями</span></h3>
       <div class="grid">
-        <div class="cmd"><div class="name">/start</div><div class="does">Rehydrates context — handover, knowledge base, telemetry — then plans.</div><div class="kills">Starting every session blind to yesterday.</div></div>
-        <div class="cmd"><div class="name">/handover</div><div class="does">Saves a structured end-of-session report with Goal, KPI &amp; evidence.</div><div class="kills">Open threads evaporating at session end.</div></div>
-        <div class="cmd"><div class="name">/debt</div><div class="does">Tracks &amp; resolves unfinished work items that survive resets.</div><div class="kills">"I'll fix that later" being forgotten instantly.</div></div>
+        <div class="cmd"><div class="name">/start</div><div class="does">Восстанавливает контекст — handover, базу знаний, телеметрию — и планирует.</div><div class="kills">Старт каждой сессии вслепую.</div></div>
+        <div class="cmd"><div class="name">/handover</div><div class="does">Сохраняет структурный отчёт конца сессии с Goal, KPI и evidence.</div><div class="kills">Открытые нити испаряются в конце сессии.</div></div>
+        <div class="cmd"><div class="name">/debt</div><div class="does">Отслеживает и закрывает недоделки, переживающие ресет сессии.</div><div class="kills">«Потом поправлю» забывается мгновенно.</div></div>
       </div>
     </div>
 
     <div class="cluster reveal">
-      <h3>Quality pipeline <span>— no model grades its own homework</span></h3>
+      <h3>Пайплайн качества <span>— ни одна модель не ставит себе зачёт</span></h3>
       <div class="grid">
-        <div class="cmd"><div class="name">/go</div><div class="does">The six-stage cross-provider pipeline. Exit-code verdict, non-skippable.</div><div class="kills">Self-review and correct-at-T=0 code.</div></div>
-        <div class="cmd"><div class="name">/audit</div><div class="does">Six parallel lens agents + external review, structured verdicts.</div><div class="kills">One reviewer missing what six specialists catch.</div></div>
-        <div class="cmd"><div class="name">/code-review</div><div class="does">Focused post-edit pass: duplication, over-engineering, drift.</div><div class="kills">Re-writing a helper you already have.</div></div>
-        <div class="cmd"><div class="name">/consilium</div><div class="does">A 3–5 agent debate + external models, synthesized to a report.</div><div class="kills">One opinion on a high-risk decision.</div></div>
-        <div class="cmd"><div class="name">/hackathon</div><div class="does">N workers build in isolation; a Judge scores them on one suite.</div><div class="kills">A single attempt at an uncertain solution.</div></div>
-        <div class="cmd"><div class="name">/fable</div><div class="does">A one-off, read-only second opinion from Fable&nbsp;5.</div><div class="kills">Spinning up a whole consilium for one sanity-check.</div></div>
+        <div class="cmd"><div class="name">/go</div><div class="does">Шестистадийный кросс-провайдер пайплайн. Вердикт по exit code, без обхода.</div><div class="kills">Самопроверку и код, верный лишь в T=0.</div></div>
+        <div class="cmd"><div class="name">/audit</div><div class="does">Шесть параллельных агентов-линз + внешнее ревью, структурные вердикты.</div><div class="kills">Один ревьюер упускает то, что ловят шесть.</div></div>
+        <div class="cmd"><div class="name">/code-review</div><div class="does">Точечный проход после правки: дубли, оверинжиниринг, дрейф.</div><div class="kills">Переписывание хелпера, который уже есть.</div></div>
+        <div class="cmd"><div class="name">/consilium</div><div class="does">Дебаты 3–5 агентов + внешние модели, синтез в отчёт.</div><div class="kills">Одно мнение по рискованному решению.</div></div>
+        <div class="cmd"><div class="name">/hackathon</div><div class="does">N воркеров строят в изоляции; Судья оценивает всех одним сьютом.</div><div class="kills">Одну попытку на неопределённое решение.</div></div>
+        <div class="cmd"><div class="name">/fable</div><div class="does">Разовое read-only второе мнение от Fable&nbsp;5.</div><div class="kills">Целый консилиум ради одной проверки.</div></div>
       </div>
     </div>
 
     <div class="cluster reveal">
-      <h3>Verification <span>— prove it, don't assume it</span></h3>
+      <h3>Верификация <span>— докажи, а не предполагай</span></h3>
       <div class="grid">
-        <div class="cmd"><div class="name">/verify-after-edit</div><div class="does">Drives the real UI flow after an edit, not just tests.</div><div class="kills">"It compiles" mistaken for "it works".</div></div>
-        <div class="cmd"><div class="name">/verify-flow</div><div class="does">Verifies a full UI flow end-to-end.</div><div class="kills">A fix passing while its flow is broken.</div></div>
-        <div class="cmd"><div class="name">/audit-trace</div><div class="does">Traces one concept through every path; divergence = defect.</div><div class="kills">Silent data corruption across code paths.</div></div>
+        <div class="cmd"><div class="name">/verify-after-edit</div><div class="does">Прогоняет реальный UI-флоу после правки, а не только тесты.</div><div class="kills">«Компилируется» вместо «работает».</div></div>
+        <div class="cmd"><div class="name">/verify-flow</div><div class="does">Проверяет полный UI-флоу end-to-end.</div><div class="kills">Фикс проходит, а флоу, в котором он живёт, сломан.</div></div>
+        <div class="cmd"><div class="name">/audit-trace</div><div class="does">Трассирует один концепт по всем путям вычислений; расхождение = дефект.</div><div class="kills">Тихую порчу данных между путями кода.</div></div>
       </div>
     </div>
 
     <div class="cluster reveal">
-      <h3>Systemic thinking &amp; infra <span>— know the blast radius first</span></h3>
+      <h3>Системное мышление и инфра <span>— сначала пойми радиус поражения</span></h3>
       <div class="grid">
-        <div class="cmd"><div class="name">/architecture</div><div class="does">Generates the "circuit board" — ARCHITECTURE.md + dep_manifest.json.</div><div class="kills">Editing A and silently breaking B, C, D.</div></div>
-        <div class="cmd"><div class="name">/phase</div><div class="does">Sets the workflow phase; the gate enforces diagnose-before-fix.</div><div class="kills">Editing before understanding.</div></div>
-        <div class="cmd"><div class="name">/delegate</div><div class="does">Inspects the gate that forces the Lead to delegate coding.</div><div class="kills">The orchestrator quietly doing the work itself.</div></div>
-        <div class="cmd"><div class="name">/lead</div><div class="does">Runs a supervised worker session with quota &amp; silence detection.</div><div class="kills">Long autonomous tasks drifting unwatched.</div></div>
-        <div class="cmd"><div class="name">/update</div><div class="does">Auto-updates Booster from GitHub without leaving the session.</div><div class="kills">Upgrade friction leaving you on old fixes.</div></div>
+        <div class="cmd"><div class="name">/architecture</div><div class="does">Генерит «печатную плату» — ARCHITECTURE.md + dep_manifest.json.</div><div class="kills">Правишь A и молча ломаешь B, C, D.</div></div>
+        <div class="cmd"><div class="name">/phase</div><div class="does">Ставит фазу воркфлоу; гейт требует «диагноз до починки».</div><div class="kills">Правку до понимания.</div></div>
+        <div class="cmd"><div class="name">/delegate</div><div class="does">Инспектирует гейт, заставляющий Lead делегировать код, а не писать самому.</div><div class="kills">Оркестратор тихо делает работу сам.</div></div>
+        <div class="cmd"><div class="name">/lead</div><div class="does">Ведёт supervised-воркера с квотой и детектором тишины.</div><div class="kills">Долгие автономные задачи дрейфуют без надзора.</div></div>
+        <div class="cmd"><div class="name">/update</div><div class="does">Автообновление Booster с GitHub, не выходя из сессии.</div><div class="kills">Трение апгрейда оставляет тебя на старых фиксах.</div></div>
       </div>
     </div>
   </div>
@@ -370,33 +370,33 @@
 <section id="install" class="install">
   <div class="wrap">
     <div class="reveal">
-      <div class="eyebrow" style="text-align:center">One command, then /start</div>
-      <h2>Stop re-teaching Claude Code the same things every morning.</h2>
-      <p>Booster installs a set of rules, hooks and slash commands into <code>~/.claude/</code>. Your next session already remembers, verifies, and audits itself.</p>
+      <div class="eyebrow" style="text-align:center">Одна команда, потом /start</div>
+      <h2>Хватит каждое утро заново учить Claude Code одному и тому же.</h2>
+      <p>Booster ставит набор правил, хуков и slash-команд в <code>~/.claude/</code>. Твоя следующая сессия уже помнит, проверяет и аудитит себя.</p>
     </div>
     <div class="copybox reveal">
       <code id="cmd"><span class="p">git clone</span> https://github.com/demetrius2017/claude-booster.git &amp;&amp; <span class="p">cd</span> claude-booster &amp;&amp; <span class="p">python</span> install.py</code>
-      <button id="copy" type="button">copy</button>
+      <button id="copy" type="button">копировать</button>
     </div>
     <div class="steps reveal">
       <div>1 · <b>install.py</b></div>
-      <div>2 · open a session → <b>/start</b></div>
-      <div>3 · build → <b>/go</b></div>
-      <div>4 · close → <b>/handover</b></div>
+      <div>2 · открой сессию → <b>/start</b></div>
+      <div>3 · собери → <b>/go</b></div>
+      <div>4 · закрой → <b>/handover</b></div>
     </div>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <div>claude booster · memory + a self-enforcing quality pipeline for Claude Code</div>
+    <div>claude booster · память + самопроверяющийся пайплайн качества для Claude Code</div>
     <div><a href="https://github.com/demetrius2017/claude-booster">github.com/demetrius2017/claude-booster</a></div>
   </div>
 </footer>
 
 <script>
 (function(){
-  // theme toggle — stamps data-theme, wins over prefers-color-scheme both ways
+  // переключение темы — ставит data-theme, перебивает prefers-color-scheme в обе стороны
   var root=document.documentElement, btn=document.getElementById('theme');
   function cur(){
     var s=root.getAttribute('data-theme');
@@ -407,17 +407,17 @@
     root.setAttribute('data-theme', cur()==='dark'?'light':'dark');
   });
 
-  // copy install command
+  // копирование команды установки
   var copy=document.getElementById('copy');
   copy && copy.addEventListener('click',function(){
     var t=document.getElementById('cmd').innerText;
     navigator.clipboard && navigator.clipboard.writeText(t).then(function(){
-      copy.textContent='copied ✓';
-      setTimeout(function(){copy.textContent='copy';},1600);
+      copy.textContent='скопировано ✓';
+      setTimeout(function(){copy.textContent='копировать';},1600);
     });
   });
 
-  // scroll reveal
+  // проявление при скролле
   var els=[].slice.call(document.querySelectorAll('.reveal'));
   if(!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches){
     els.forEach(function(e){e.classList.add('in');}); return;
