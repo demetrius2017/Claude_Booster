@@ -132,11 +132,14 @@ if [ -f "$fable_cache" ] && command -v jq >/dev/null 2>&1; then
         # comma-locale hosts); plain jq division drops the decimal on whole values
         # ("$1" not "$1.00"). Build cents as an integer, then pad to D.CC.
         fable_last=$(jq -r 'if (.last_task.cost_usd_nanos // 0) > 0 then (.last_task.cost_usd_nanos / 1e7 | round) as $c | "\(($c / 100) | floor).\(($c % 100 | tostring) | if length < 2 then "0" + . else . end)" else empty end' "$fable_cache" 2>/dev/null)
+        # today (local Dubai day) is shown even at $0 — that IS the running-total signal.
+        fable_today=$(jq -r '(.today.cost_usd_nanos // 0) as $n | ($n / 1e7 | round) as $c | "\(($c / 100) | floor).\(($c % 100 | tostring) | if length < 2 then "0" + . else . end)"' "$fable_cache" 2>/dev/null)
         fable_mtd=$(jq -r 'if (.mtd.cost_usd_nanos // 0) > 0 then (.mtd.cost_usd_nanos / 1e9 | round) else empty end' "$fable_cache" 2>/dev/null)
-        if [ -n "$fable_last" ] || [ -n "$fable_mtd" ]; then
-            [ -n "$fable_last" ] || fable_last="0"
+        if [ -n "$fable_last" ] || [ -n "$fable_today" ] || [ -n "$fable_mtd" ]; then
+            [ -n "$fable_last" ] || fable_last="0.00"
+            [ -n "$fable_today" ] || fable_today="0.00"
             [ -n "$fable_mtd" ] || fable_mtd="0"
-            fable_info=" | Fable: last \$${fable_last} · m\$${fable_mtd}"
+            fable_info=" | Fable: last \$${fable_last} · today \$${fable_today} · m\$${fable_mtd}"
         fi
     fi
 fi

@@ -39,14 +39,17 @@ if [ -f "$summary" ]; then
         # printf '%.2f' honours LC_NUMERIC ("0,15" / thousands-grouped garbage on
         # comma-locale hosts); plain jq division drops the decimal on whole values
         # ("$1" not "$1.00"). Build cents as an integer, then pad to D.CC.
+        # Compact single-letter labels (l/d/m) because status-right-length is 40
+        # and shared with pane_title + clock; the CC statusline uses full words.
         last=$(jq -r 'if (.last_task.cost_usd_nanos // 0) > 0 then (.last_task.cost_usd_nanos / 1e7 | round) as $c | "\(($c / 100) | floor).\(($c % 100 | tostring) | if length < 2 then "0" + . else . end)" else empty end' "$summary" 2>/dev/null)
+        # today (local Dubai day) is shown even at $0 — that IS the running-total signal.
+        today=$(jq -r '(.today.cost_usd_nanos // 0) as $n | ($n / 1e7 | round) as $c | "\(($c / 100) | floor).\(($c % 100 | tostring) | if length < 2 then "0" + . else . end)"' "$summary" 2>/dev/null)
         mtd=$(jq -r 'if (.mtd.cost_usd_nanos // 0) > 0 then (.mtd.cost_usd_nanos / 1e9 | round) else empty end' "$summary" 2>/dev/null)
-        seg=""
-        [ -n "$last" ] && seg="F last\$${last}"
-        if [ -n "$mtd" ]; then
-            if [ -n "$seg" ]; then seg="${seg} · m\$${mtd}"; else seg="F m\$${mtd}"; fi
-        fi
-        if [ -n "$seg" ]; then
+        seg="F"
+        [ -n "$last" ] && seg="${seg} l\$${last}"
+        [ -n "$today" ] && seg="${seg} d\$${today}"
+        [ -n "$mtd" ] && seg="${seg} m\$${mtd}"
+        if [ "$seg" != "F" ]; then
             [ -n "$parts" ] && parts="${parts}· "
             parts="${parts}${seg}"
         fi
