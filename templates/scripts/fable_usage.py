@@ -50,6 +50,13 @@ MODEL_MAP = {
     "claude-fable-5": "fable-5",
 }
 
+# Fable 5 was included in Pro/Max/Team plan limits (up to 50% of the weekly
+# usage limit) *through* 2026-07-07; on/after this UTC instant continued use
+# moves to metered usage credits at API rates. Events before the cutover are
+# "included" (no real credit spend); events on/after are "credits" (real money).
+# If Anthropic publishes a different flip time, change ONLY this constant.
+FABLE_CREDIT_CUTOVER_UTC = "2026-07-08T00:00:00Z"
+
 USD_NANOS_PER_TOKEN = {
     "input": 10_000,          # $10 / MTok
     "output": 50_000,         # $50 / MTok
@@ -444,6 +451,27 @@ def build_summary(*, create_db: bool = False, session_id: str | None = None) -> 
             """,
             (month,),
         ).fetchone()
+        # Split the month into the free "included" window (before the credit
+        # cutover) and the billable "credits" window (on/after it). ts_utc is a
+        # fixed-width ISO string, so a lexicographic '<' comparison is a correct
+        # instant comparison. mtd_credits is the only figure that maps to real
+        # money; mtd/mtd_included stay for reference.
+        mtd_included = conn.execute(
+            """
+            SELECT COUNT(*) AS events, COALESCE(SUM(cost_usd_nanos), 0) AS cost
+            FROM fable_usage_events
+            WHERE month_utc = ? AND ts_utc < ?
+            """,
+            (month, FABLE_CREDIT_CUTOVER_UTC),
+        ).fetchone()
+        mtd_credits = conn.execute(
+            """
+            SELECT COUNT(*) AS events, COALESCE(SUM(cost_usd_nanos), 0) AS cost
+            FROM fable_usage_events
+            WHERE month_utc = ? AND ts_utc >= ?
+            """,
+            (month, FABLE_CREDIT_CUTOVER_UTC),
+        ).fetchone()
         last = conn.execute(
             """
             SELECT task_key, session_id, source_path, MAX(ts_utc) AS ts_utc,
@@ -493,6 +521,8 @@ def build_summary(*, create_db: bool = False, session_id: str | None = None) -> 
             session_events = 0
             session_cost = 0
         mtd_cost = int(mtd["cost"] if mtd else 0)
+        mtd_included_cost = int(mtd_included["cost"] if mtd_included else 0)
+        mtd_credits_cost = int(mtd_credits["cost"] if mtd_credits else 0)
         last_cost = int(last["cost"] if last else 0)
         today_cost = int(today["cost"] if today else 0)
         summary: dict[str, Any] = {
@@ -501,10 +531,21 @@ def build_summary(*, create_db: bool = False, session_id: str | None = None) -> 
             "basis": "API-equivalent / credit-rate estimate; not an actual billing ledger",
             "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "month_utc": month,
+            "credit_cutover_utc": FABLE_CREDIT_CUTOVER_UTC,
             "mtd": {
                 "events": int(mtd["events"] if mtd else 0),
                 "cost_usd_nanos": mtd_cost,
                 "cost_usd": _usd(mtd_cost),
+            },
+            "mtd_included": {
+                "events": int(mtd_included["events"] if mtd_included else 0),
+                "cost_usd_nanos": mtd_included_cost,
+                "cost_usd": _usd(mtd_included_cost),
+            },
+            "mtd_credits": {
+                "events": int(mtd_credits["events"] if mtd_credits else 0),
+                "cost_usd_nanos": mtd_credits_cost,
+                "cost_usd": _usd(mtd_credits_cost),
             },
             "today": {
                 "events": int(today["events"] if today else 0),
@@ -577,10 +618,15 @@ def brief_lines(summary: dict[str, Any]) -> list[str]:
         return []
     last_cost = summary["last_task"]["cost_usd"]
     mtd_cost = summary["mtd"]["cost_usd"]
+    # mtd_credits is the billable (post-cutover) slice; fall back to the total on
+    # an older cache that predates the split so the line never KeyErrors.
+    credits = summary.get("mtd_credits") or {}
+    credits_cost = credits.get("cost_usd", "0.0000")
     month = summary.get("month_utc") or _current_month_utc()
     return [
         f"Fable last request/task estimate: ${last_cost} (API-equivalent credit rate)",
-        f"Fable month-to-date estimate ({month} UTC): ${mtd_cost} (not a billing ledger)",
+        f"Fable month-to-date billable credits ({month} UTC): ${credits_cost} "
+        f"(estimate; excludes included window, not a billing ledger)",
     ]
 
 

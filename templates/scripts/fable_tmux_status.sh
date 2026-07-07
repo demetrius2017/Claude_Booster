@@ -44,7 +44,11 @@ if [ -f "$summary" ]; then
         last=$(jq -r 'if (.last_task.cost_usd_nanos // 0) > 0 then (.last_task.cost_usd_nanos / 1e7 | round) as $c | "\(($c / 100) | floor).\(($c % 100 | tostring) | if length < 2 then "0" + . else . end)" else empty end' "$summary" 2>/dev/null)
         # today (local Dubai day) is shown even at $0 — that IS the running-total signal.
         today=$(jq -r '(.today.cost_usd_nanos // 0) as $n | ($n / 1e7 | round) as $c | "\(($c / 100) | floor).\(($c % 100 | tostring) | if length < 2 then "0" + . else . end)"' "$summary" 2>/dev/null)
-        mtd=$(jq -r 'if (.mtd.cost_usd_nanos // 0) > 0 then (.mtd.cost_usd_nanos / 1e9 | round) else empty end' "$summary" 2>/dev/null)
+        # m$ = billable credits only (post-cutover). Falls back to the raw mtd
+        # total on an old cache without the split. Hidden at $0 so the pre-cutover
+        # widget stays clean (no credits owed yet); it lights up once real credit
+        # spend accrues after FABLE_CREDIT_CUTOVER_UTC.
+        mtd=$(jq -r 'if ((.mtd_credits.cost_usd_nanos // .mtd.cost_usd_nanos) // 0) > 0 then ((.mtd_credits.cost_usd_nanos // .mtd.cost_usd_nanos) / 1e9 | round) else empty end' "$summary" 2>/dev/null)
         seg="F"
         [ -n "$last" ] && seg="${seg} l\$${last}"
         [ -n "$today" ] && seg="${seg} d\$${today}"
