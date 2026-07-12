@@ -105,22 +105,30 @@ def main() -> int:
         window = 1
     pct = round(100 * tokens / window)
 
-    # Delete marker — one-shot semantics rely on this succeeding.
-    # Rare failure modes (read-only FS, race with concurrent inject): we still
-    # inject the advisory this turn, but log to stderr so SRE can diagnose
-    # "why did the advisory fire twice" later.
+    # Delete marker — one-shot semantics rely on this succeeding. If deletion
+    # fails, invalidate the marker before emitting so a retry cannot duplicate
+    # the advisory. If invalidation also fails, emit nothing.
     try:
         marker.unlink()
     except FileNotFoundError:
-        pass
+        return 0
     except Exception as exc:
         sys.stderr.write(
             f"compact_advisor_inject: marker.unlink failed for session {session_id}: {exc}\n"
         )
+        try:
+            marker.write_text("", encoding="utf-8")
+        except Exception as invalidate_exc:
+            sys.stderr.write(
+                "compact_advisor_inject: marker invalidation failed for session "
+                f"{session_id}: {invalidate_exc}\n"
+            )
+            return 0
 
     advisory = (
         f"ℹ Context ≈ {tokens:,} tok = {pct}% of {window//1000}k window. "
         "/compact recommended before the next heavy task. "
+        "Re-anchor: distinguish verified from assumed, name the falsifier, and list unverified integration boundaries. "
         "(one-shot; you are not out of room)"
     )
 

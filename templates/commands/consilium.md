@@ -15,6 +15,8 @@ Steps: `1/6 recon`, `2/6 spawn_agents`, `3/6 analysis`, `4/6 gpt_review`, `5/6 s
    - Build a **Verified Facts Brief**: what exists now, what works, what doesn't — with file paths and evidence
    - Present brief to Dmitry before proceeding. If facts contradict the premise — reframe the question
    - **Never brief consilium agents from reports alone. Reports decay. Code is truth.**
+   - Before spawn, test the brief: name its falsifier and check whether all
+     perspectives would inherit the same unverified premise. Resolve or label it.
 2. Spawn 3-5 agents with different Bios (architect, security, product, devops, data engineer — task-specific). **Each agent receives the Verified Facts Brief, not raw report excerpts.**
    Before spawning, output: `Consilium: spawning <N> agents (<bio1> · <bio2> · …) + external reviewers`
 3. Each independently: analysis, KPIs, decision
@@ -29,7 +31,9 @@ Steps: `1/6 recon`, `2/6 spawn_agents`, `3/6 analysis`, `4/6 gpt_review`, `5/6 s
    `printf '%s\n' '<consilium prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`
    If PAL is unavailable, GLM-5.2 is the mandatory fallback. If both PAL and GLM are unavailable, label the external slot `DEGRADED (PAL unavailable; ZAI_API_KEY absent)`.
    After all agents and external reviewers return, output: `All <N+M> perspectives collected. Synthesizing...`
-5. Lead: synthesis + table "agent / position / key insight / KPI" (including GPT/PAL and GLM-5.2 rows when available)
+5. Before synthesis, Lead checks source independence, states the strongest
+   counterargument to the majority, and independently rechecks one decision-critical
+   fact. Then synthesize + table "agent / position / key insight / KPI" (including GPT/PAL and GLM-5.2 rows when available).
 6. **[CRITICAL] Save results to file:**
    - Consilium → `reports/consilium_YYYY-MM-DD_<topic>.md`
    - Format: title, task context, agent positions (table), decision made, rejected alternatives with reasons, risks, implementation recommendations.

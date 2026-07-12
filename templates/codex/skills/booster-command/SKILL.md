@@ -137,6 +137,13 @@ where the native model is Claude and "the other provider" is Codex
     file reads before using them as facts.
   - Inject the relevant receipt lines into any subagent/worker prompt; subagents
     do not inherit the Lead's conversation memory automatically.
+- **Spawn Check:** immediately before delegation, classify every brief claim as
+  direct evidence, inference, or assumption; preserve units, versions, and source
+  paths; name callers, consumers, and integration boundaries; state the falsifier;
+  and check whether all delegates share one unverified premise.
+- Give each role its own contract. A Worker implements the scoped artifact and is
+  not called Lead. A Verifier is independent, actively seeks FAIL, and validates
+  primary evidence and integration boundaries rather than confirming the Worker.
 - Always perform RECON against current code/config before reports or opinions.
 - For `consilium`, `audit`, and `architecture`, build a Verified Facts Brief
   before spawning subagents.

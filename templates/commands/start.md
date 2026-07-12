@@ -42,6 +42,13 @@ Steps: `1/4 readme`, `2/4 knowledge_base`, `3/4 context_receipt`, `4/4 plan`
      Incidents: <none|N read: source paths + do-not-repeat constraints>
      Handover required reading: <none|paths read>
      Code cross-check: <files/functions grepped/read during /start>
+     Epistemic Receipt:
+       Verified directly: <current code/runtime evidence>
+       Inherited but cross-checked: <claims + cross-check evidence>
+       Still unverified: <unknowns>
+       Strongest disconfirming evidence: <counterevidence|none found after named check>
+       Source freshness: <dates/versions>
+       Integration boundaries at risk: <callers/consumers/boundaries>
    ```
 
    Hard stop: if `start-context` listed incident sources and they were not read,

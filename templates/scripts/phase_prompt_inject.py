@@ -30,6 +30,15 @@ HINT = {
     "MERGE":     "git push after user acceptance; post-merge verification required.",
 }
 
+LEAD_CUE = {
+    "RECON": "Lead: separate current code/runtime facts from inherited reports or memory.",
+    "PLAN": "Lead: name the key assumption, an alternative, and what would falsify it.",
+    "IMPLEMENT": "Lead: protect contracts, callers, downstream consumers, and integration boundaries.",
+    "AUDIT": "Lead: seek a reason to reject; agreement without attempted falsification is not evidence.",
+    "VERIFY": "Lead: PASS requires observable results and exit codes, not impressions.",
+    "MERGE": "Lead: state residual risk and confirm downstream consumers accept the result.",
+}
+
 
 def _project_root(cwd_hint: str) -> Path:
     try:
@@ -45,7 +54,9 @@ def _project_root(cwd_hint: str) -> Path:
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, UnicodeError, OSError, ValueError):
+        payload = {}
+    if not isinstance(payload, dict):
         payload = {}
 
     cwd = payload.get("cwd", "")
@@ -57,11 +68,12 @@ def main() -> int:
             v = f.read_text(encoding="utf-8").strip().upper()
             if v:
                 phase = v
-        except OSError:
-            pass
+        except (UnicodeError, OSError):
+            phase = "RECON"
 
     rule = HINT.get(phase, "unknown phase")
-    print(f"[phase: {phase}] {rule}  — advance: `python3 ~/.claude/scripts/phase.py set <NAME>`")
+    cue = LEAD_CUE.get(phase, LEAD_CUE["RECON"])
+    print(f"[phase: {phase}] {rule} {cue} — advance: `python3 ~/.claude/scripts/phase.py set <NAME>`")
     return 0
 
 

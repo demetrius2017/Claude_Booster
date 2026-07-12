@@ -5,6 +5,14 @@
   "updated": "2026-06-13",
 
   "components": {
+    "phase_prompt_inject": {
+      "file": "templates/scripts/phase_prompt_inject.py::main",
+      "reads_from": ["external:UserPromptSubmit stdin", "external:<project>/.claude/.phase", "external:CLAUDE_BOOSTER_DELEGATE_BUDGET"],
+      "writes_to": ["external:stdout context"],
+      "called_by": ["hook:UserPromptSubmit"],
+      "critical": false,
+      "notes": "Emits one line containing the current phase's legacy execution hint plus a phase-specific Lead epistemic cue; malformed or unreadable input degrades to RECON and never blocks."
+    },
     "installer_main": {
       "file": "install.py::main",
       "reads_from": ["domain:enumerate_template_files", "domain:load_manifest", "domain:classify_state", "domain:preflight", "domain:prompt_identity"],

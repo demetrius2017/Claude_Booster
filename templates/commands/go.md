@@ -544,6 +544,10 @@ Every role hands over a concrete artifact, not a prose impression:
 This handoff standard is the anti-loop mechanism: a downstream role may build on
 evidence, but may not inherit an upstream role's unproven opinion.
 
+Before spawning Worker, run a multiplication check: classify handoff claims as
+verified/inferred/assumed, preserve units and sources, name the falsifier, and
+ensure Worker and Verifier are not inheriting one unverified shared premise.
+
 ---
 
 ## Phase 2 — WORKER + VERIFIER (parallel, cross-provider)
@@ -899,6 +903,11 @@ with evidence, or routes a typed rework request to the correct phase.
 Run: `python3 ~/.claude/scripts/phase.py progress "7/7 verdict"`
 
 ### If exit=0 (ALL PASS) AND Phase 3B review cleared (CLEAN, or only MED/LOW):
+
+Before emitting the verdict, confirm evidence is newer than the last relevant
+edit, obtain an independent check for high-risk claims, state the attempted
+falsifier, and record residual risk plus downstream/integration status. These are
+mandatory provenance checks; they never override the exit-code-only PASS rule.
 
 ```
 ✓ PASS — Семёрка ▰▰▰▰▰▰▰ 7/7 complete. Artifact at <artifact_path>.

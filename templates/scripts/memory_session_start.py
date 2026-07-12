@@ -313,17 +313,32 @@ def _output(context: str) -> None:
     print(json.dumps(result, ensure_ascii=False))
 
 
+def _build_lead_constitution() -> str:
+    """Return the startup-only Lead epistemic constitution."""
+    return "\n".join((
+        "=== LEAD CONSTITUTION ===",
+        "Separate verified facts from inferences and assumptions.",
+        "Confidence is not evidence; independently cross-check in proportion to risk.",
+        "Name the falsifier and actively seek counterevidence.",
+        "Invite dissent; trace callers, downstream consumers, and integration boundaries.",
+        "Decide on sufficient evidence, then state residual risk.",
+    ))
+
+
 def main() -> None:
     try:
         raw = sys.stdin.read()
         data = json.loads(raw) if raw.strip() else {}
     except Exception:
         data = {}
+    if not isinstance(data, dict):
+        data = {}
 
     session_id = data.get("session_id")
     if session_id is not None:
         session_id = str(session_id)
     cwd = data.get("cwd", os.getcwd())
+    source = data.get("source", "")
 
     # Reset delegate counter first — before any DB work — so each new session
     # starts the delegation budget from zero regardless of previous sessions.
@@ -359,12 +374,50 @@ def main() -> None:
         else:
             full_context = combined_header
 
+        if source == "startup":
+            try:
+                constitution = _build_lead_constitution()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("lead constitution degraded: %s", exc)
+                constitution = "\n".join((
+                    "=== LEAD CONSTITUTION [DEGRADED] ===",
+                    "Separate verified facts from inferences and assumptions.",
+                    "Confidence is not evidence; independently cross-check in proportion to risk.",
+                    "Name the falsifier and actively seek counterevidence.",
+                    "Invite dissent; trace callers, downstream consumers, and integration boundaries.",
+                    "Decide on sufficient evidence, then state residual risk.",
+                ))
+            full_context = f"{constitution}\n\n{full_context}"
+
         _output(full_context)
         logger.info("session_start: session=%s scope=%s context_len=%d", session_id, scope, len(full_context))
 
     except Exception as e:
         logger.exception("session_start hook failed: %s", e)
-        _output("")
+        # Rolling memory is optional enrichment. Its failure must remain visible,
+        # but must not erase the mandatory SessionStart context or break JSON.
+        balancer_data = _load_balancer_data()
+        fallback_context = (
+            f"{_build_balancer_summary(balancer_data)}\n\n"
+            f"{_build_limits_summary(balancer_data)}\n\n"
+            f"=== Rolling Memory [DEGRADED] ===\n"
+            f"  * unavailable — {type(e).__name__}"
+        )
+        if source == "startup":
+            try:
+                constitution = _build_lead_constitution()
+            except Exception as constitution_exc:  # noqa: BLE001
+                logger.warning("lead constitution degraded: %s", constitution_exc)
+                constitution = "\n".join((
+                    "=== LEAD CONSTITUTION [DEGRADED] ===",
+                    "Separate verified facts from inferences and assumptions.",
+                    "Confidence is not evidence; independently cross-check in proportion to risk.",
+                    "Name the falsifier and actively seek counterevidence.",
+                    "Invite dissent; trace callers, downstream consumers, and integration boundaries.",
+                    "Decide on sufficient evidence, then state residual risk.",
+                ))
+            fallback_context = f"{constitution}\n\n{fallback_context}"
+        _output(fallback_context)
 
 
 if __name__ == "__main__":
