@@ -189,6 +189,8 @@ CREATE TABLE IF NOT EXISTS agent_memory (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     expires_at TEXT,
     last_accessed_at TEXT,
+    -- Activity counter: increments for retrieval touches and store merges.
+    -- The historical name is retained for schema compatibility.
     access_count INTEGER DEFAULT 0,
     active INTEGER DEFAULT 1,
     idempotency_key TEXT,
@@ -2102,7 +2104,11 @@ def build_start_context(
 
 
 def build_context(scope: str = "global", token_budget: int = 4000, session_id: Optional[str] = None) -> str:
-    """Build a formatted markdown context string within token budget."""
+    """Build formatted context without mutating the memory database."""
+    if not isinstance(scope, str) or not scope:
+        raise ValueError("scope must be a non-empty string")
+    if isinstance(token_budget, bool) or not isinstance(token_budget, int) or token_budget < 0:
+        raise ValueError("token_budget must be a non-negative integer")
     sections = [
         ("DIRECTIVES", "directive", None, 10),
         ("FEEDBACK", "feedback", None, 10),
@@ -2117,7 +2123,11 @@ def build_context(scope: str = "global", token_budget: int = 4000, session_id: O
     rendered_ids: list[int] = []
     rendered_types: dict[str, int] = {}
 
-    conn = get_connection()
+    try:
+        conn = get_readonly_connection()
+    except sqlite3.Error:
+        logger.exception("build_context database unavailable")
+        return ""
     try:
         for title, mtype, _, limit in sections:
             # For project_context, match scope; others get both global and scope
@@ -2214,7 +2224,7 @@ def build_context(scope: str = "global", token_budget: int = 4000, session_id: O
                         pass
                 if len(section_lines) > 1:
                     parts.append("\n".join(section_lines))
-    except Exception:
+    except sqlite3.Error:
         logger.exception("build_context failed")
     finally:
         conn.close()

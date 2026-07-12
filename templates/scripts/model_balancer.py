@@ -14,6 +14,7 @@ Contract (inputs/outputs):
     Reads  : ~/.claude/model_balancer.json (schema_version=2)
              ~/.claude/rolling_memory.db (model_metrics table, read-only)
              ~/.claude/openai_models.json (intelligence_score lookup)
+             ~/.claude/.rate_limits_cache.json (live Claude 7-day quota)
     Writes : ~/.claude/model_balancer.json (atomic via .tmp + os.replace)
     Backups: ~/.claude/model_balancer.json.bak.<YYYY-MM-DD> (max 7 kept)
 
@@ -58,6 +59,7 @@ import shutil
 import sqlite3
 import statistics
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -149,6 +151,9 @@ _PINNED_CATEGORIES: frozenset[str] = frozenset(
 
 # Transitions ring-buffer cap
 _MAX_TRANSITIONS: int = 50
+
+_RATE_LIMITS_CACHE = Path.home() / ".claude" / ".rate_limits_cache.json"
+_RATE_LIMITS_MAX_AGE_SECONDS = 15 * 60
 
 # ---------------------------------------------------------------------------
 # Hardcoded bootstrap defaults (used only when no prior JSON exists)
@@ -581,23 +586,29 @@ def _score_candidate(
 
 
 def _get_weekly_max_pct(prior: dict) -> float:
-    """Return weekly_max_pct (0..1). Live from DB if cap configured; else snapshot fallback."""
+    """Return live Claude seven-day quota used fraction, or 0 when unavailable.
+
+    Claude Code's statusline feed writes ``seven_day_remaining`` (0..100) to
+    ``.rate_limits_cache.json``.  A stale hand-written snapshot must not affect
+    routing: absence, stale data, invalid JSON, or an out-of-range value all
+    fail open to zero budget pressure.
+    """
     try:
-        cap = prior.get("weekly_tokens_cap", 0)
-        if cap and cap > 0:
-            with sqlite3.connect(f"file:{_DB_PATH}?mode=ro", uri=True, timeout=1.0) as conn:
-                row = conn.execute(
-                    "SELECT COALESCE(SUM(input_tokens + cache_creation_tokens + output_tokens), 0) "
-                    "FROM claude_max_usage WHERE ts_utc >= datetime('now', '-7 days')"
-                ).fetchone()
-                total = row[0] if row else 0
-                return min(1.0, total / cap)
-    except Exception:
-        pass
-    # Fallback: stale snapshot
-    try:
-        return float(prior.get("inputs_snapshot", {}).get("claude_max_weekly_used_pct", 0.0))
-    except (TypeError, ValueError):
+        cache = json.loads(_RATE_LIMITS_CACHE.read_text(encoding="utf-8"))
+        updated_at = cache.get("updated_at")
+        remaining = cache.get("seven_day_remaining")
+        if isinstance(updated_at, bool) or not isinstance(updated_at, (int, float)):
+            return 0.0
+        age_seconds = time.time() - float(updated_at)
+        if age_seconds < -60 or age_seconds > _RATE_LIMITS_MAX_AGE_SECONDS:
+            return 0.0
+        if isinstance(remaining, bool) or not isinstance(remaining, (int, float)):
+            return 0.0
+        remaining_pct = float(remaining)
+        if not 0.0 <= remaining_pct <= 100.0:
+            return 0.0
+        return (100.0 - remaining_pct) / 100.0
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return 0.0
 
 
@@ -655,7 +666,7 @@ def _active_decide(prior: dict) -> dict:
         if cat in prior_routing
     }
 
-    # Read weekly_max_pct — live from DB if cap configured, else stale snapshot
+    # Read Anthropic pressure only from the fresh Claude Code rate-limit feed.
     weekly_max_pct: float = _get_weekly_max_pct(prior)
     codex_pct: float = _get_codex_quota_pct(prior)
     budget_pcts: dict[str, float] = {

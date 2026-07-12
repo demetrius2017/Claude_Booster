@@ -28,6 +28,8 @@ ENV/Files:
 from __future__ import annotations
 
 import argparse
+import errno
+import fcntl
 import json
 import os
 import sqlite3
@@ -38,6 +40,7 @@ from typing import Any
 
 DB_PATH = Path.home() / ".claude" / "rolling_memory.db"
 LOG_PATH = Path.home() / ".claude" / "logs" / "memory_injection.jsonl"
+MAX_RECORD_BYTES = 8192
 
 
 def _utc_now() -> datetime:
@@ -72,13 +75,19 @@ def emit_injection(
     token_estimate: int,
     session_id: str | None = None,
 ) -> None:
-    """Append one memory-injection JSONL row, swallowing ordinary failures."""
+    """Append one bounded JSONL row with one non-blocking atomic write."""
     if os.environ.get("CLAUDE_BOOSTER_SKIP_MEMORY_TELEMETRY") == "1":
         return
 
     try:
         clean_ids = [int(memory_id) for memory_id in memory_ids]
         clean_types = {str(k): int(v) for k, v in memory_types.items()}
+        if any(memory_id < 0 for memory_id in clean_ids):
+            raise ValueError("memory_ids must be non-negative")
+        if any(count < 0 for count in clean_types.values()):
+            raise ValueError("memory type counts must be non-negative")
+        if int(char_count) < 0 or int(token_estimate) < 0:
+            raise ValueError("character and token counts must be non-negative")
         row_count = len(clean_ids)
         record = {
             "ts_utc": _format_ts(_utc_now()),
@@ -91,12 +100,20 @@ def emit_injection(
             "char_count": int(char_count),
             "token_estimate": int(token_estimate),
         }
-        line = json.dumps(record, ensure_ascii=False, sort_keys=False) + "\n"
+        line = (json.dumps(record, ensure_ascii=False, sort_keys=False) + "\n").encode("utf-8")
+        if len(line) > MAX_RECORD_BYTES:
+            raise ValueError(f"telemetry record exceeds {MAX_RECORD_BYTES} bytes")
         path = Path(log_path)
         os.makedirs(path.parent, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(line)
-    except Exception:
+        fd = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            written = os.write(fd, line)
+            if written != len(line):
+                raise OSError(errno.EIO, "short telemetry write")
+        finally:
+            os.close(fd)
+    except (OSError, TypeError, ValueError):
         return
 
 
@@ -176,7 +193,8 @@ def build_report(window_days: int, log_path: Path = LOG_PATH, db_path: Path = DB
     active_ids, error = _active_memory_ids(db_path)
     report: dict[str, Any] = {
         "sessions": sessions,
-        "by_type": {**by_type, "token_estimate": total_token_estimate},
+        "by_type": by_type,
+        "token_estimate": total_token_estimate,
         "never_injected_ids": [memory_id for memory_id in active_ids if memory_id not in injected_ids],
     }
     if error is not None:
@@ -197,8 +215,8 @@ def _print_human(report: dict[str, Any], window_days: int) -> None:
 
     print("\nBy type:")
     by_type = report.get("by_type") or {}
-    token_estimate = by_type.get("token_estimate", 0)
-    type_items = [(k, v) for k, v in by_type.items() if k != "token_estimate"]
+    token_estimate = report.get("token_estimate", 0)
+    type_items = list(by_type.items())
     if type_items:
         for memory_type, count in sorted(type_items):
             print(f"  {memory_type}: {count}")

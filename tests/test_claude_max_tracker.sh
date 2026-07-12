@@ -140,57 +140,43 @@ else
   fail_t S7 "--weekly-usage exited $weekly_exit; output: $weekly_out"
 fi
 
-# ── S8: model_balancer fallback — no cap → reads snapshot ────────────────────
+# ── S8: stale snapshot is never treated as live quota ────────────────────────
 s8_out=$(python3 - <<'PYEOF' 2>&1
 import sys
 import os
 sys.path.insert(0, os.path.expanduser('~/.claude/scripts'))
-from model_balancer import _get_weekly_max_pct
+import model_balancer
+model_balancer._RATE_LIMITS_CACHE = model_balancer.Path('/nonexistent/rate-limit-cache')
 prior = {"inputs_snapshot": {"claude_max_weekly_used_pct": 0.75}}
-result = _get_weekly_max_pct(prior)
-assert result == 0.75, f"Expected 0.75, got {result}"
+result = model_balancer._get_weekly_max_pct(prior)
+assert result == 0.0, f"Expected unknown quota to fail open, got {result}"
 print("PASS")
 PYEOF
 )
 s8_exit=$?
 if [[ $s8_exit -eq 0 && "$s8_out" == *"PASS"* ]]; then
-  pass_t S8 "model_balancer fallback returns snapshot value 0.75"
+  pass_t S8 "model_balancer ignores stale snapshot when live quota is unavailable"
 else
   fail_t S8 "model_balancer fallback failed (exit $s8_exit): $s8_out"
 fi
 
-# ── S9: model_balancer live path — cap configured → reads DB ─────────────────
+# ── S9: model_balancer live path reads fresh statusline rate-limit cache ─────
 s9_out=$(python3 - <<'PYEOF' 2>&1
-import sqlite3, sys, pathlib, datetime, os
+import json, sys, pathlib, os, tempfile, time
 sys.path.insert(0, os.path.expanduser('~/.claude/scripts'))
-db = pathlib.Path.home() / ".claude" / "rolling_memory.db"
-conn = sqlite3.connect(str(db))
-conn.execute(
-    "INSERT OR REPLACE INTO claude_max_usage "
-    "(session_id, ts_utc, input_tokens, cache_creation_tokens, output_tokens) "
-    "VALUES ('test-s9', datetime('now'), 1000000, 2000000, 500000)"
-)
-conn.commit()
-conn.close()
-
-from model_balancer import _get_weekly_max_pct
+import model_balancer
+tmp = pathlib.Path(tempfile.mkdtemp()) / "rate_limits.json"
+tmp.write_text(json.dumps({"seven_day_remaining": 76, "updated_at": time.time()}))
+model_balancer._RATE_LIMITS_CACHE = tmp
 prior = {"weekly_tokens_cap": 10000000, "inputs_snapshot": {"claude_max_weekly_used_pct": 0.5}}
-result = _get_weekly_max_pct(prior)
-assert isinstance(result, float), f"Expected float, got {type(result)}"
-assert 0.0 <= result <= 1.0, f"Expected 0..1, got {result}"
-assert result != 0.5, f"Expected live value != fallback 0.5, got {result}"
+result = model_balancer._get_weekly_max_pct(prior)
+assert result == 0.24, f"Expected 24% used, got {result}"
 print(f"PASS: live weekly_max_pct={result:.4f}")
-
-# Cleanup
-conn = sqlite3.connect(str(db))
-conn.execute("DELETE FROM claude_max_usage WHERE session_id='test-s9'")
-conn.commit()
-conn.close()
 PYEOF
 )
 s9_exit=$?
 if [[ $s9_exit -eq 0 && "$s9_out" == *"PASS"* ]]; then
-  pass_t S9 "model_balancer live DB path: $s9_out"
+  pass_t S9 "model_balancer live rate-limit cache path: $s9_out"
 else
   fail_t S9 "model_balancer live DB path failed (exit $s9_exit): $s9_out"
 fi
