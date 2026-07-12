@@ -103,12 +103,12 @@ assert_contains "$ARTIFACT" '[Mm]ermaid' \
   "Mentions Mermaid diagram format"
 echo ""
 
-# ── Check 9: model routing — haiku for explore, sonnet for architect ─────────
+# ── Check 9: model routing — haiku for explore, opus for architect ───────────
 echo "--- Check 9: model routing ---"
 assert_contains "$ARTIFACT" 'haiku' \
   "Mentions 'haiku' for explore agents"
-assert_contains "$ARTIFACT" 'sonnet' \
-  "Mentions 'sonnet' for architect agent"
+assert_contains "$ARTIFACT" 'opus' \
+  "Mentions 'opus' for architect agent"
 echo ""
 
 # ── Check 10: /start integration ────────────────────────────────────────────

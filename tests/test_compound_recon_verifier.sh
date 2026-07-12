@@ -94,9 +94,9 @@ echo "=== SECTION 3: Compound commands — ANY non-recon segment → False ==="
 check_recon "git status && rm -rf foo"                "false" "compound &&: recon + destructive rm"
 check_recon "ls && echo hi > file.txt"                "false" "compound &&: recon + redirect write"
 check_recon "git log && python3 deploy.py"            "false" "compound &&: recon + script execution"
-check_recon "cat file.txt; mv file.txt /tmp/out"      "false" "compound ;: recon + mv (state-change)"
-check_recon "ls || rm -rf /tmp/junk"                  "false" "compound ||: recon + destructive rm"
-check_recon "git status && git log && rm -rf /tmp/x"  "false" "compound &&: two recon + one destructive"
+check_recon "cat file.txt; mv file.txt ./out"          "false" "compound ;: recon + project mv (state-change)"
+check_recon "ls || rm -rf ./junk"                      "false" "compound ||: recon + destructive project rm"
+check_recon "git status && git log && rm -rf ./x"      "false" "compound &&: two recon + destructive project rm"
 
 echo ""
 echo "=== SECTION 4: Pipe handling — safe vs dangerous pipe targets ==="
@@ -118,16 +118,17 @@ check_recon 'grep "a && b" file.txt'                  "true"  "quoting: && insid
 check_recon "python3 -c 'print(1 && 2)'"              "true"  "quoting: && inside python3 -c string is recon"
 
 echo ""
-echo "=== SECTION 6: SSH with destructive payload → False ==="
+echo "=== SECTION 6: SSH is operations/delivery and exempt from delegation budget ==="
 
-check_recon "ssh host 'rm -rf /app'"                  "false" "ssh: destructive payload rm -rf"
-check_recon "ssh user@host 'rm -rf /tmp/data'"        "false" "ssh: destructive payload with user@host"
+check_recon "ssh host 'rm -rf /app'"                  "true"  "ssh: remote safety belongs to permissions guards"
+check_recon "ssh user@host 'rm -rf /tmp/data'"        "true"  "ssh: user@host remains operations/delivery"
 
 echo ""
 echo "=== SECTION 7: Simple non-recon commands — no regression ==="
 
 check_recon "python3 deploy.py"                       "false" "non-recon: python3 script"
-check_recon "rm -rf /tmp/foo"                         "false" "non-recon: rm -rf"
+check_recon "rm -rf ./foo"                            "false" "non-recon: project rm -rf"
+check_recon "rm -rf /tmp/foo"                         "true"  "recon-exempt: temporary prep cleanup"
 check_recon "mv src dst"                              "false" "non-recon: mv"
 check_recon "touch newfile.txt"                       "false" "non-recon: touch"
 

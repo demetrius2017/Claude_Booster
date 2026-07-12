@@ -260,7 +260,7 @@ rm -f "$FAKE_CLAUDE_HOME/fable_usage_summary.json"
 REFRESH_OUT="$(env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" \
     python3 "$FABLE_USAGE" refresh-display --month 2026-07 --root "$TMP_ROOT/project")"
 assert_contains "refresh-display prints current last request/task estimate" "$REFRESH_OUT" "Fable last request/task estimate"
-assert_contains "refresh-display prints current month-to-date estimate" "$REFRESH_OUT" "Fable month-to-date estimate"
+assert_contains "refresh-display prints current month-to-date billable credits" "$REFRESH_OUT" "Fable month-to-date billable credits"
 
 SUMMARY3="$(summary_json)"
 assert_eq "cache deletion recomputes MTD from immutable ledger" "$MTD_USD" "$(json_field "$SUMMARY3" "mtd.cost_usd")"
@@ -296,12 +296,12 @@ env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" \
     python3 "$FABLE_USAGE" ingest --transcript "$TRANSCRIPT" --session-id acceptance-session --project-root "$TMP_ROOT/project" --json >/dev/null
 STATUS_WITH_CACHE="$(cd "$PHASE_DIR" && printf '{"session_id":"acceptance-session"}' | env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" bash "$STATUSLINE")"
 assert_contains "statusline reports Fable label from cache" "$STATUS_WITH_CACHE" "Fable"
-assert_contains "statusline reports current-session last request/task cost" "$STATUS_WITH_CACHE" "Fable session est \$138.2000"
+assert_contains "statusline reports latest request/task cost" "$STATUS_WITH_CACHE" "Fable: last \$138.20"
 assert_not_contains "statusline does not report cross-session MTD estimate" "$STATUS_WITH_CACHE" "MTD"
 assert_not_contains "statusline does not print transcript path" "$STATUS_WITH_CACHE" "$TRANSCRIPT"
 
 STATUS_OTHER_SESSION="$(cd "$PHASE_DIR" && printf '{"session_id":"other-session"}' | env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" bash "$STATUSLINE")"
-assert_eq "statusline suppresses Fable cache from a different session" "[RECON]" "$STATUS_OTHER_SESSION"
+assert_contains "statusline retains global latest cost in a different session" "$STATUS_OTHER_SESSION" "Fable: last \$138.20"
 
 echo
 echo "=== Section 5: settings and rolling-memory integration ==="

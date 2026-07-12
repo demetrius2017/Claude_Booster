@@ -8,15 +8,15 @@
 #   1. TaskCreate with "affected: auth module"       → exit 0 (allow)
 #   2. TaskCreate with "dependencies: Redis, DB"     → exit 0 (allow)
 #   3. TaskCreate with "impact: changes session"     → exit 0 (allow)
-#   4. TaskCreate with no impact field               → exit 2 (block)
+#   4. TaskCreate with no impact field               → exit 0 + advisory
 #   5. TaskCreate subject starts with "docs:"        → exit 0 (allow regardless)
 #   6. TaskCreate subject starts with "chore:"       → exit 0 (allow regardless)
-#   7. No TaskCreate at all                          → exit 2 (preserved behavior)
+#   7. No TaskCreate at all                          → exit 0 + advisory
 #   8. [no-impact-review] marker in transcript       → exit 0 (bypass)
 #   9. Edit on allowlisted *.md path                 → exit 0 (existing bypass)
 #  10. CLAUDE_BOOSTER_SKIP_TASK_GATE=1               → exit 0 (existing bypass)
 #  B1. TaskCreate with "dependents:" field           → exit 0 (allow)
-#  B2. Most-recent TaskCreate lacks impact field     → exit 2 (block)
+#  B2. Most-recent TaskCreate lacks impact field     → exit 0 + advisory
 #
 # NOTE: Transcripts are written as compact single-line JSONL with top-level
 # "content" key — the format _check_task_content() can parse. Real Claude
@@ -147,8 +147,8 @@ make_task_line \
     > "$T4"
 
 run_scenario \
-    "4. no impact field → block (exit 2)" \
-    2 \
+    "4. no impact field → advisory (exit 0)" \
+    0 \
     "$(build_hook_payload "/Users/dmitrijnazarov/Projects/horizon/src/foo.py" "$T4")"
 
 # ---------------------------------------------------------------------------
@@ -206,8 +206,8 @@ T7="$TMPDIR_TEST/t7.jsonl"
 make_empty_line > "$T7"
 
 run_scenario \
-    "7. no TaskCreate at all → block (exit 2)" \
-    2 \
+    "7. no TaskCreate at all → advisory (exit 0)" \
+    0 \
     "$(build_hook_payload "/Users/dmitrijnazarov/Projects/horizon/src/main.py" "$T7")"
 
 # ---------------------------------------------------------------------------
@@ -282,8 +282,8 @@ make_task_line \
     >> "$TB2"
 
 run_scenario \
-    "B2. most-recent TaskCreate lacks impact field → block (exit 2)" \
-    2 \
+    "B2. most-recent TaskCreate lacks impact field → advisory (exit 0)" \
+    0 \
     "$(build_hook_payload "/Users/dmitrijnazarov/Projects/horizon/src/bar.py" "$TB2")"
 
 # ---------------------------------------------------------------------------
