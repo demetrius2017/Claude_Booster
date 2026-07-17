@@ -67,6 +67,15 @@ blast radius, reversibility, and scope—not by the word `security`: deleting an
 recreating a validated task-specific `/tmp` fixture or tightening a sandbox
 permission is reversible/local and may be delegated to Fable.
 
+### Routing precedence and cadence
+
+`USER_ONLY` (hard authority) > `CADENCE` (pure timing/sequencing: proceed on
+the roadmap default, no ask, no consult) > `FABLE_DELEGATE` (engineering
+decisions). Under active autopilot with a North Star, ending a turn with a pure
+timing/cadence question is forbidden: proceed now, stating the assumption in
+one line. A non-blocking status line such as “starting phase X; say stop to
+defer” is allowed, but a blocking question is not.
+
 ## Event-driven course correction
 
 Use phase/event based checkpoints, not polling by time or tool-call count.

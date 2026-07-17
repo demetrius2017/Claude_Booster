@@ -205,16 +205,55 @@ def _requires_user(text: str) -> bool:
     return False
 
 
+def _normalized(text: str) -> str:
+    """Normalize bilingual matching without changing the original payload."""
+    return text.casefold().replace("ё", "е")
+
+
+def _is_cadence(text: str) -> bool:
+    """Return whether text is only a local timing/sequencing decision."""
+    normalized = _normalized(text)
+    if re.search(
+        r"\b(redesign|refactor\w*|schema|architect\w*|approach|strateg\w*|which|"
+        r"rewrit\w*|migrat\w*|design|implement\w*|integrat\w*|endpoint\w*|"
+        r"feature\w*|auth\w*)\b|\b(редизайн|рефактор|схем|архитектур|"
+        r"подход|стратег|какой|какую|какие|перепис|мигрир|дизайн|"
+        r"внедр|интеграц|фич)\w*\b",
+        normalized,
+    ):
+        return False
+    if re.search(
+        r"\b(push|publish|deploy|release|ship)\b|\bmerge\s+(?:to\s+)?"
+        r"(?:main|master)\b|\b(пуш|запуш|опублик|депло|релиз|мерж|"
+        r"отправ(?:им|ить)?\s+в\s+(?:main|master))\w*\b",
+        normalized,
+    ):
+        return False
+    return bool(re.search(
+        r"\b(?:start|begin|commit|close out|continue|shall we commit|"
+        r"start .*?(?:now|next session|new session)|commit now|"
+        r"now or (?:later|next)|next session|new session)\b|"
+        r"\b(?:начинаем|начнем|стартуем|закрываемся|продолжаем)\b.*?"
+        r"\b(?:сейчас|потом|нов(?:ую|ой)\s+сесси)\w*\b|"
+        r"\b(?:сейчас\s+или|нов(?:ую|ой)\s+сесси|коммит\s+сейчас|"
+        r"закрываемся\s+сейчас)\w*",
+        normalized,
+    ))
+
+
 def _looks_like_question(text: str) -> bool:
     cleaned = re.sub(r"```.*?```", " ", text, flags=re.S)
     cleaned = re.sub(r"`[^`\n]*`", " ", cleaned)
     cleaned = "\n".join(line for line in cleaned.splitlines() if not line.lstrip().startswith(">"))
     if "?" not in cleaned and "？" not in cleaned:
         return False
+    cleaned = _normalized(cleaned)
     return bool(re.search(
-        r"\b(should|which|do you|would you|may i|can i|want me|what (?:do we|should)|"
-        r"нужно ли|стоит ли|какой|какую|что делаем|можно ли)\b",
-        cleaned, re.I,
+        r"\b(should|which|do you|would you|may i|can i|want me|want|prefer|shall we|"
+        r"what (?:do we|should)|start(?:ing)?|next session|commit now|push now|"
+        r"now or (?:later|next)|нужно ли|стоит ли|какой|какую|что делаем|можно ли|"
+        r"хочешь|хотите|стартуем|начинаем|начнем|сейчас или|новую сессию|закрываемся)\b",
+        cleaned,
     ))
 
 
@@ -351,6 +390,28 @@ def main() -> int:
         if event == "Stop" or data.get("stop_hook_active") is not None:
             return 0
         return _allow_user("personal UI acceptance or hard authority boundary")
+
+    if _is_cadence(text):
+        cadence_reason = (
+            "CADENCE: autopilot default — do not ask Dmitry. Proceed now with "
+            "the currently planned next roadmap step; if none remains, close out "
+            "per handover."
+        )
+        if event == "Stop" or data.get("stop_hook_active") is not None:
+            cadence_reason += (
+                " First re-deliver any completed substantive output from this turn, "
+                "then continue."
+            )
+            print(json.dumps({"decision": "block", "reason": cadence_reason}))
+        else:
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": cadence_reason,
+                }
+            }))
+        return 0
 
     reason_text = (
         "FABLE_DELEGATE: Do not ask Dmitry. Do not fabricate a 'User answered' "
