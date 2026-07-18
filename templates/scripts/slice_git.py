@@ -10,7 +10,7 @@ CLI/Examples: ``slice_git.py --cwd ROOT capture|attribute --run-id ID
 Limitations: No staging, commit authority, closure, backlog, telemetry, semantic
 scope inference, hooks, integration, or automatic remediation.
 ENV/Files: No environment variables. Reads the slice ledger/event log and writes
-only ``<git-root>/.claude/state/slice_baseline.json``.
+only ``<git-root>/.claude/state/runs/<run-hash>/slice_baseline.json``.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from slice_git_core import GitFactError, classify, snapshot
+from slice_git_core import GitFactError, attribution_receipt, snapshot
 from slice_ledger import _bind_baseline, _git_root, _locked
 from slice_ledger_core import LedgerError, _atomic_projection, _canonical, _load, _validate_relpath
 
@@ -82,8 +82,21 @@ def _ledger(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     return state
 
 
-def _receipt_path(root: Path) -> Path:
-    return root / ".claude" / "state" / "slice_baseline.json"
+def _run_dir(root: Path, run_id: str) -> Path:
+    directory = root / ".claude/state/runs" / hashlib.sha256(run_id.encode()).hexdigest()
+    if directory.exists() and (directory.is_symlink() or not directory.is_dir()):
+        raise GitFactError("run state directory is unsafe", CORRUPT)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+    return directory
+
+
+def _receipt_path(root: Path, run_id: str) -> Path:
+    return _run_dir(root, run_id) / "slice_baseline.json"
+
+
+def _relative(root: Path, path: Path) -> str:
+    return path.relative_to(root).as_posix()
 
 
 def _validate_receipt_file(path: Path) -> None:
@@ -155,7 +168,7 @@ def _assert_binding(receipt: dict[str, Any], ledger: dict[str, Any]) -> None:
 
 
 def _capture(root: Path, args: argparse.Namespace) -> dict[str, Any]:
-    path = _receipt_path(root)
+    path = _receipt_path(root, args.run_id)
     _validate_receipt_file(path)
     # Exact retry after binding accepts the original expected revision.
     state_dir = root / ".claude" / "state"
@@ -172,29 +185,30 @@ def _capture(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         # Timestamp is not part of idempotency; all authoritative facts must match.
         if {k: v for k, v in existing.items() if k != "captured_at"} == {k: v for k, v in receipt.items() if k != "captured_at"}:
             baseline_sha256 = hashlib.sha256(_canonical(existing)).hexdigest()
-            bind_args = argparse.Namespace(run_id=args.run_id, session_id=args.session_id, revision=args.revision, baseline_sha256=baseline_sha256)
+            bind_args = argparse.Namespace(run_id=args.run_id, session_id=args.session_id, revision=args.revision, baseline_sha256=baseline_sha256, baseline_path=_relative(root, path))
             _bind_baseline(bind_args, root / ".claude/state/slice_ledger.json", root / ".claude/state/slice_events.jsonl")
             return existing
         raise GitFactError("immutable baseline already exists with different facts", CONFLICT)
     _atomic_projection(path, receipt)
     baseline_sha256 = hashlib.sha256(_canonical(receipt)).hexdigest()
-    bind_args = argparse.Namespace(run_id=args.run_id, session_id=args.session_id, revision=args.revision, baseline_sha256=baseline_sha256)
+    bind_args = argparse.Namespace(run_id=args.run_id, session_id=args.session_id, revision=args.revision, baseline_sha256=baseline_sha256, baseline_path=_relative(root, path))
     _bind_baseline(bind_args, root / ".claude/state/slice_ledger.json", root / ".claude/state/slice_events.jsonl")
     return receipt
 
 
 def _attribute(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     ledger = _ledger(root, args)
-    baseline = _read_receipt(_receipt_path(root))
+    baseline = _read_receipt(_receipt_path(root, args.run_id))
     _assert_binding(baseline, ledger)
     current = snapshot(root, ledger["allowed_paths"])
-    return {
-        "schema_version": 1, "run_id": ledger["run_id"],
-        "baseline_event_hash": baseline["ledger_event_hash"],
-        "candidate_owned_is_authorship": False,
-        "classifications": classify(baseline["git"], current, ledger["allowed_paths"]),
-        "current": current,
-    }
+    return {**attribution_receipt(ledger, baseline, current), "candidate_owned_is_authorship": False, "current": current}
+
+
+def current_attribution(root: Path, ledger: dict[str, Any]) -> dict[str, Any]:
+    """Return exact current attribution facts for verification consumers."""
+    baseline = _read_receipt(_receipt_path(root, ledger["run_id"]))
+    _assert_binding(baseline, ledger)
+    return attribution_receipt(ledger, baseline, snapshot(root, ledger["allowed_paths"]))
 
 
 def main(argv: list[str] | None = None) -> int:

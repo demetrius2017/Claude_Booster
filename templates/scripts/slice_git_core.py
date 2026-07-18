@@ -14,6 +14,7 @@ contract-relevant files; callers persist receipts under .claude/state.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import stat
 import subprocess
@@ -311,3 +312,24 @@ def classify(baseline: dict[str, Any], current: dict[str, Any], allowed: list[st
                         by_path[path]["classification"] = "ambiguous"
                         by_path[path]["reasons"] = ["rename_crosses_contract_boundary"]
     return output
+
+
+def attribution_receipt(ledger: dict[str, Any], baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """Build deterministic, disjoint changed-path facts and exact state hash."""
+    classifications = classify(baseline["git"], current, ledger["allowed_paths"])
+    paths = [item["path"] for item in classifications]
+    if len(paths) != len(set(paths)) or any(item["classification"] not in {"candidate-owned", "foreign", "ambiguous", "off-scope"} for item in classifications):
+        raise GitFactError("classifications are not exhaustive and disjoint", 5)
+    state = {
+        "schema_version": 1, "run_id": ledger["run_id"], "slice_id": ledger["slice_id"],
+        "baseline_sha256": ledger["baseline_sha256"],
+        "artifact_contract_sha256": hashlib.sha256(ledger["artifact_contract"].encode()).hexdigest(),
+        "allowed_paths": ledger["allowed_paths"], "anchors": current["anchors"],
+        "porcelain_v2_sha256": current["porcelain_v2_sha256"],
+        "scoped_facts": current["scoped_facts"], "classifications": classifications,
+    }
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    state_sha256 = hashlib.sha256(canonical(state)).hexdigest()
+    receipt = {**state, "ledger_event_hash": ledger["last_event_hash"], "state_sha256": state_sha256}
+    receipt["attribution_sha256"] = hashlib.sha256(canonical(receipt)).hexdigest()
+    return receipt

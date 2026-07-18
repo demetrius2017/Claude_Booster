@@ -328,3 +328,31 @@ def test_unverifiable_owner_requires_fingerprinted_explicit_override(tmp_path: P
     assert recovery["payload"]["prior_owner_fingerprint"] == fingerprint
     assert recovery["payload"]["previous_owner"] == ledger["owner"]
     assert recovery["payload"]["reason"] == "remote session abandoned"
+
+
+def test_bind_subcommands_are_not_public_and_internal_baseline_bind_rejects_fakes(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _acquire(root)
+    for command in ("bind-baseline", "bind-verification"):
+        code, value = _run(root, command)
+        assert code == 2 and value["type"] == "error"
+    sys.path.insert(0, str(SCRIPT.parent))
+    try:
+        import slice_ledger as module
+        from argparse import Namespace
+        ledger, events, _ = _paths(root)
+        before = events.read_bytes()
+        run_hash = hashlib.sha256(b"run-1").hexdigest()
+        relative = f".claude/state/runs/{run_hash}/slice_baseline.json"
+        args = Namespace(run_id="run-1", session_id="s1", revision=1, baseline_sha256="0" * 64, baseline_path=relative)
+        with pytest.raises(module.LedgerError):
+            module._bind_baseline(args, ledger, events)
+        path = root / relative
+        path.parent.mkdir(parents=True)
+        path.write_text("{}\n")
+        os.chmod(path, 0o600)
+        with pytest.raises(module.LedgerError):
+            module._bind_baseline(args, ledger, events)
+        assert events.read_bytes() == before
+    finally:
+        sys.path.pop(0)

@@ -72,6 +72,10 @@ def _classes(value: dict) -> dict[str, dict]:
     return {item["path"]: item for item in value["result"]["classifications"]}
 
 
+def _baseline_path(repo: Path, run_id: str = "r1") -> Path:
+    return repo / ".claude/state/runs" / hashlib.sha256(run_id.encode()).hexdigest() / "slice_baseline.json"
+
+
 def test_porcelain_parser_preserves_modes_oids_xy_submodule_and_rename() -> None:
     ordinary = b"1 .M N... 100644 100644 100644 " + b"a" * 40 + b" " + b"b" * 40 + b" dir/a b.txt\0"
     rename = b"2 R. S.CU 100644 100755 100755 " + b"c" * 40 + b" " + b"d" * 40 + b" R100 new.txt\0old.txt\0"
@@ -196,7 +200,7 @@ def test_baseline_is_immutable_idempotent_and_bound_to_ledger(tmp_path: Path) ->
     repo = _repo(tmp_path, ["tracked.txt"])
     code, first = _capture(repo)
     assert code == 0
-    path = repo / ".claude" / "state" / "slice_baseline.json"
+    path = _baseline_path(repo)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert _capture(repo)[1]["result"] == first["result"]
     assert _invoke(GIT_CLI, repo, "capture", "--run-id", "wrong", "--session-id", "s1", "--revision", "1")[0] == 3
@@ -212,7 +216,7 @@ def test_baseline_is_immutable_idempotent_and_bound_to_ledger(tmp_path: Path) ->
 def test_receipt_link_permission_and_corruption_attacks_fail_closed(tmp_path: Path, attack: str) -> None:
     repo = _repo(tmp_path, ["tracked.txt"])
     _capture(repo)
-    path = repo / ".claude/state/slice_baseline.json"
+    path = _baseline_path(repo)
     if attack == "hardlink":
         os.link(path, tmp_path / "external")
     elif attack == "symlink":
@@ -245,7 +249,7 @@ def test_no_recursive_hashing_of_unrelated_untracked_tree(tmp_path: Path) -> Non
 def test_rewritten_receipt_with_valid_json_is_rejected_by_authoritative_event_hash(tmp_path: Path) -> None:
     repo = _repo(tmp_path, ["tracked.txt"])
     _capture(repo)
-    receipt_path = repo / ".claude/state/slice_baseline.json"
+    receipt_path = _baseline_path(repo)
     receipt = json.loads(receipt_path.read_text())
     receipt["git"]["porcelain_v2_sha256"] = "f" * 64
     receipt_path.write_text(json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n")
