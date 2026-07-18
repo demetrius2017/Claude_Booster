@@ -262,13 +262,13 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         for term in ("get_goal", "create_goal", "same turn"):
             if term not in combined_goal_text:
                 errors.append(f"installed autopilot goal contract missing {term!r}")
-        for term in ("slice_ledger.py", "slice_git.py", "slice_telemetry.py", "claude hooks/wrappers advisory; native codex observational/no enforcement", "transcript discovery"):
+        for term in ("slice_ledger.py", "slice_git.py", "slice_telemetry.py", "slice_calibration.py", "session-start", "durable prerequisite", "operation_failed", "control-na", "session-terminal", "no backfill", "claude hooks/wrappers advisory; native codex observational/no enforcement", "transcript discovery"):
             if term not in combined_goal_text:
                 errors.append(f"installed advisory telemetry contract missing {term!r}")
 
         # Main installer delivery: the bridge command specs depend on these
         # project-agnostic CLIs, so a fresh temp HOME must receive exact bytes.
-        for script_name in ("slice_telemetry.py", "slice_telemetry_core.py"):
+        for script_name in ("slice_telemetry.py", "slice_telemetry_core.py", "slice_calibration.py", "slice_calibration_core.py", "slice_session_registry_core.py"):
             source = ROOT / "templates" / "scripts" / script_name
             installed = Path(home) / ".claude" / "scripts" / script_name
             if not installed.is_file():
@@ -298,9 +298,33 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         directional_state = {"version": 1, "enabled": True, "scope": str(project), "north_star": "test", "calls_used": 0, "max_fable_calls": 3, "degraded": False, "decision_policy": "delegate_except_ui_and_hard_authority", "reservations": {}, "checkpoints": [], "provenance": []}
         directional.write_text(json.dumps(directional_state), encoding="utf-8")
         scripts = Path(home) / ".claude" / "scripts"
-        ledger_cli, git_cli, telemetry_cli = scripts / "slice_ledger.py", scripts / "slice_git.py", scripts / "slice_telemetry.py"
+        ledger_cli, git_cli, telemetry_cli, calibration_cli = scripts / "slice_ledger.py", scripts / "slice_git.py", scripts / "slice_telemetry.py", scripts / "slice_calibration.py"
+
+        failed_project = Path(home) / "failed-activation-project"
+        failed_project.mkdir(); _run(["git", "init", "-q", str(failed_project)], home)
+        failed_registry = failed_project / ".claude/state/slice_session_events.jsonl"
+        failed_registry.parent.mkdir(parents=True); failed_registry.write_text("{\n", encoding="utf-8"); failed_registry.chmod(0o600)
+        failed_activation = _run([sys.executable, str(calibration_cli), "--cwd", str(failed_project), "session-start", "--run-id", "failed-run", "--session-id", "failed-session", "--provider", "codex_rollout_v1", "--artifact-domain", "implementation", "--expected-control", "ledger"], home)
+        # This branch is the executable fail-closed orchestration contract:
+        # acquire is reachable only after durable activation succeeds.
+        failed_acquire = None
+        if failed_activation.returncode == 0:
+            failed_acquire = _run([sys.executable, str(ledger_cli), "--cwd", str(failed_project), "acquire", "--slice-id", "forbidden", "--artifact-contract", "must not start", "--allowed-path", "work.txt", "--session-id", "failed-session", "--run-id", "failed-run"], home)
+        if failed_activation.returncode == 0 or failed_acquire is not None or (failed_project / ".claude/state/slice_ledger.json").exists():
+            errors.append("failed durable session-start did not gate acquire fail-closed")
+
+        activation = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "session-start", "--run-id", "run-test", "--session-id", "session-test", "--provider", "codex_rollout_v1", "--artifact-domain", "implementation", "--expected-control", "ledger", "--expected-control", "git", "--expected-control", "verification", "--expected-control", "closure"], home)
+        ledger_control_start = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-start", "--run-id", "run-test", "--session-id", "session-test", "--kind", "ledger"], home)
+        if activation.returncode != 0 or ledger_control_start.returncode != 0:
+            errors.append(f"installed calibration activation/control failed: activation={activation.stderr.strip()} control={ledger_control_start.stderr.strip()}")
 
         acquire = _run([sys.executable, str(ledger_cli), "--cwd", str(project), "acquire", "--slice-id", "slice-test", "--artifact-contract", "change work.txt", "--allowed-path", "work.txt", "--session-id", "session-test", "--run-id", "run-test"], home)
+        if acquire.returncode == 0:
+            ledger_control_end = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-end", "--run-id", "run-test", "--session-id", "session-test", "--kind", "ledger"], home)
+        else:
+            ledger_control_end = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-na", "--run-id", "run-test", "--session-id", "session-test", "--kind", "ledger", "--reason", "operation_failed"], home)
+        if ledger_control_end.returncode != 0:
+            errors.append(f"installed ledger control completion failed: {ledger_control_end.stderr.strip()}")
         if acquire.returncode != 0:
             errors.append(f"installed acquire failed: {acquire.stderr.strip()}")
         else:
@@ -315,9 +339,27 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         if json.loads(directional.read_text(encoding="utf-8")).get("enabled") is not True:
             errors.append("failed advisory capture changed directional goal state")
 
+        git_control_start = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-start", "--run-id", "run-test", "--session-id", "session-test", "--kind", "git"], home)
         capture = _run([sys.executable, str(git_cli), "--cwd", str(project), "capture", "--run-id", "run-test", "--session-id", "session-test", "--revision", "1"], home)
+        git_control_end = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-end" if capture.returncode == 0 else "control-na", "--run-id", "run-test", "--session-id", "session-test", "--kind", "git", *([] if capture.returncode == 0 else ["--reason", "operation_failed"])], home)
         if capture.returncode != 0:
             errors.append(f"installed capture failed: {capture.stderr.strip()}")
+        if git_control_start.returncode != 0 or git_control_end.returncode != 0:
+            errors.append("installed git control pair failed")
+        unavailable = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-na", "--run-id", "run-test", "--session-id", "session-test", "--kind", "verification", "--reason", "native_surface_unavailable"], home)
+        closure_unavailable = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-na", "--run-id", "run-test", "--session-id", "session-test", "--kind", "closure", "--reason", "capability_missing"], home)
+        registry_path = project / ".claude/state/slice_session_events.jsonl"
+        if unavailable.returncode != 0 or closure_unavailable.returncode != 0 or not registry_path.is_file():
+            errors.append("installed typed UNKNOWN/registry missing")
+        else:
+            registry_types = [json.loads(line)["type"] for line in registry_path.read_text(encoding="utf-8").splitlines()]
+            if registry_types != ["activated", "control_started", "control_ended", "control_started", "control_ended", "control_unavailable", "control_unavailable"]:
+                errors.append(f"installed prospective registry sequence wrong: {registry_types}")
+        window = project / "window.json"
+        window.write_text(json.dumps({"schema_version": 1, "window_id": "integration", "started_at": "2000-01-01T00:00:00Z", "ended_at": "2099-01-01T00:00:00Z"}), encoding="utf-8")
+        promotion = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "evaluate", "--window-file", str(window)], home)
+        if promotion.returncode == 0:
+            errors.append("missing terminal/calibration evidence unexpectedly produced promotion")
         transcript = Path(home) / "sanitized-rollout.jsonl"
         transcript_rows = [
             {"timestamp": "2026-01-01T00:00:00Z", "type": "session_meta", "payload": {"id": "session-test", "session_id": "session-test", "parent_thread_id": None, "thread_source": "user", "source": "user", "cwd": str(project), "cli_version": "0.145.0-alpha.13"}},

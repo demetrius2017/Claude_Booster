@@ -21,6 +21,7 @@ EVENT_KEYS = {"schema_version", "sequence", "timestamp", "monotonic_ns", "type",
 TYPES = {"activated", "control_started", "control_ended", "control_unavailable", "verification_attempt", "terminal", "domain_outcome", "excluded"}
 PROVIDERS = {"codex_rollout_v1", "booster_wrapper_v1"}
 CONTROL_KINDS = {"ledger", "git", "verification", "closure", "telemetry", "calibration"}
+CONTROL_NA_REASONS = {"native_surface_unavailable", "operation_failed", "capability_missing"}
 EXCLUSION_REASONS = {"unsupported_provider", "corrupt_source", "operator_cancelled"}
 
 
@@ -54,7 +55,7 @@ def read_events(raw_lines: list[bytes]) -> list[dict[str, Any]]:
         for name in ("run_id_hash", "session_id_hash"): _hash(payload.get(name), name)
         if event["type"] == "activated" and (set(payload) != {"run_id_hash", "session_id_hash", "provider", "artifact_domain", "expected_controls"} or payload["provider"] not in PROVIDERS or not isinstance(payload["artifact_domain"], str) or not payload["artifact_domain"] or not isinstance(payload["expected_controls"], list) or not payload["expected_controls"] or len(set(payload["expected_controls"])) != len(payload["expected_controls"]) or any(kind not in CONTROL_KINDS for kind in payload["expected_controls"])): raise RegistryError("activation payload invalid", 4)
         if event["type"] in {"control_started", "control_ended"} and (set(payload) != {"run_id_hash", "session_id_hash", "kind"} or payload["kind"] not in CONTROL_KINDS): raise RegistryError("control payload invalid", 4)
-        if event["type"] == "control_unavailable" and (set(payload) != {"run_id_hash", "session_id_hash", "kind", "reason"} or payload["kind"] not in CONTROL_KINDS or not isinstance(payload["reason"], str) or not payload["reason"]): raise RegistryError("control unavailable payload invalid", 4)
+        if event["type"] == "control_unavailable" and (set(payload) != {"run_id_hash", "session_id_hash", "kind", "reason"} or payload["kind"] not in CONTROL_KINDS or payload["reason"] not in CONTROL_NA_REASONS): raise RegistryError("control unavailable payload invalid", 4)
         if event["type"] == "verification_attempt" and (set(payload) != {"run_id_hash", "session_id_hash", "status", "receipt_sha256"} or payload["status"] not in {"pass", "fail"}): raise RegistryError("verification payload invalid", 4)
         if event["type"] == "verification_attempt": _hash(payload["receipt_sha256"], "verification receipt")
         if event["type"] == "terminal" and set(payload) != {"run_id_hash", "session_id_hash", "ledger_tail_hash", "handoff_sha256", "terminal_at"}: raise RegistryError("terminal payload invalid", 4)

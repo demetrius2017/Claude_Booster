@@ -54,7 +54,7 @@ def _parser() -> argparse.ArgumentParser:
         command = sub.add_parser(name); command.add_argument("--run-id", required=True); command.add_argument("--session-id", required=True)
         if name == "session-start": command.add_argument("--provider", required=True); command.add_argument("--artifact-domain", required=True); command.add_argument("--expected-control", action="append", required=True)
         elif name in {"control-start", "control-end"}: command.add_argument("--kind", required=True)
-        elif name == "control-na": command.add_argument("--kind", required=True); command.add_argument("--reason", required=True)
+        elif name == "control-na": command.add_argument("--kind", required=True); command.add_argument("--reason", required=True, choices=("native_surface_unavailable", "operation_failed", "capability_missing"))
         elif name == "verification-attempt": command.add_argument("--status", required=True); command.add_argument("--receipt-file", required=True)
         elif name == "session-terminal": command.add_argument("--ledger-tail-hash", required=True); command.add_argument("--handoff-sha256", required=True); command.add_argument("--terminal-at", required=True)
         elif name == "domain-outcome": command.add_argument("--next-domain", required=True)

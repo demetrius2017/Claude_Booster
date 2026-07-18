@@ -74,7 +74,7 @@ def test_zero_parser_expectation_is_unavailable_and_blocks():
 def test_first_pass_comes_from_first_registry_attempt(): assert run(ev=registry(first_fail=True))["metrics"]["exact_state_first_pass"]["numerator"] == 9
 def test_open_control_blocks_overhead(): assert run(ev=registry(open_control=True))["verdict"] == "INSUFFICIENT_SAMPLE"
 def test_typed_control_na_still_blocks_promotion_claim():
-    events=registry(); start=next(item for item in events if item["type"]=="control_started"); start["type"]="control_unavailable"; start["payload"]={**start["payload"],"reason":"provider did not expose timing"}
+    events=registry(); start=next(item for item in events if item["type"]=="control_started"); start["type"]="control_unavailable"; start["payload"]={**start["payload"],"reason":"native_surface_unavailable"}
     events.remove(next(item for item in events if item["type"]=="control_ended" and item["payload"]["session_id_hash"]==start["payload"]["session_id_hash"]))
     assert run(ev=events)["verdict"] == "INSUFFICIENT_SAMPLE"
 def test_foreign_commit_stop_precedence():
@@ -113,3 +113,9 @@ def test_cli_real_registry_record_evaluate_fail_closed_and_tamper(tmp_path):
     registry_path=repo/".claude/state/slice_session_events.jsonl"; registry_path.write_text(registry_path.read_text()+"{\n"); registry_path.chmod(0o600)
     tampered=call("control-start","--run-id","r","--session-id","s","--kind","ledger")
     assert tampered.returncode!=0 and json.loads(tampered.stderr)["type"]=="error"
+def test_control_na_rejects_arbitrary_reason(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True); cli=SCRIPTS/"slice_calibration.py"
+    def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+    assert call("session-start","--run-id","r","--session-id","s","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger").returncode==0
+    bad=call("control-na","--run-id","r","--session-id","s","--kind","ledger","--reason","made up prose")
+    assert bad.returncode==2 and json.loads(bad.stderr)["type"]=="error"

@@ -90,7 +90,12 @@ Execute the command behavior, not the literal Claude Code tool names.
   create goals. A successful activation must immediately start the first
   autonomous North-Star step in the same turn, not end at setup confirmation.
 - Autopilot slice instrumentation is advisory. After its first artifact
-  contract, use installed `slice_ledger.py acquire` then `slice_git.py capture`.
+  contract, prospectively record `slice_calibration.py session-start`, then use
+  paired controls around installed `slice_ledger.py acquire` and `slice_git.py
+  capture`. Session-start failure aborts managed slice work before acquire;
+  control-end means success only, while failure records typed
+  `control-na --reason operation_failed`. Bind verification/terminal/domain events only at real wrapper
+  lifecycle points; unsupported native Codex is typed UNKNOWN, never backfill.
   Status reads only cached `slice_telemetry.py status` evidence and must say
   `Claude hooks/wrappers advisory; native Codex observational/no enforcement`;
   it never scans transcript stores. Directional autopilot state remains

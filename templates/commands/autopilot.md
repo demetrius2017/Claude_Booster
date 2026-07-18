@@ -158,13 +158,39 @@ For `on <North Star>`, after the host goal has been created or retained and the
 first coherent roadmap step has supplied an artifact contract plus explicit
 allowed paths, create fresh UUID identifiers for `run_id` and the wrapper
 session. Retain the real host session identifier when it is available; record
-the generated wrapper identifier otherwise. Then call the installed tools in
-this order, using the revision returned by each command:
+the generated wrapper identifier otherwise. There is no backfill: immediately
+record the activation, then call the installed tools in this order, using the
+revision returned by each command:
 
 ```text
+python3 ~/.claude/scripts/slice_calibration.py --cwd <root> session-start --run-id <run> --session-id <session> --provider <codex_rollout_v1|booster_wrapper_v1> --artifact-domain <domain> --expected-control ledger --expected-control git --expected-control verification --expected-control closure
 python3 ~/.claude/scripts/slice_ledger.py --cwd <root> acquire --slice-id <slice> --artifact-contract <contract> --allowed-path <path> --session-id <session> --run-id <run>
 python3 ~/.claude/scripts/slice_git.py --cwd <root> capture --run-id <run> --session-id <session> --revision 1
 ```
+
+`session-start` is a durable prerequisite, not best-effort telemetry. If it
+returns nonzero, abort slice activation and the instrumented work step: do not
+run acquire, capture, or claim a measured session. The directional autopilot
+and matching host goal may remain active, but no managed slice begins. Print
+the typed failure and retry prospectively; never backfill work performed while
+the registry was unavailable.
+
+Enclose every Booster-owned operation in matching `slice_calibration.py
+control-start|control-end --kind <kind>` events; emit the end only after the
+owned command succeeds. On nonzero/failure emit `control-na --reason
+operation_failed` and stop that managed step, never a successful end. When a
+wrapper cannot observe the operation, including
+an unsupported native Codex surface, record `control-na --kind <kind> --reason
+native_surface_unavailable`; use `capability_missing` only for an absent owned
+capability. These are the complete reason enum. UNKNOWN blocks promotion. Never synthesize paired
+events from prose or after the fact.
+
+At every Booster-owned verification invocation, append `verification-attempt`
+with its actual receipt and status. When `slice_close.py close` creates the
+terminal handoff, append `session-terminal` using the exact closed ledger tail,
+handoff SHA-256, and handoff `terminal_at`; only then append `domain-outcome`
+with the actual next domain. A failed wrapper call leaves missing/UNKNOWN
+evidence and cannot produce PASS.
 
 This is advisory instrumentation. A failure must be printed as a typed
 diagnostic with the failed command and exit status. It must not be described as
@@ -197,3 +223,5 @@ placeholders, or guessed transcript path.
 backlog, handoff, or telemetry history. If a slice is active, surface its typed
 state and the appropriate `slice_close.py close` disposition requirement. Do
 not invent a terminal disposition or close it merely because autopilot stopped.
+Neither `status` nor `off` appends activation, controls, attempts, terminal, or
+domain events: cached reads are not lifecycle facts.

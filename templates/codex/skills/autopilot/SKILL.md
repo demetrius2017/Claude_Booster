@@ -28,8 +28,16 @@ the first autonomous North-Star/roadmap step in the same turn; never end the
 activation turn with only setup confirmation or status.
 
 After the first concrete artifact contract and allowed paths are known, follow
-the command spec's advisory slice sequence: generate run/wrapper-session UUIDs,
-call installed `slice_ledger.py acquire`, then `slice_git.py capture`. Failure is
+the prospective command sequence: generate concrete run/wrapper-session UUIDs,
+immediately call installed `slice_calibration.py session-start`, then wrap
+`slice_ledger.py acquire` and `slice_git.py capture` in paired control events.
+Treat durable session-start as a prerequisite: on failure do not acquire,
+capture, or begin managed slice work, although directional autopilot may remain
+active. Emit control-end only after success; failures use typed
+`control-na --reason operation_failed` and remain non-PASS.
+Record real verification, exact hash-bound terminal, and actual domain events
+only at Booster-owned lifecycle points. Unsupported native Codex uses typed
+`control-na` UNKNOWN; never backfill or fabricate evidence. Failure is
 an explicit diagnostic, not native enforcement, and does not silently stop the
 first safe work step. `status` uses cached ledger/close/telemetry status only—no
 transcript discovery—and reports `Claude hooks/wrappers advisory; native Codex

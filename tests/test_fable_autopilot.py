@@ -549,7 +549,7 @@ def main() -> int:
         for term in ("plan_complete", "first_slice", "final_diff", "on_course", "refocus", "replan", "ask_user"):
             check(term in codex_contract, f"Codex parity exposes checkpoint contract: {term}")
         advisory_contract = (COMMAND.read_text(encoding="utf-8") + codex_contract).lower()
-        for term in ("slice_ledger.py", "acquire", "slice_git.py", "capture", "slice_telemetry.py", "status", "no enforcement", "transcript discovery", "separate"):
+        for term in ("slice_ledger.py", "acquire", "slice_git.py", "capture", "slice_telemetry.py", "slice_calibration.py", "session-start", "durable prerequisite", "operation_failed", "control-na", "session-terminal", "no backfill", "status", "no enforcement", "transcript discovery", "separate"):
             check(term in advisory_contract, f"autopilot advisory slice contract exposes {term}")
         check("off" in advisory_contract and "fabricates closure" in advisory_contract, "autopilot off preserves active slice truth")
         check("slice_telemetry.py ... record" not in advisory_contract, "advisory contract never emits an ellipsis record command")
