@@ -174,6 +174,7 @@ def _acquire(args: argparse.Namespace, ledger: Path, events_path: Path) -> dict[
         "schema_version": 1, "revision": 1, "run_id": args.run_id or str(uuid.uuid4()),
         "slice_id": args.slice_id, "artifact_contract": args.artifact_contract,
         "allowed_paths": paths, "state": "active", "terminal_disposition": None,
+        "baseline_sha256": None,
         "owner": _owner(args.session_id), "created_at": now, "updated_at": now,
     }
     event = _append(events_path, "acquired", payload, events)
@@ -251,6 +252,29 @@ def _recover(args: argparse.Namespace, ledger: Path, events_path: Path) -> dict[
     return state
 
 
+def _bind_baseline(args: argparse.Namespace, ledger: Path, events_path: Path) -> dict[str, Any]:
+    """Append the authoritative hash binding for one immutable baseline receipt."""
+    state, events = _load(ledger, events_path)
+    if state is None or state["state"] != "active":
+        raise LedgerError("active slice required for baseline binding", CONFLICT)
+    if (
+        events and events[-1]["type"] == "baseline_bound"
+        and state["run_id"] == args.run_id and state["owner"]["session_id"] == args.session_id
+        and state["revision"] == args.revision + 1 and state["baseline_sha256"] == args.baseline_sha256
+    ):
+        return state
+    _guards(state, args)
+    if state["baseline_sha256"] is not None:
+        raise LedgerError("baseline is already authoritatively bound", CONFLICT)
+    if len(args.baseline_sha256) != 64 or any(char not in "0123456789abcdef" for char in args.baseline_sha256):
+        raise LedgerError("baseline SHA256 must be lowercase hexadecimal", USAGE)
+    payload = {"run_id": state["run_id"], "revision": state["revision"] + 1, "updated_at": _now(), "baseline_sha256": args.baseline_sha256}
+    event = _append(events_path, "baseline_bound", payload, events)
+    state.update(baseline_sha256=args.baseline_sha256, revision=payload["revision"], updated_at=payload["updated_at"], last_event_hash=event["hash"])
+    _atomic_projection(ledger, state)
+    return state
+
+
 def _positive_int(value: str) -> int:
     try:
         parsed = int(value)
@@ -283,6 +307,11 @@ def _parser() -> argparse.ArgumentParser:
     release.add_argument("--run-id", required=True)
     release.add_argument("--session-id", required=True)
     release.add_argument("--revision", type=_positive_int, required=True)
+    bind = sub.add_parser("bind-baseline")
+    bind.add_argument("--run-id", required=True)
+    bind.add_argument("--session-id", required=True)
+    bind.add_argument("--revision", type=_positive_int, required=True)
+    bind.add_argument("--baseline-sha256", required=True)
     recover = sub.add_parser("recover")
     recover.add_argument("--run-id", required=True)
     recover.add_argument("--revision", type=_positive_int, required=True)
@@ -304,6 +333,8 @@ def main(argv: list[str] | None = None) -> int:
                 state = _update(args, ledger, events)
             elif args.command == "release":
                 state = _release(args, ledger, events)
+            elif args.command == "bind-baseline":
+                state = _bind_baseline(args, ledger, events)
             elif args.command == "recover":
                 state = _recover(args, ledger, events)
             else:

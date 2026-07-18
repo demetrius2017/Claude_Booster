@@ -59,6 +59,7 @@ def test_acquire_status_idempotency_schema_permissions_and_release(tmp_path: Pat
     assert ledger["schema_version"] == 1
     assert ledger["revision"] == 1 and ledger["state"] == "active"
     assert ledger["terminal_disposition"] is None
+    assert ledger["baseline_sha256"] is None
     assert ledger["allowed_paths"] == sorted(ledger["allowed_paths"])
     assert set(ledger["owner"]) == {"session_id", "pid", "hostname", "process_start"}
 

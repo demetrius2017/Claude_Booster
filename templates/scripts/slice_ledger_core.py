@@ -30,14 +30,16 @@ DISPOSITIONS = {None}
 LEDGER_KEYS = {
     "schema_version", "revision", "run_id", "slice_id", "artifact_contract",
     "allowed_paths", "state", "terminal_disposition", "owner", "created_at",
-    "updated_at", "last_event_hash",
+    "updated_at", "last_event_hash", "baseline_sha256",
 }
+LEGACY_LEDGER_KEYS = LEDGER_KEYS - {"baseline_sha256"}
 OWNER_KEYS = {"session_id", "pid", "hostname", "process_start"}
 EVENT_KEYS = {"schema_version", "sequence", "timestamp", "type", "payload", "previous_hash", "hash"}
 ACQUIRE_PAYLOAD_KEYS = LEDGER_KEYS - {"last_event_hash"}
 RELEASE_PAYLOAD_KEYS = {"run_id", "revision", "updated_at"}
 UPDATE_PAYLOAD_KEYS = RELEASE_PAYLOAD_KEYS | {"artifact_contract", "allowed_paths", "owner"}
 RECOVER_PAYLOAD_KEYS = RELEASE_PAYLOAD_KEYS | {"reason", "previous_owner", "new_owner", "override_unverifiable", "prior_owner_fingerprint"}
+BASELINE_PAYLOAD_KEYS = RELEASE_PAYLOAD_KEYS | {"baseline_sha256"}
 
 
 class LedgerError(Exception):
@@ -145,6 +147,8 @@ def _validate_ledger(value: Any) -> dict[str, Any]:
     _validate_timestamp(value["created_at"], "created_at")
     _validate_timestamp(value["updated_at"], "updated_at")
     _validate_hash(value["last_event_hash"], "last_event_hash")
+    if value["baseline_sha256"] is not None:
+        _validate_hash(value["baseline_sha256"], "baseline_sha256")
     return value
 
 
@@ -185,15 +189,18 @@ def _read_events(path: Path) -> list[dict[str, Any]]:
         expected = _event_hash(unsigned)
         if event["hash"] != expected:
             raise LedgerError("event content hash mismatch", CORRUPT)
-        if event["type"] not in {"acquired", "updated", "released", "recovered"} or not isinstance(event["payload"], dict):
+        if event["type"] not in {"acquired", "updated", "released", "recovered", "baseline_bound"} or not isinstance(event["payload"], dict):
             raise LedgerError("invalid event type/payload", CORRUPT)
         expected_payload_keys = {
             "acquired": ACQUIRE_PAYLOAD_KEYS,
             "updated": UPDATE_PAYLOAD_KEYS,
             "released": RELEASE_PAYLOAD_KEYS,
             "recovered": RECOVER_PAYLOAD_KEYS,
+            "baseline_bound": BASELINE_PAYLOAD_KEYS,
         }[event["type"]]
-        if set(event["payload"]) != expected_payload_keys:
+        payload_keys = set(event["payload"])
+        legacy_acquire = event["type"] == "acquired" and payload_keys == ACQUIRE_PAYLOAD_KEYS - {"baseline_sha256"}
+        if payload_keys != expected_payload_keys and not legacy_acquire:
             raise LedgerError("event payload schema mismatch", CORRUPT)
         previous = expected
         chain.append(event)
@@ -208,6 +215,7 @@ def _project(events: list[dict[str, Any]]) -> dict[str, Any] | None:
             if state is not None:
                 raise LedgerError("second acquire in one event history", CORRUPT)
             state = dict(payload)
+            state.setdefault("baseline_sha256", None)
             state["last_event_hash"] = event["hash"]
         elif event["type"] == "updated":
             if state is None or state["state"] != "active":
@@ -227,6 +235,13 @@ def _project(events: list[dict[str, Any]]) -> dict[str, Any] | None:
                 owner=payload["owner"], revision=payload["revision"], updated_at=payload["updated_at"],
                 last_event_hash=event["hash"],
             )
+        elif event["type"] == "baseline_bound":
+            if state is None or state["state"] != "active" or state["baseline_sha256"] is not None:
+                raise LedgerError("baseline binding violates lifecycle", CORRUPT)
+            if payload["run_id"] != state["run_id"] or payload["revision"] != state["revision"] + 1:
+                raise LedgerError("baseline binding guard mismatch", CORRUPT)
+            _validate_hash(payload["baseline_sha256"], "baseline_sha256")
+            state.update(baseline_sha256=payload["baseline_sha256"], revision=payload["revision"], updated_at=payload["updated_at"], last_event_hash=event["hash"])
         elif event["type"] == "released":
             if state is None or state["state"] != "active":
                 raise LedgerError("release event violates lifecycle", CORRUPT)
@@ -263,7 +278,10 @@ def _read_projection(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
     try:
-        return _validate_ledger(json.loads(_read_secure(path, "ledger projection")))
+        value = json.loads(_read_secure(path, "ledger projection"))
+        if isinstance(value, dict) and set(value) == LEGACY_LEDGER_KEYS:
+            value["baseline_sha256"] = None
+        return _validate_ledger(value)
     except LedgerError:
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
