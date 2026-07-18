@@ -24,15 +24,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from slice_git_core import GitFactError, attribution_receipt, snapshot
+from slice_git_core import GitFactError, attribution_receipt, classify, snapshot
 from slice_ledger import _bind_baseline, _git_root, _locked
-from slice_ledger_core import LedgerError, _atomic_projection, _canonical, _load, _validate_relpath
+from slice_ledger_core import LedgerError, _append, _atomic_projection, _canonical, _failed_verification_binding, _load, _now, _validate_relpath
 
 OK, USAGE, CONFLICT, CORRUPT, UNSUPPORTED, IO_ERROR = 0, 2, 3, 4, 5, 6
 RECEIPT_KEYS = {
     "schema_version", "run_id", "slice_id", "ledger_revision", "ledger_event_hash",
     "artifact_contract_sha256", "allowed_paths", "captured_at", "git",
 }
+REFRESH_KEYS = RECEIPT_KEYS | {"generation", "lineage", "state_sha256"}
 
 
 class Parser(argparse.ArgumentParser):
@@ -56,7 +57,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = Parser(description=__doc__)
     parser.add_argument("--cwd", default=".")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("capture", "attribute"):
+    for name in ("capture", "attribute", "refresh"):
         command = commands.add_parser(name)
         command.add_argument("--run-id", required=True)
         command.add_argument("--session-id", required=True)
@@ -95,6 +96,10 @@ def _receipt_path(root: Path, run_id: str) -> Path:
     return _run_dir(root, run_id) / "slice_baseline.json"
 
 
+def _latest_receipt_path(root: Path, ledger: dict[str, Any]) -> Path:
+    return root / ledger["baseline_path"] if ledger.get("baseline_path") else _receipt_path(root,ledger["run_id"])
+
+
 def _relative(root: Path, path: Path) -> str:
     return path.relative_to(root).as_posix()
 
@@ -127,7 +132,7 @@ def _read_receipt(path: Path) -> dict[str, Any]:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise GitFactError("corrupt baseline receipt JSON", CORRUPT) from exc
     if (
-        not isinstance(value, dict) or set(value) != RECEIPT_KEYS
+        not isinstance(value, dict) or frozenset(value) not in {frozenset(RECEIPT_KEYS),frozenset(REFRESH_KEYS)}
         or not isinstance(value["schema_version"], int) or isinstance(value["schema_version"], bool)
         or value["schema_version"] != 1
     ):
@@ -145,6 +150,7 @@ def _read_receipt(path: Path) -> dict[str, Any]:
         raise GitFactError("invalid baseline allowed_paths", CORRUPT)
     if not isinstance(value["git"], dict):
         raise GitFactError("invalid baseline git snapshot", CORRUPT)
+    if set(value) == REFRESH_KEYS and (not isinstance(value["generation"],int) or isinstance(value["generation"],bool) or value["generation"] < 2 or not isinstance(value["lineage"],dict) or set(value["lineage"]) != {"root_baseline_sha256","previous_baseline_sha256","failed_verification_sha256","expansion_event_hash"} or any(not isinstance(value["lineage"][key],str) or len(value["lineage"][key]) != 64 for key in value["lineage"]) or not isinstance(value["state_sha256"],str) or len(value["state_sha256"]) != 64): raise GitFactError("invalid refreshed baseline lineage",CORRUPT)
     return value
 
 
@@ -196,19 +202,75 @@ def _capture(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     return receipt
 
 
+def _refresh(root: Path, args: argparse.Namespace) -> dict[str, Any]:
+    """Append the next generation after a provenance-bound post-FAIL expansion."""
+    state_dir=root/".claude/state"; ledger_path=state_dir/"slice_ledger.json"; events_path=state_dir/"slice_events.jsonl"
+    state,events=_load(ledger_path,events_path)
+    if state and events and events[-1]["type"]=="baseline_refreshed" and state["run_id"]==args.run_id and state["owner"]["session_id"]==args.session_id and state["revision"]==args.revision+1:
+        receipt=_read_receipt(root/state["baseline_path"]); _assert_refresh_binding(receipt,state,events[-1]); return receipt
+    state=_ledger(root,args)
+    if not events or events[-1]["type"]!="contract_expanded" or not events[-1]["payload"]["post_fail_repair"]: raise GitFactError("refresh requires latest post-FAIL contract expansion",CONFLICT)
+    failed=_failed_verification_binding(state,root)
+    if not failed or events[-1]["payload"]["failed_verification_sha256"]!=failed: raise GitFactError("refresh FAIL binding mismatch",CONFLICT)
+    previous=_read_receipt(_latest_receipt_path(root,state)); previous_sha=hashlib.sha256(_canonical(previous)).hexdigest()
+    if previous_sha!=state["baseline_sha256"]: raise GitFactError("previous baseline binding mismatch",CORRUPT)
+    generation=previous.get("generation",1)+1; path=_run_dir(root,args.run_id)/f"slice_baseline_v{generation}.json"
+    if path.exists(): raise GitFactError("unbound preexisting refreshed baseline is untrusted",CONFLICT)
+    before=snapshot(root,state["allowed_paths"])
+    if snapshot(root,state["allowed_paths"])!=before: raise GitFactError("state changed during baseline refresh",CONFLICT)
+    state_sha=hashlib.sha256(_canonical(before)).hexdigest(); root_sha=previous.get("lineage",{}).get("root_baseline_sha256",previous_sha)
+    lineage={"root_baseline_sha256":root_sha,"previous_baseline_sha256":previous_sha,"failed_verification_sha256":failed,"expansion_event_hash":state["last_event_hash"]}
+    receipt={"schema_version":1,**_binding(state),"captured_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z"),"git":before,"generation":generation,"lineage":lineage,"state_sha256":state_sha}
+    _atomic_projection(path,receipt)
+    sha=hashlib.sha256(_canonical(receipt)).hexdigest(); payload={"run_id":state["run_id"],"revision":state["revision"]+1,"updated_at":_now(),"baseline_sha256":sha,"baseline_path":_relative(root,path),"previous_baseline_sha256":previous_sha,"root_baseline_sha256":root_sha,"generation":generation,"failed_verification_sha256":failed,"expansion_event_hash":state["last_event_hash"],"state_sha256":state_sha}
+    event=_append(events_path,"baseline_refreshed",payload,events); state.update(baseline_sha256=sha,baseline_path=payload["baseline_path"],revision=payload["revision"],updated_at=payload["updated_at"],last_event_hash=event["hash"]); _atomic_projection(ledger_path,state)
+    return receipt
+
+
+def _assert_refresh_binding(receipt: dict[str, Any], ledger: dict[str, Any], event: dict[str, Any]) -> None:
+    """Cross-check a refreshed receipt against its notarizing ledger event."""
+    _assert_binding(receipt,ledger); payload=event["payload"]; lineage=receipt["lineage"]
+    expected={"generation":payload["generation"],"state_sha256":payload["state_sha256"]}
+    if any(receipt[key]!=value for key,value in expected.items()) or any(lineage[key]!=payload[key] for key in lineage) or receipt["ledger_event_hash"]!=payload["expansion_event_hash"]: raise GitFactError("refreshed baseline receipt/event mismatch",CORRUPT)
+
+
+def _lineage_attribution(root: Path, ledger: dict[str, Any], latest: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """Preserve v1 ownership while admitting new paths conservatively at vN."""
+    if "generation" not in latest: return attribution_receipt(ledger,latest,current)
+    _,events=_load(root/".claude/state/slice_ledger.json",root/".claude/state/slice_events.jsonl")
+    notarization=next((event for event in reversed(events) if event["type"]=="baseline_refreshed" and event["payload"]["baseline_sha256"]==ledger["baseline_sha256"]),None)
+    if notarization is None: raise GitFactError("refreshed baseline event missing",CORRUPT)
+    _assert_refresh_binding(latest,ledger,notarization)
+    root_receipt=_read_receipt(_receipt_path(root,ledger["run_id"])); root_sha=hashlib.sha256(_canonical(root_receipt)).hexdigest()
+    if root_sha!=latest["lineage"]["root_baseline_sha256"]: raise GitFactError("root baseline lineage unavailable",CORRUPT)
+    old=set(root_receipt["allowed_paths"]); added=set(ledger["allowed_paths"])-old
+    root_dirty={entry["path"] for entry in root_receipt["git"]["entries"]}|{entry["original_path"] for entry in root_receipt["git"]["entries"] if entry.get("original_path")}
+    same_anchors=root_receipt["git"]["anchors"]==latest["git"]["anchors"]
+    eligible=set()
+    for path in added:
+        fact=latest["git"]["scoped_facts"].get(path); stages=fact.get("index_stages",[]) if isinstance(fact,dict) else []
+        if same_anchors and path not in root_dirty and fact and fact.get("head_blob") and len(stages)==1 and stages[0].get("stage")=="0" and stages[0].get("oid")==fact["head_blob"]: eligible.add(path)
+    latest_items={item["path"]:item for item in classify(latest["git"],current,ledger["allowed_paths"])}
+    root_items={item["path"]:item for item in classify(root_receipt["git"],current,sorted(old|eligible))}
+    for path in old|eligible:
+        if path in root_items: latest_items[path]=root_items[path]
+        else: latest_items.pop(path,None)
+    return attribution_receipt(ledger,latest,current,classifications=[latest_items[path] for path in sorted(latest_items)])
+
+
 def _attribute(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     ledger = _ledger(root, args)
-    baseline = _read_receipt(_receipt_path(root, args.run_id))
+    baseline = _read_receipt(_latest_receipt_path(root,ledger))
     _assert_binding(baseline, ledger)
     current = snapshot(root, ledger["allowed_paths"])
-    return {**attribution_receipt(ledger, baseline, current), "candidate_owned_is_authorship": False, "current": current}
+    return {**_lineage_attribution(root,ledger,baseline,current), "candidate_owned_is_authorship": False, "current": current}
 
 
 def current_attribution(root: Path, ledger: dict[str, Any]) -> dict[str, Any]:
     """Return exact current attribution facts for verification consumers."""
-    baseline = _read_receipt(_receipt_path(root, ledger["run_id"]))
+    baseline = _read_receipt(_latest_receipt_path(root,ledger))
     _assert_binding(baseline, ledger)
-    return attribution_receipt(ledger, baseline, snapshot(root, ledger["allowed_paths"]))
+    return _lineage_attribution(root,ledger,baseline,snapshot(root, ledger["allowed_paths"]))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -216,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
         args = _parser().parse_args(argv)
         root = _git_root(args.cwd)
         with _locked(root):
-            result = _capture(root, args) if args.command == "capture" else _attribute(root, args)
+            result = _capture(root,args) if args.command=="capture" else _refresh(root,args) if args.command=="refresh" else _attribute(root,args)
         _emit(True, args.command, result=result)
         return OK
     except (GitFactError, LedgerError) as exc:

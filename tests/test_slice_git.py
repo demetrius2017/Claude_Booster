@@ -9,6 +9,7 @@ import os
 import stat
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ import pytest
 ROOT = Path(__file__).parents[1]
 LEDGER = ROOT / "templates" / "scripts" / "slice_ledger.py"
 GIT_CLI = ROOT / "templates" / "scripts" / "slice_git.py"
+CLOSE = ROOT / "templates" / "scripts" / "slice_close.py"
 CORE_PATH = ROOT / "templates" / "scripts" / "slice_git_core.py"
 spec = importlib.util.spec_from_file_location("slice_git_core_test", CORE_PATH)
 assert spec and spec.loader
@@ -46,8 +48,21 @@ def _repo(tmp_path: Path, allowed: list[str]) -> Path:
     return repo
 
 
-def _invoke(script: Path, repo: Path, *args: str) -> tuple[int, dict]:
-    result = subprocess.run([sys.executable, str(script), "--cwd", str(repo), *args], text=True, capture_output=True, check=False)
+def _invoke(script: Path, repo: Path, *args: str, env: dict[str, str] | None = None) -> tuple[int, dict]:
+    result = subprocess.run([sys.executable, str(script), "--cwd", str(repo), *args], text=True, capture_output=True, check=False, env=env)
+    output = result.stdout if result.returncode == 0 else result.stderr
+    assert output, result
+    return result.returncode, json.loads(output)
+
+
+def _invoke_env_i(script: Path, repo: Path, *args: str) -> tuple[int, dict]:
+    path = "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"
+    result = subprocess.run(
+        ["/usr/bin/env", "-i", f"PATH={path}", sys.executable, str(script), "--cwd", str(repo), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
     output = result.stdout if result.returncode == 0 else result.stderr
     assert output, result
     return result.returncode, json.loads(output)
@@ -74,6 +89,94 @@ def _classes(value: dict) -> dict[str, dict]:
 
 def _baseline_path(repo: Path, run_id: str = "r1") -> Path:
     return repo / ".claude/state/runs" / hashlib.sha256(run_id.encode()).hexdigest() / "slice_baseline.json"
+
+
+def _failed_expansion(repo: Path, tmp_path: Path, new_path: str = "new.txt") -> None:
+    evidence=tmp_path/"fail.json"; evidence.write_text(json.dumps({"schema_version":1,"argv":[sys.executable,"-c","raise SystemExit(9)"],"timeout_seconds":10}))
+    assert _invoke(CLOSE,repo,"verify","--run-id","r1","--session-id","s1","--revision","2","--evidence-file",str(evidence))[0]==0
+    ledger=json.loads((repo/".claude/state/slice_ledger.json").read_text()); paths=[*ledger["allowed_paths"],new_path]
+    args=["update","--run-id","r1","--session-id","s1","--revision","3","--artifact-contract","expanded repair","--reason","verified failed scope gap","--provenance-actor","test","--provenance-source","verified_recon","--provenance-evidence-sha256",ledger["verification_sha256"]]
+    for path in paths: args += ["--allowed-path",path]
+    assert _invoke(LEDGER,repo,*args)[0]==0
+
+
+def test_refresh_v2_preserves_dirty_provenance_and_only_post_v2_clean_delta_is_candidate(tmp_path: Path) -> None:
+    repo=_repo(tmp_path,["dirty.txt","clean.txt","owned.txt"]); (repo/"dirty.txt").write_text("dirty before v1\n"); _capture(repo)
+    (repo/"owned.txt").write_text("legitimate after v1 before v2\n")
+    (repo/"new.txt").write_text("dirty when admitted\n"); _failed_expansion(repo,tmp_path)
+    code,value=_invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","4")
+    assert code==0 and value["result"]["generation"]==2 and value["result"]["lineage"]["root_baseline_sha256"]
+    v1=_baseline_path(repo); v2=v1.with_name("slice_baseline_v2.json"); original=v1.read_bytes()
+    assert _invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","4")[0]==0 and v1.read_bytes()==original
+    classes=_classes(_invoke(GIT_CLI,repo,"attribute","--run-id","r1","--session-id","s1","--revision","5")[1])
+    assert classes["dirty.txt"]["classification"]=="foreign" and classes["new.txt"]["classification"]=="foreign"
+    assert classes["owned.txt"]["classification"]=="candidate-owned"
+    (repo/"clean.txt").write_text("post v2 delta\n"); classes=_classes(_invoke(GIT_CLI,repo,"attribute","--run-id","r1","--session-id","s1","--revision","5")[1])
+    assert classes["clean.txt"]["classification"]=="candidate-owned" and v2.exists()
+
+
+def test_late_admission_reuses_root_only_for_provably_tracked_clean_path(tmp_path: Path) -> None:
+    repo=_repo(tmp_path,["work.txt"]); (repo/"tracked.txt").write_text("tracked base\n"); (repo/"root-dirty.txt").write_text("dirty base\n"); _git(repo,"add","tracked.txt","root-dirty.txt"); _git(repo,"commit","-qm","seed late paths"); (repo/"root-dirty.txt").write_text("dirty before v1\n"); _capture(repo)
+    (repo/"tracked.txt").write_text("tracked repair\n"); (repo/"root-dirty.txt").write_text("dirty repair\n"); (repo/"untracked.txt").write_text("untracked repair\n")
+    _failed_expansion(repo,tmp_path,"tracked.txt")
+    ledger=json.loads((repo/".claude/state/slice_ledger.json").read_text()); paths=sorted(set([*ledger["allowed_paths"],"root-dirty.txt","untracked.txt"]))
+    args=["update","--run-id","r1","--session-id","s1","--revision","4","--artifact-contract","admit hostile paths","--reason","hostile admission fixture","--provenance-actor","test","--provenance-source","verified_recon","--provenance-evidence-sha256",ledger["verification_sha256"]]
+    for path in paths: args += ["--allowed-path",path]
+    assert _invoke(LEDGER,repo,*args)[0]==0
+    assert _invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","5")[0]==0
+    classes=_classes(_invoke(GIT_CLI,repo,"attribute","--run-id","r1","--session-id","s1","--revision","6")[1])
+    assert classes["tracked.txt"]["classification"]=="candidate-owned"
+    assert classes["root-dirty.txt"]["classification"] in {"foreign","ambiguous"}
+    assert classes["untracked.txt"]["classification"] in {"foreign","ambiguous"}
+
+
+def test_late_admission_anchor_change_never_reuses_root_ownership(tmp_path: Path) -> None:
+    repo=_repo(tmp_path,["work.txt"]); (repo/"tracked.txt").write_text("base\n"); _git(repo,"add","tracked.txt"); _git(repo,"commit","-qm","tracked seed"); _capture(repo)
+    (repo/"tracked.txt").write_text("repair\n"); (repo/"unrelated.txt").write_text("new head\n"); _git(repo,"add","unrelated.txt"); _git(repo,"commit","-qm","move anchor")
+    _failed_expansion(repo,tmp_path,"tracked.txt"); assert _invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","4")[0]==0
+    classification=_classes(_invoke(GIT_CLI,repo,"attribute","--run-id","r1","--session-id","s1","--revision","5")[1])["tracked.txt"]["classification"]
+    assert classification in {"foreign","ambiguous"}
+
+
+def test_refresh_rejects_concurrency_and_tamper(tmp_path: Path) -> None:
+    repo=_repo(tmp_path,["clean.txt"]); _capture(repo); (repo/"new.txt").write_text("new\n"); _failed_expansion(repo,tmp_path)
+    args=("refresh","--run-id","r1","--session-id","s1","--revision","4")
+    with ThreadPoolExecutor(max_workers=2) as pool: results=list(pool.map(lambda _: _invoke(GIT_CLI,repo,*args),range(2)))
+    assert [code for code,_ in results]==[0,0]
+    v2=_baseline_path(repo).with_name("slice_baseline_v2.json"); receipt=json.loads(v2.read_text()); receipt["lineage"]["root_baseline_sha256"]="0"*64; v2.write_text(json.dumps(receipt)+"\n"); os.chmod(v2,0o600)
+    assert _invoke(GIT_CLI,repo,"attribute","--run-id","r1","--session-id","s1","--revision","5")[0]==4
+
+
+def test_refresh_guards_wrong_revision_and_missing_fail_expansion(tmp_path: Path) -> None:
+    plain=_repo(tmp_path/"plain",["clean.txt"]); _capture(plain)
+    assert _invoke(GIT_CLI,plain,"refresh","--run-id","r1","--session-id","s1","--revision","2")[0]==3
+    repo=_repo(tmp_path/"expanded",["clean.txt"]); _capture(repo); (repo/"new.txt").write_text("new\n"); _failed_expansion(repo,tmp_path/"expanded")
+    assert _invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","3")[0]==3
+
+
+def test_refresh_rejects_preexisting_orphan_and_after_pass(tmp_path: Path) -> None:
+    repo=_repo(tmp_path,["clean.txt"]); _capture(repo); _failed_expansion(repo,tmp_path)
+    v2=_baseline_path(repo).with_name("slice_baseline_v2.json"); v2.write_text("{}\n"); os.chmod(v2,0o600)
+    assert _invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","4")[0]==3
+    v2.unlink(); assert _invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","4")[0]==0
+    evidence=tmp_path/"pass.json"; evidence.write_text(json.dumps({"schema_version":1,"argv":[sys.executable,"-c","print('ok')"],"timeout_seconds":10}))
+    retry=("verify","--run-id","r1","--session-id","s1","--revision","5","--evidence-file",str(evidence),"--attempt-id","a2","--attempt-number","2","--repair-reason","fixed","--provenance-actor","test","--provenance-source","verified_recon")
+    assert _invoke(CLOSE,repo,*retry)[0]==0
+    assert _invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","6")[0]==3
+
+
+def test_retry_fail_can_expand_and_refresh_generation_three(tmp_path: Path) -> None:
+    repo=_repo(tmp_path,["clean.txt"]); _capture(repo); _failed_expansion(repo,tmp_path)
+    assert _invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","4")[0]==0
+    evidence=tmp_path/"fail2.json"; evidence.write_text(json.dumps({"schema_version":1,"argv":[sys.executable,"-c","raise SystemExit(8)"],"timeout_seconds":10}))
+    retry=("verify","--run-id","r1","--session-id","s1","--revision","5","--evidence-file",str(evidence),"--attempt-id","a2","--attempt-number","2","--repair-reason","still failing","--provenance-actor","test","--provenance-source","verified_recon")
+    assert _invoke(CLOSE,repo,*retry)[0]==0
+    ledger=json.loads((repo/".claude/state/slice_ledger.json").read_text()); paths=[*ledger["allowed_paths"],"third.txt"]
+    args=["update","--run-id","r1","--session-id","s1","--revision","6","--artifact-contract","third repair","--reason","second failed gap","--provenance-actor","test","--provenance-source","verified_recon","--provenance-evidence-sha256",ledger["verification_sha256"]]
+    for path in paths: args += ["--allowed-path",path]
+    assert _invoke(LEDGER,repo,*args)[0]==0
+    code,value=_invoke(GIT_CLI,repo,"refresh","--run-id","r1","--session-id","s1","--revision","7")
+    assert code==0 and value["result"]["generation"]==3
 
 
 def test_porcelain_parser_preserves_modes_oids_xy_submodule_and_rename() -> None:
@@ -138,9 +241,51 @@ def test_offscope_and_reserved_state_are_never_owned(tmp_path: Path) -> None:
     (repo / "outside.txt").write_text("outside\n")
     # Remove ignore rule so the adapter observes its own protected receipt.
     (repo / ".gitignore").write_text("")
-    classes = _classes(_attribute(repo)[1])
+    result = _attribute(repo)[1]
+    classes = _classes(result)
     assert classes["outside.txt"]["classification"] == "off-scope"
-    assert classes[".claude"]["classification"] == "foreign"
+    reserved = [
+        item for item in result["result"]["classifications"]
+        if item["path"] == ".claude" or item["path"].startswith(".claude/")
+    ]
+    assert reserved
+    assert all(
+        item["classification"] == "foreign"
+        and item["reasons"] == ["reserved_control_state"]
+        for item in reserved
+    )
+
+
+def test_git_facts_match_under_polluted_host_environment_and_env_i(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ["tracked.txt"])
+    assert _capture(repo)[0] == 0
+    global_excludes = tmp_path / "global-excludes"
+    global_excludes.write_text("host-only.tmp\n")
+    global_config = tmp_path / "global-gitconfig"
+    global_config.write_text(f"[core]\n\texcludesFile = {global_excludes}\n")
+    info_exclude = repo / ".git" / "info" / "exclude"
+    info_exclude.write_text("repo-local.tmp\n")
+    (repo / "tracked.txt").write_text("changed\n")
+    (repo / "host-only.tmp").write_text("must remain visible\n")
+    (repo / "repo-local.tmp").write_text("must remain ignored\n")
+
+    polluted = dict(os.environ)
+    polluted["GIT_CONFIG_GLOBAL"] = str(global_config)
+    polluted["HOME"] = str(tmp_path / "fake-home")
+    direct_code, direct = _invoke(
+        GIT_CLI, repo, "attribute", "--run-id", "r1", "--session-id", "s1", "--revision", "2", env=polluted
+    )
+    clean_code, clean = _invoke_env_i(
+        GIT_CLI, repo, "attribute", "--run-id", "r1", "--session-id", "s1", "--revision", "2"
+    )
+
+    assert direct_code == clean_code == 0
+    assert direct["result"]["state_sha256"] == clean["result"]["state_sha256"]
+    assert direct["result"]["attribution_sha256"] == clean["result"]["attribution_sha256"]
+    assert direct["result"]["classifications"] == clean["result"]["classifications"]
+    classes = _classes(direct)
+    assert classes["host-only.tmp"]["classification"] == "off-scope"
+    assert classes["repo-local.tmp"]["classification"] == "off-scope"
 
 
 def test_rename_is_atomic_and_cross_contract_rename_is_ambiguous(tmp_path: Path) -> None:

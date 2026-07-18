@@ -7,8 +7,9 @@ reads are bounded and no-follow; missing evidence always lowers confidence.
 CLI/Examples: Library module used by slice_git.py; it has no standalone CLI.
 Limitations: Exact allowed paths only; no closure, commit authority, backlog,
 telemetry, semantic classification, recursive filesystem traversal, or writes.
-ENV/Files: No environment variables. Reads a supplied Git root and explicit
-contract-relevant files; callers persist receipts under .claude/state.
+ENV/Files: Host Git configuration is deliberately ignored. Reads a supplied
+Git root and explicit contract-relevant files; callers persist receipts under
+.claude/state.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
 import subprocess
 import unicodedata
@@ -123,8 +125,26 @@ def _validate_path_collisions(entries: list[dict[str, Any]]) -> None:
 
 
 def _git(root: Path, args: list[str], *, allow: tuple[int, ...] = (0,)) -> bytes:
+    search_path = "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"
+    git = shutil.which("git", path=search_path)
+    if git is None:
+        raise GitFactError("git unavailable on deterministic search path", 6)
+    env = {
+        "PATH": search_path,
+        "LANG": "C",
+        "LC_ALL": "C",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_TERMINAL_PROMPT": "0",
+    }
     try:
-        result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, timeout=20, check=False)
+        result = subprocess.run(
+            [git, "-c", f"core.excludesFile={os.devnull}", "-C", str(root), *args],
+            capture_output=True,
+            timeout=20,
+            check=False,
+            env=env,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise GitFactError(f"git unavailable: {exc}", 6) from exc
     if result.returncode not in allow:
@@ -314,9 +334,9 @@ def classify(baseline: dict[str, Any], current: dict[str, Any], allowed: list[st
     return output
 
 
-def attribution_receipt(ledger: dict[str, Any], baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+def attribution_receipt(ledger: dict[str, Any], baseline: dict[str, Any], current: dict[str, Any], *, classifications: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Build deterministic, disjoint changed-path facts and exact state hash."""
-    classifications = classify(baseline["git"], current, ledger["allowed_paths"])
+    classifications = classify(baseline["git"], current, ledger["allowed_paths"]) if classifications is None else classifications
     paths = [item["path"] for item in classifications]
     if len(paths) != len(set(paths)) or any(item["classification"] not in {"candidate-owned", "foreign", "ambiguous", "off-scope"} for item in classifications):
         raise GitFactError("classifications are not exhaustive and disjoint", 5)

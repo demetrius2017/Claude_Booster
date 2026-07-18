@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
 """Atomic project-local implementation-slice ledger.
-
-Purpose: Maintain one fail-closed, auditable active slice for Booster wrappers.
-Contract: Commands operate only in a strict git worktree and validate schema-v1
-inputs, owner guards, revisions, paths, the event hash chain, and projection.
-CLI/Examples: ``slice_ledger.py [--cwd PATH]
-{acquire,status,update,release,recover} ...``; use ``status`` for JSON state.
-Limitations: This is a claim ledger, not git attribution, verification, backlog,
-telemetry, a scheduler, or an authority over native Codex activity.
-ENV/Files: No environment variables. Writes mode-0600 files beneath
-``<git-root>/.claude/state/{slice_ledger.json,slice_events.jsonl,slice_ledger.lock}``.
+Purpose/Contract: Maintain one fail-closed slice with guarded schema-v1 events.
+CLI: ``slice_ledger.py [--cwd PATH] {acquire,status,update,...}``.
+Limitations: Claims only; no scheduler or authority over native Codex activity.
+ENV/Files: No ENV; writes mode-0600 files beneath ``.claude/state``.
 """
-
 from __future__ import annotations
-
 import argparse
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -27,27 +20,20 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Any, Iterator
-
 from slice_ledger_core import (
     LedgerError, _append, _atomic_projection, _load, _now,
-    _owner_fingerprint, _validate_open_fd, _validate_relpath,
+    _failed_verification_binding, _owner_fingerprint, _validate_open_fd, _validate_relpath,
 )
-
+from slice_session_registry_core import RegistryError, add_attempt_parsers, build_attempt_event
 OK, USAGE, CONFLICT, CORRUPT, UNSUPPORTED, IO_ERROR = 0, 2, 3, 4, 5, 6
-RUN_ARTIFACT_RE = re.compile(r"\.claude/state/runs/[0-9a-f]{64}/(?:slice_baseline|slice_verification)\.json\Z")
-
-
+RUN_ARTIFACT_RE = re.compile(r"\.claude/state/runs/[0-9a-f]{64}/(?:slice_baseline|slice_verification|slice_verification_attempt_[0-9]{6})\.json\Z")
 def _emit(ok: bool, kind: str, *, stream: Any = sys.stdout, **values: Any) -> None:
     print(json.dumps({"ok": ok, "type": kind, **values}, sort_keys=True, separators=(",", ":")), file=stream)
-
-
 class TypedArgumentParser(argparse.ArgumentParser):
     """Argument parser whose contract failures use the CLI JSON error envelope."""
 
     def error(self, message: str) -> None:
         raise LedgerError(message, USAGE)
-
-
 def _git_root(cwd: str) -> Path:
     try:
         result = subprocess.run(
@@ -63,13 +49,9 @@ def _git_root(cwd: str) -> Path:
     if cwd_path != root and root not in cwd_path.parents:
         raise LedgerError("git root does not contain cwd", UNSUPPORTED)
     return root
-
-
 def _paths(root: Path) -> tuple[Path, Path, Path, Path]:
     state = root / ".claude" / "state"
     return state, state / "slice_ledger.json", state / "slice_events.jsonl", state / "slice_ledger.lock"
-
-
 def _ensure_component(path: Path, root: Path, *, directory: bool) -> None:
     try:
         relative = path.relative_to(root)
@@ -116,8 +98,6 @@ def _locked(root: Path) -> Iterator[tuple[Path, Path]]:
         os.close(fd)
 
 
-
-
 def _process_start(pid: int) -> str:
     try:
         fields = Path(f"/proc/{pid}/stat").read_text().split()
@@ -126,13 +106,9 @@ def _process_start(pid: int) -> str:
         result = subprocess.run(["ps", "-p", str(pid), "-o", "lstart="], text=True, capture_output=True)
         marker = result.stdout.strip()
         return f"ps:{marker}" if result.returncode == 0 and marker else "unknown"
-
-
 def _owner(session_id: str) -> dict[str, Any]:
     pid = os.getppid()
     return {"session_id": session_id, "pid": pid, "hostname": socket.gethostname(), "process_start": _process_start(pid)}
-
-
 def _owner_status(owner: dict[str, Any]) -> str:
     if owner["hostname"] != socket.gethostname():
         return "unverifiable"
@@ -145,8 +121,6 @@ def _owner_status(owner: dict[str, Any]) -> str:
     except PermissionError:
         return "unverifiable"
     return "live" if _process_start(owner["pid"]) == owner["process_start"] else "stale"
-
-
 def _guards(state: dict[str, Any], args: argparse.Namespace) -> None:
     if args.run_id != state["run_id"] or args.session_id != state["owner"]["session_id"] or args.revision != state["revision"]:
         raise LedgerError("run/session/revision guard conflict", CONFLICT)
@@ -213,23 +187,39 @@ def _update(args: argparse.Namespace, ledger: Path, events_path: Path) -> dict[s
         raise LedgerError("full artifact contract and allowed paths are required", USAGE)
     desired = state["artifact_contract"] == args.artifact_contract and state["allowed_paths"] == paths
     if (
-        events and events[-1]["type"] == "updated"
+        events and events[-1]["type"] == "contract_expanded"
         and state["state"] == "active" and state["run_id"] == args.run_id
         and state["owner"]["session_id"] == args.session_id
         and state["revision"] == args.revision + 1 and desired
+        and events[-1]["payload"]["reason"] == (args.reason or "").strip()
+        and events[-1]["payload"]["provenance"] == {"actor":(args.provenance_actor or "").strip(),"source":args.provenance_source,"evidence_sha256":args.provenance_evidence_sha256}
     ):
         return state
     _guards(state, args)
     if state["state"] != "active":
         raise LedgerError("terminal ledger is immutable", CONFLICT)
-    if state["verification_sha256"] is not None:
-        raise LedgerError("verified ledger contract is immutable", CONFLICT)
+    failed_binding = _failed_verification_binding(state, ledger.parents[2])
+    if failed_binding == "": raise LedgerError("verified PASS ledger contract is immutable", CONFLICT)
+    reason, actor = (args.reason or "").strip(), (args.provenance_actor or "").strip()
+    if not reason or len(reason) > 512 or not actor or len(actor) > 128:
+        raise LedgerError("bounded nonempty update reason/provenance actor required", USAGE)
+    if not args.provenance_evidence_sha256 or len(args.provenance_evidence_sha256) != 64 or any(char not in "0123456789abcdef" for char in args.provenance_evidence_sha256):
+        raise LedgerError("provenance evidence must be lowercase SHA256", USAGE)
+    if args.provenance_source not in {"user_request", "verified_recon", "external_advice"}:
+        raise LedgerError("typed provenance source required", USAGE)
+    if not set(state["allowed_paths"]).issubset(paths):
+        raise LedgerError("update may expand but cannot remove allowed paths", USAGE)
     now, owner = _now(), _owner(args.session_id)
     payload = {
         "run_id": state["run_id"], "revision": state["revision"] + 1, "updated_at": now,
+        "previous_contract":state["artifact_contract"], "previous_paths":state["allowed_paths"],
+        "previous_contract_sha256":hashlib.sha256(state["artifact_contract"].encode()).hexdigest(), "previous_paths_sha256":hashlib.sha256(json.dumps(state["allowed_paths"],sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest(),
         "artifact_contract": args.artifact_contract, "allowed_paths": paths, "owner": owner,
+        "artifact_contract_sha256":hashlib.sha256(args.artifact_contract.encode()).hexdigest(), "allowed_paths_sha256":hashlib.sha256(json.dumps(paths,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()).hexdigest(),
+        "reason":reason, "provenance":{"actor":actor,"source":args.provenance_source,"evidence_sha256":args.provenance_evidence_sha256},
+        "post_fail_repair":failed_binding is not None, "failed_verification_sha256":failed_binding,
     }
-    event = _append(events_path, "updated", payload, events)
+    event = _append(events_path, "contract_expanded", payload, events)
     state.update(artifact_contract=args.artifact_contract, allowed_paths=paths, owner=owner, revision=payload["revision"], updated_at=now, last_event_hash=event["hash"])
     _atomic_projection(ledger, state)
     return state
@@ -314,12 +304,24 @@ def _bind_verification(args: argparse.Namespace, ledger: Path, events_path: Path
     state.update(verification_sha256=args.verification_sha256, verification_state_sha256=args.state_sha256, verification_path=args.verification_path, revision=payload["revision"], updated_at=payload["updated_at"], last_event_hash=event["hash"])
     _atomic_projection(ledger, state)
     return state
-
-
+def _bind_verification_retry(args: argparse.Namespace, ledger: Path, events_path: Path) -> dict[str, Any]:
+    """Replace only the latest binding while preserving the prior FAIL event."""
+    state, events = _load(ledger, events_path)
+    if state is None or state["state"] != "active" or state["baseline_sha256"] is None: raise LedgerError("baseline-bound active slice required", CONFLICT)
+    if events and events[-1]["type"] == "verification_retried" and state["revision"] == args.revision + 1 and state["verification_sha256"] == args.verification_sha256: return state
+    _guards(state, args); failed = _failed_verification_binding(state, ledger.parents[2])
+    if not failed or args.previous_verification_sha256 != failed: raise LedgerError("verification retry predecessor mismatch", CONFLICT)
+    if args.attempt_number < 2 or not args.attempt_id.strip() or len(args.attempt_id) > 128 or not args.repair_reason.strip() or len(args.repair_reason) > 512 or not args.provenance_actor.strip() or len(args.provenance_actor) > 128 or args.provenance_source not in {"user_request", "verified_recon", "external_advice"}: raise LedgerError("verification retry metadata invalid", USAGE)
+    if any(len(value)!=64 or any(char not in "0123456789abcdef" for char in value) for value in (args.verification_sha256,args.state_sha256,args.evidence_sha256)): raise LedgerError("verification retry hashes must be lowercase SHA256", USAGE)
+    if args.verification_sha256 == failed or not RUN_ARTIFACT_RE.fullmatch(args.verification_path): raise LedgerError("verification retry artifact invalid", CONFLICT)
+    _validate_binding_receipt(state, ledger, args, "verification_retry")
+    payload = {"run_id":state["run_id"], "revision":state["revision"]+1, "updated_at":_now(), "previous_verification_sha256":failed, "verification_sha256":args.verification_sha256, "state_sha256":args.state_sha256, "verification_path":args.verification_path, "attempt_id":args.attempt_id, "attempt_number":args.attempt_number, "repair_reason":args.repair_reason, "provenance":{"actor":args.provenance_actor,"source":args.provenance_source}, "evidence_sha256":args.evidence_sha256, "first_pass":False}
+    event = _append(events_path,"verification_retried",payload,events); state.update(verification_sha256=args.verification_sha256,verification_state_sha256=args.state_sha256,verification_path=args.verification_path,revision=payload["revision"],updated_at=payload["updated_at"],last_event_hash=event["hash"])
+    _atomic_projection(ledger, state); return state
 def _validate_binding_receipt(state: dict[str, Any], ledger: Path, args: argparse.Namespace, kind: str) -> None:
     """Validate an internal run-scoped receipt before notarizing its hash."""
     run_hash = __import__("hashlib").sha256(state["run_id"].encode()).hexdigest()
-    filename = "slice_baseline.json" if kind == "baseline" else "slice_verification.json"
+    filename = "slice_baseline.json" if kind == "baseline" else (f"slice_verification_attempt_{args.attempt_number:06d}.json" if kind == "verification_retry" else "slice_verification.json")
     relative = f".claude/state/runs/{run_hash}/{filename}"
     supplied_path = args.baseline_path if kind == "baseline" else args.verification_path
     supplied_hash = args.baseline_sha256 if kind == "baseline" else args.verification_sha256
@@ -356,7 +358,7 @@ def _validate_binding_receipt(state: dict[str, Any], ledger: Path, args: argpars
         if not isinstance(value, dict) or set(value) != expected or value["run_id"] != state["run_id"] or value["slice_id"] != state["slice_id"] or value["ledger_revision"] != state["revision"] or value["ledger_event_hash"] != state["last_event_hash"]:
             raise LedgerError("baseline receipt identity/schema mismatch", CORRUPT)
     else:
-        top = {"schema_version", "status", "facts", "claim", "attribution", "identity", "limitations"}
+        top = {"schema_version", "status", "facts", "claim", "attribution", "identity", "limitations"} | ({"attempt"} if kind == "verification_retry" else set())
         identity = value.get("identity", {}) if isinstance(value, dict) else {}
         facts = value.get("facts", {}) if isinstance(value, dict) else {}
         limitations = value.get("limitations", {}) if isinstance(value, dict) else {}
@@ -366,10 +368,11 @@ def _validate_binding_receipt(state: dict[str, Any], ledger: Path, args: argpars
         claim_keys = {"argv", "resolved_executable", "executable_before", "executable_after", "started_at", "ended_at", "exit_code", "timed_out", "stdout", "stderr", "environment_keys"}
         output_keys = {"bytes", "sha256", "content", "truncated", "limit_exceeded"}
         observed_pass = claim.get("exit_code") == 0 and claim.get("timed_out") is False and facts.get("state_unchanged") is True and claim.get("executable_before") == claim.get("executable_after") and isinstance(claim.get("stdout"), dict) and isinstance(claim.get("stderr"), dict) and not claim["stdout"].get("limit_exceeded") and not claim["stderr"].get("limit_exceeded")
-        if set(value) != top or value.get("status") not in {"pass", "fail"} or (value["status"] == "pass") != observed_pass or set(facts) != {"pre_state_sha256", "post_state_sha256", "state_unchanged"} or set(identity) != {"run_id", "slice_id", "session_id", "expected_revision", "artifact_contract_sha256", "evidence_sha256"} or set(claim) != claim_keys or set(claim.get("stdout", {})) != output_keys or set(claim.get("stderr", {})) != output_keys or identity.get("run_id") != state["run_id"] or identity.get("slice_id") != state["slice_id"] or identity.get("session_id") != state["owner"]["session_id"] or identity.get("expected_revision") != state["revision"] or identity.get("artifact_contract_sha256") != __import__("hashlib").sha256(state["artifact_contract"].encode()).hexdigest() or facts.get("pre_state_sha256") != args.state_sha256 or attribution.get("state_sha256") != args.state_sha256 or attribution.get("run_id") != state["run_id"] or limitations != expected_limits:
+        attempt = value.get("attempt")
+        retry_ok = kind != "verification_retry" or attempt == {"attempt_id":args.attempt_id,"attempt_number":args.attempt_number,"retry_of_sha256":args.previous_verification_sha256,"repair_reason":args.repair_reason,"provenance":{"actor":args.provenance_actor,"source":args.provenance_source},"first_pass":False}
+        identity_keys={"run_id","slice_id","session_id","expected_revision","artifact_contract_sha256","evidence_sha256"}|({"baseline_generation","baseline_sha256"} if kind=="verification_retry" else set())
+        if set(value) != top or value.get("status") not in {"pass", "fail"} or (value["status"] == "pass") != observed_pass or not retry_ok or set(facts) != {"pre_state_sha256", "post_state_sha256", "state_unchanged"} or set(identity) != identity_keys or (kind=="verification_retry" and (identity.get("baseline_generation")!=(int(re.search(r"_v(\d+)\.json$",state["baseline_path"]).group(1)) if "_v" in state["baseline_path"] else 1) or identity.get("baseline_sha256")!=state["baseline_sha256"])) or set(claim) != claim_keys or set(claim.get("stdout", {})) != output_keys or set(claim.get("stderr", {})) != output_keys or identity.get("run_id") != state["run_id"] or identity.get("slice_id") != state["slice_id"] or identity.get("session_id") != state["owner"]["session_id"] or identity.get("expected_revision") != state["revision"] or identity.get("artifact_contract_sha256") != __import__("hashlib").sha256(state["artifact_contract"].encode()).hexdigest() or facts.get("pre_state_sha256") != args.state_sha256 or attribution.get("state_sha256") != args.state_sha256 or attribution.get("run_id") != state["run_id"] or limitations != expected_limits:
             raise LedgerError("verification receipt identity/schema mismatch", CORRUPT)
-
-
 def _new_run(args: argparse.Namespace, ledger: Path, events_path: Path) -> dict[str, Any]:
     state, events = _load(ledger, events_path)
     paths = sorted(set(_validate_relpath(value) for value in args.allowed_path))
@@ -425,6 +428,8 @@ def _parser() -> argparse.ArgumentParser:
     update.add_argument("--revision", type=_positive_int, required=True)
     update.add_argument("--artifact-contract", required=True)
     update.add_argument("--allowed-path", action="append", required=True)
+    update.add_argument("--reason"); update.add_argument("--provenance-actor")
+    update.add_argument("--provenance-source", required=True, choices=("user_request", "verified_recon", "external_advice")); update.add_argument("--provenance-evidence-sha256")
     release = sub.add_parser("release")
     release.add_argument("--run-id", required=True)
     release.add_argument("--session-id", required=True)
@@ -444,12 +449,19 @@ def _parser() -> argparse.ArgumentParser:
     recover.add_argument("--reason", required=True)
     recover.add_argument("--prior-owner-fingerprint")
     recover.add_argument("--force-unverifiable-owner", action="store_true")
+    add_attempt_parsers(sub)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     try:
-        args = _parser().parse_args(argv)
+        raw = list(sys.argv[1:] if argv is None else argv)
+        if "update" in raw and "--provenance-source" not in raw:
+            probe_root = _git_root(raw[raw.index("--cwd") + 1] if "--cwd" in raw else ".")
+            with _locked(probe_root) as probe_paths:
+                probe, _ = _load(*probe_paths)
+                if probe and probe["verification_sha256"] is not None and _failed_verification_binding(probe, probe_root) == "": raise LedgerError("verified PASS ledger contract is immutable", CONFLICT)
+        args = _parser().parse_args(raw)
         root = _git_root(args.cwd)
         with _locked(root) as (ledger, events):
             if args.command == "acquire":
@@ -462,6 +474,11 @@ def main(argv: list[str] | None = None) -> int:
                 state = _new_run(args, ledger, events)
             elif args.command == "recover":
                 state = _recover(args, ledger, events)
+            elif args.command.startswith("attempt-"):
+                state, history = _load(ledger, events)
+                if state is None: raise LedgerError("no slice ledger", CONFLICT)
+                kind, payload = build_attempt_event(args, state, history)
+                event = _append(events, kind, payload, history); state["last_event_hash"] = event["hash"]; _atomic_projection(ledger, state)
             else:
                 state, _ = _load(ledger, events)
                 if state is None:
@@ -470,7 +487,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise LedgerError("run guard conflict", CONFLICT)
         _emit(True, args.command, ledger=state)
         return OK
-    except LedgerError as exc:
+    except (LedgerError, RegistryError) as exc:
         _emit(False, "error", stream=sys.stderr, code=exc.code, error=str(exc))
         return exc.code
     except OSError as exc:

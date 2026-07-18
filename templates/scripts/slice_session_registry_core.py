@@ -23,10 +23,108 @@ PROVIDERS = {"codex_rollout_v1", "booster_wrapper_v1"}
 CONTROL_KINDS = {"ledger", "git", "verification", "closure", "telemetry", "calibration"}
 CONTROL_NA_REASONS = {"native_surface_unavailable", "operation_failed", "capability_missing"}
 EXCLUSION_REASONS = {"unsupported_provider", "corrupt_source", "operator_cancelled"}
+WORKER_ROLES = {"worker", "recon", "verifier", "reviewer"}
+ATTEMPT_TYPES = {"worker_attempt_started", "worker_attempt_observed", "worker_attempt_completed", "worker_attempt_failed"}
+ATTEMPT_COMMON = {"run_id", "session_id", "attempt_id", "role", "brief_sha256", "parent_id", "task_id"}
+ATTEMPT_KEYS = {
+    "worker_attempt_started": ATTEMPT_COMMON | {"retry_of", "retry_number", "retry_evidence_sha256", "retry_failure_reason"},
+    "worker_attempt_observed": ATTEMPT_COMMON | {"evidence_delta_sha256"},
+    "worker_attempt_completed": ATTEMPT_COMMON | {"evidence_delta_sha256"},
+    "worker_attempt_failed": ATTEMPT_COMMON | {"evidence_delta_sha256", "failure_reason"},
+}
 
 
 class RegistryError(Exception):
     def __init__(self, message: str, code: int = 3) -> None: super().__init__(message); self.code = code
+
+
+def normalized_brief_hash(value: Any) -> str:
+    """Hash one bounded whitespace-normalized worker brief, rejecting blanks."""
+    if not isinstance(value, str): raise RegistryError("worker brief must be text", 2)
+    normalized = " ".join(value.split())
+    if not normalized or len(normalized) > 4096: raise RegistryError("worker brief must be nonempty and bounded", 2)
+    return hashlib.sha256(normalized.encode()).hexdigest()
+
+
+def _bounded(value: Any, name: str, maximum: int = 256) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > maximum: raise RegistryError(f"invalid {name}", 4)
+    return value
+
+
+def apply_attempt_event(attempts: dict[Any, dict[str, Any]], event_type: str, payload: Any) -> None:
+    """Validate and apply one immutable attempt transition during replay."""
+    if event_type not in ATTEMPT_TYPES or not isinstance(payload, dict) or set(payload) != ATTEMPT_KEYS[event_type]: raise RegistryError("attempt event schema mismatch", 4)
+    for name in ("run_id", "session_id", "attempt_id", "parent_id", "task_id"): _bounded(payload.get(name), name)
+    if payload["role"] not in WORKER_ROLES: raise RegistryError("invalid worker role", 4)
+    _hash(payload["brief_sha256"], "brief hash")
+    attempt_id = (payload["run_id"], payload["session_id"], payload["attempt_id"]); existing = attempts.get(attempt_id)
+    if event_type == "worker_attempt_started":
+        if existing is not None: raise RegistryError("duplicate/conflicting attempt id", 4)
+        retry_of, retry_number = payload["retry_of"], payload["retry_number"]
+        if not isinstance(retry_number, int) or isinstance(retry_number, bool) or retry_number < 0: raise RegistryError("invalid retry number", 4)
+        for name in ("retry_evidence_sha256", "retry_failure_reason"):
+            if payload[name] is not None and not isinstance(payload[name], str): raise RegistryError("invalid retry provenance", 4)
+        same_brief = [item for item in attempts.values() if item["payload"]["run_id"] == payload["run_id"] and item["payload"]["session_id"] == payload["session_id"] and item["payload"]["brief_sha256"] == payload["brief_sha256"]]
+        if same_brief:
+            _bounded(retry_of, "retry_of"); _bounded(payload["retry_failure_reason"], "retry failure reason", 512)
+            if any(item["status"] in {"started", "observed"} for item in same_brief): raise RegistryError("same brief already has a nonterminal attempt", 4)
+            numbers = [item["payload"]["retry_number"] for item in same_brief]
+            if len(numbers) != len(set(numbers)): raise RegistryError("retry chain contains a branch/fork", 4)
+            maximum = max(numbers); latest = [item for item in same_brief if item["payload"]["retry_number"] == maximum]
+            prior = latest[0] if len(latest) == 1 else None
+            if prior is None or prior["status"] != "failed" or prior["payload"]["attempt_id"] != retry_of or retry_number != maximum + 1: raise RegistryError("retry must extend unique latest failed attempt", 4)
+            _hash(payload["retry_evidence_sha256"], "retry evidence")
+            if payload["retry_evidence_sha256"] == prior["evidence"] or " ".join(payload["retry_failure_reason"].split()).casefold() == " ".join(prior["failure_reason"].split()).casefold(): raise RegistryError("retry must change both evidence and failure provenance", 4)
+        elif retry_number != 0 or any(payload[name] is not None for name in ("retry_of", "retry_evidence_sha256", "retry_failure_reason")): raise RegistryError("first attempt cannot claim retry provenance", 4)
+        attempts[attempt_id] = {"status":"started", "payload":payload, "evidence":None, "failure_reason":None}
+        return
+    if existing is None: raise RegistryError("attempt transition without start", 4)
+    if any(payload[name] != existing["payload"][name] for name in ATTEMPT_COMMON): raise RegistryError("attempt identity changed", 4)
+    _hash(payload["evidence_delta_sha256"], "evidence delta")
+    if event_type == "worker_attempt_observed":
+        if existing["status"] != "started": raise RegistryError("illegal attempt observation order", 4)
+        existing.update(status="observed", evidence=payload["evidence_delta_sha256"]); return
+    if event_type == "worker_attempt_completed":
+        if existing["status"] != "observed" or not existing["evidence"]: raise RegistryError("completion requires observation/evidence", 4)
+        if payload["evidence_delta_sha256"] == existing["evidence"]: raise RegistryError("evidence delta must change", 4)
+        existing.update(status="completed", evidence=payload["evidence_delta_sha256"]); return
+    if existing["status"] not in {"started", "observed"}: raise RegistryError("illegal attempt failure order", 4)
+    if payload["evidence_delta_sha256"] == existing["evidence"]: raise RegistryError("evidence delta must change", 4)
+    existing.update(status="failed", evidence=payload["evidence_delta_sha256"], failure_reason=_bounded(payload["failure_reason"], "failure reason", 512))
+
+
+def add_attempt_parsers(subparsers: Any) -> None:
+    """Attach typed advisory worker-attempt commands to the ledger CLI."""
+    start = subparsers.add_parser("attempt-start")
+    for parser in (start,):
+        parser.add_argument("--run-id", required=True); parser.add_argument("--session-id", required=True); parser.add_argument("--attempt-id", required=True)
+    start.add_argument("--role", required=True, choices=sorted(WORKER_ROLES)); start.add_argument("--brief", required=True); start.add_argument("--parent-id", required=True); start.add_argument("--task-id", required=True)
+    start.add_argument("--retry-of"); start.add_argument("--retry-number", type=int, default=0); start.add_argument("--retry-evidence-sha256"); start.add_argument("--retry-failure-reason")
+    for name in ("attempt-observe", "attempt-complete", "attempt-fail"):
+        parser = subparsers.add_parser(name); parser.add_argument("--run-id", required=True); parser.add_argument("--session-id", required=True); parser.add_argument("--attempt-id", required=True); parser.add_argument("--evidence-delta-sha256", required=True)
+        if name == "attempt-fail": parser.add_argument("--failure-reason", required=True)
+
+
+def build_attempt_event(args: Any, state: dict[str, Any], events: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    """Build and validate the next attempt event against immutable history."""
+    if args.run_id != state["run_id"] or args.session_id != state["owner"]["session_id"] or state["state"] != "active": raise RegistryError("attempt run/session/lifecycle conflict", 3)
+    attempts: dict[Any, dict[str, Any]] = {}
+    for event in events:
+        if event["type"] in ATTEMPT_TYPES: apply_attempt_event(attempts, event["type"], event["payload"])
+    kind = {"attempt-start":"worker_attempt_started", "attempt-observe":"worker_attempt_observed", "attempt-complete":"worker_attempt_completed", "attempt-fail":"worker_attempt_failed"}[args.command]
+    if kind == "worker_attempt_started":
+        common = {"run_id":args.run_id,"session_id":args.session_id,"attempt_id":args.attempt_id,"role":args.role,"brief_sha256":normalized_brief_hash(args.brief),"parent_id":args.parent_id,"task_id":args.task_id}
+        payload = {**common,"retry_of":args.retry_of,"retry_number":args.retry_number,"retry_evidence_sha256":args.retry_evidence_sha256,"retry_failure_reason":args.retry_failure_reason}
+    else:
+        existing = attempts.get((args.run_id, args.session_id, args.attempt_id))
+        if existing is None: raise RegistryError("attempt transition without start", 3)
+        if existing["payload"]["run_id"] != args.run_id or existing["payload"]["session_id"] != args.session_id: raise RegistryError("attempt owner changed; start a new attempt", 3)
+        payload = {**{name:existing["payload"][name] for name in ATTEMPT_COMMON}, "evidence_delta_sha256":args.evidence_delta_sha256}
+        if kind == "worker_attempt_failed": payload["failure_reason"] = args.failure_reason
+    trial = {key:{**value,"payload":dict(value["payload"])} for key,value in attempts.items()}
+    try: apply_attempt_event(trial, kind, payload)
+    except RegistryError as exc: raise RegistryError(str(exc), 3) from exc
+    return kind, payload
 
 
 def canonical(value: Any) -> bytes:
@@ -96,12 +194,17 @@ def session_views(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             view["excluded"] = event
         elif event["type"] == "verification_attempt": view["attempts"].append(event)
         elif event["type"] == "control_started":
-            if payload["kind"] in view["open"]: raise RegistryError("overlapping control observation", 4)
-            view["open"][payload["kind"]] = event
+            view["open"].setdefault(payload["kind"], []).append(event)
         elif event["type"] == "control_unavailable":
             view["unavailable"].add(payload["kind"])
+            stack = view["open"].get(payload["kind"])
+            if stack:
+                stack.pop()
+                if not stack: view["open"].pop(payload["kind"])
         elif event["type"] == "control_ended":
-            start = view["open"].pop(payload["kind"], None)
-            if start is None: raise RegistryError("control end without start", 4)
+            stack = view["open"].get(payload["kind"])
+            if not stack: raise RegistryError("control end without start", 4)
+            start = stack.pop()
+            if not stack: view["open"].pop(payload["kind"])
             view["controls"].append((start, event))
     return views

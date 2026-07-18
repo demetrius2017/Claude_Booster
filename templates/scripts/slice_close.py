@@ -20,14 +20,15 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import stat
 import sys
 from pathlib import Path
 from typing import Any
 
-from slice_close_core import EVIDENCE_KEYS, VerifyError, append_backlog, backlog_state, build_handoff, canonical, read_secure_json, run_verifier, validate_evidence, validate_exclusions
+from slice_close_core import EVIDENCE_KEYS, VerifyError, append_backlog, append_verification_attempt, backlog_state, build_handoff, canonical, read_secure_json, run_verifier, validate_evidence, validate_exclusions, verification_attempts
 from slice_git import _relative, _run_dir, current_attribution
-from slice_ledger import _bind_verification, _git_root, _locked
+from slice_ledger import _bind_verification, _bind_verification_retry, _git_root, _locked
 from slice_ledger_core import LedgerError, _append, _atomic_projection, _load, _now
 
 
@@ -55,6 +56,11 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--session-id", required=True)
     verify.add_argument("--revision", type=_positive, required=True)
     verify.add_argument("--evidence-file", required=True)
+    verify.add_argument("--attempt-id")
+    verify.add_argument("--attempt-number", type=_positive)
+    verify.add_argument("--repair-reason")
+    verify.add_argument("--provenance-actor")
+    verify.add_argument("--provenance-source", choices=("user_request", "verified_recon", "external_advice"))
     status_cmd = subs.add_parser("status")
     status_cmd.add_argument("--run-id", required=True)
     status_cmd.add_argument("--session-id", required=True)
@@ -88,13 +94,14 @@ def _state(root: Path, args: argparse.Namespace, *, allow_retry: bool = False) -
     return state
 
 
-def _receipt_path(root: Path, run_id: str) -> Path:
-    return _run_dir(root, run_id) / "slice_verification.json"
+def _receipt_path(root: Path, run_id: str, attempt: int = 1) -> Path:
+    name = "slice_verification.json" if attempt == 1 else f"slice_verification_attempt_{attempt:06d}.json"
+    return _run_dir(root, run_id) / name
 
 
 def _read_receipt(path: Path) -> dict[str, Any]:
     _validate_receipt_path(path)
-    value = read_secure_json(path, max_bytes=1024 * 1024, expected_keys={"schema_version", "status", "facts", "claim", "attribution", "identity", "limitations"})
+    value = read_secure_json(path, max_bytes=1024 * 1024, expected_keys={"schema_version", "status", "facts", "claim", "attribution", "identity", "limitations", "attempt"} if "_attempt_" in path.name else {"schema_version", "status", "facts", "claim", "attribution", "identity", "limitations"})
     if value["schema_version"] != 1 or value["status"] not in {"pass", "fail"}:
         raise VerifyError("verification receipt schema mismatch", 4)
     expected_limits = {"observation_model": "pre_post_snapshot", "transient_mutation_detection": False, "external_side_effect_detection": False, "future_stability": False}
@@ -108,7 +115,7 @@ def _read_receipt(path: Path) -> dict[str, Any]:
     output_keys = {"bytes", "sha256", "content", "truncated", "limit_exceeded"}
     if any(not isinstance(value["claim"].get(name), dict) or set(value["claim"][name]) != output_keys for name in ("stdout", "stderr")):
         raise VerifyError("verification output schema mismatch", 4)
-    identity_keys = {"run_id", "slice_id", "session_id", "expected_revision", "artifact_contract_sha256", "evidence_sha256"}
+    identity_keys = {"run_id", "slice_id", "session_id", "expected_revision", "artifact_contract_sha256", "evidence_sha256"} | ({"baseline_generation","baseline_sha256"} if "attempt" in value else set())
     if not isinstance(value["identity"], dict) or set(value["identity"]) != identity_keys:
         raise VerifyError("verification identity schema mismatch", 4)
     observed_pass = (
@@ -137,6 +144,7 @@ def _assert_identity(receipt: dict[str, Any], state: dict[str, Any], args: argpa
         identity["run_id"] != state["run_id"] or identity["slice_id"] != state["slice_id"]
         or identity["session_id"] != args.session_id or identity["expected_revision"] != args.revision
         or identity["artifact_contract_sha256"] != hashlib.sha256(state["artifact_contract"].encode()).hexdigest()
+        or ("attempt" in receipt and (identity["baseline_sha256"] != state["baseline_sha256"] or identity["baseline_generation"] != (int(re.search(r"_v(\d+)\.json$",state["baseline_path"]).group(1)) if "_v" in state["baseline_path"] else 1)))
         or receipt["attribution"]["run_id"] != state["run_id"]
     ):
         raise VerifyError("verification receipt identity mismatch", 4)
@@ -150,10 +158,36 @@ def _bind(root: Path, args: argparse.Namespace, receipt: dict[str, Any]) -> None
     _bind_verification(bind_args, state_dir / "slice_ledger.json", state_dir / "slice_events.jsonl")
 
 
+def _bind_retry(root: Path, args: argparse.Namespace, receipt: dict[str, Any], previous: str, evidence_sha: str) -> None:
+    path = _receipt_path(root, args.run_id, args.attempt_number)
+    bind_args = argparse.Namespace(run_id=args.run_id, session_id=args.session_id, revision=args.revision, verification_sha256=hashlib.sha256(canonical(receipt)).hexdigest(), state_sha256=receipt["facts"]["pre_state_sha256"], verification_path=_relative(root,path), previous_verification_sha256=previous, attempt_id=args.attempt_id, attempt_number=args.attempt_number, repair_reason=args.repair_reason, provenance_actor=args.provenance_actor, provenance_source=args.provenance_source, evidence_sha256=evidence_sha)
+    state_dir = root / ".claude/state"
+    _bind_verification_retry(bind_args, state_dir/"slice_ledger.json", state_dir/"slice_events.jsonl")
+
+
 def _verify(root: Path, args: argparse.Namespace) -> dict[str, Any]:
-    path = _receipt_path(root, args.run_id)
+    retry_fields = (args.attempt_id, args.attempt_number, args.repair_reason, args.provenance_actor, args.provenance_source)
+    retry = any(value is not None for value in retry_fields)
+    if retry and (any(value is None for value in retry_fields) or args.attempt_number < 2 or not args.repair_reason.strip() or len(args.repair_reason)>512): raise VerifyError("retry requires complete bounded attempt provenance", 2)
+    path = _receipt_path(root, args.run_id, args.attempt_number if retry else 1)
     _validate_receipt_path(path)
-    state = _state(root, args, allow_retry=True)
+    state = _state(root, args, allow_retry=not retry)
+    if retry:
+        previous_path = root / state["verification_path"]
+        previous = _read_receipt(previous_path)
+        previous_sha = hashlib.sha256(canonical(previous)).hexdigest()
+        if previous_sha != state["verification_sha256"] or previous["status"] != "fail": raise VerifyError("retry requires latest immutable FAIL", 3)
+        records = verification_attempts(_run_dir(root,args.run_id)/"slice_verification_attempts.jsonl")
+        if args.attempt_number != len(records)+2 or any(item["attempt_id"]==args.attempt_id for item in records): raise VerifyError("duplicate or nonsequential verification retry", 3)
+        evidence = validate_evidence(read_secure_json(Path(args.evidence_file),max_bytes=32*1024,expected_keys=EVIDENCE_KEYS)); evidence_sha=hashlib.sha256(canonical(evidence)).hexdigest()
+        if evidence_sha == previous["identity"]["evidence_sha256"]: raise VerifyError("retry requires new command/evidence digest", 3)
+        if path.exists(): raise VerifyError("preexisting retry receipt is untrusted", 3)
+        receipt = run_verifier(root,evidence,lambda:current_attribution(root,state))
+        receipt["identity"]={"run_id":state["run_id"],"slice_id":state["slice_id"],"session_id":args.session_id,"expected_revision":args.revision,"artifact_contract_sha256":hashlib.sha256(state["artifact_contract"].encode()).hexdigest(),"evidence_sha256":evidence_sha,"baseline_generation":int(re.search(r"_v(\d+)\.json$",state["baseline_path"]).group(1)) if "_v" in state["baseline_path"] else 1,"baseline_sha256":state["baseline_sha256"]}
+        receipt["attempt"]={"attempt_id":args.attempt_id,"attempt_number":args.attempt_number,"retry_of_sha256":previous_sha,"repair_reason":args.repair_reason,"provenance":{"actor":args.provenance_actor,"source":args.provenance_source},"first_pass":False}
+        _atomic_projection(path,receipt); _bind_retry(root,args,receipt,previous_sha,evidence_sha)
+        append_verification_attempt(_run_dir(root,args.run_id)/"slice_verification_attempts.jsonl", {"schema_version":1,"attempt_id":args.attempt_id,"attempt_number":args.attempt_number,"receipt_path":_relative(root,path),"receipt_sha256":hashlib.sha256(canonical(receipt)).hexdigest(),"evidence_sha256":evidence_sha,"previous_verification_sha256":previous_sha,"status":receipt["status"],"first_pass":False})
+        return receipt
     if path.exists():
         if not state["verification_sha256"]:
             raise VerifyError("unbound preexisting verification receipt is untrusted", 3)
@@ -181,9 +215,9 @@ def _status(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     state, _ = _load(state_dir / "slice_ledger.json", state_dir / "slice_events.jsonl")
     if state is None or state["state"] not in {"active", "closed"} or state["run_id"] != args.run_id or state["owner"]["session_id"] != args.session_id or state["revision"] != args.revision:
         raise VerifyError("run/session/revision status guard conflict", 3)
-    receipt = _read_receipt(_receipt_path(root, args.run_id))
+    receipt = _read_receipt(root / state["verification_path"])
     # Status uses the post-bind revision; receipt records its predecessor.
-    predecessor_args = argparse.Namespace(session_id=args.session_id, revision=args.revision - (2 if state["state"] == "closed" else 1))
+    predecessor_args = argparse.Namespace(session_id=args.session_id, revision=receipt["identity"]["expected_revision"])
     _assert_identity(receipt, state, predecessor_args)
     if hashlib.sha256(canonical(receipt)).hexdigest() != state["verification_sha256"]:
         raise VerifyError("verification receipt disagrees with authoritative event", 4)
@@ -284,8 +318,8 @@ def _close(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         return handoff
     if state is None or state["state"] != "active" or state["run_id"] != args.run_id or state["owner"]["session_id"] != args.session_id or state["revision"] != args.revision or state["verification_sha256"] is None:
         raise VerifyError("verified active run/session/revision required", 3)
-    receipt = _read_receipt(_receipt_path(root, args.run_id))
-    predecessor = argparse.Namespace(session_id=args.session_id, revision=args.revision - 1)
+    receipt = _read_receipt(root / state["verification_path"])
+    predecessor = argparse.Namespace(session_id=args.session_id, revision=receipt["identity"]["expected_revision"])
     _assert_identity(receipt, state, predecessor)
     if __import__("hashlib").sha256(canonical(receipt)).hexdigest() != state["verification_sha256"]:
         raise VerifyError("verification receipt hash mismatch", 4)

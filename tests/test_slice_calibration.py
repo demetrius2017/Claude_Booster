@@ -4,11 +4,13 @@ from __future__ import annotations
 import hashlib, importlib.util, json, subprocess, sys
 from pathlib import Path
 import pytest
+from concurrent.futures import ProcessPoolExecutor
 
 ROOT = Path(__file__).parents[1]; SCRIPTS = ROOT / "templates/scripts"
 sys.path.insert(0, str(SCRIPTS))
 from slice_calibration_core import CalibrationError, evaluate, sha256, validate_labels, validate_telemetry
 from slice_session_registry_core import RegistryError, canonical, session_views
+from slice_ledger_core import _append as ledger_append, _load as ledger_load
 
 H = lambda value: hashlib.sha256(value.encode()).hexdigest()
 WINDOW = {"schema_version":1,"window_id":"w","started_at":"2026-01-01T00:00:00Z","ended_at":"2026-02-01T00:00:00Z"}
@@ -73,6 +75,24 @@ def test_zero_parser_expectation_is_unavailable_and_blocks():
     assert run(rs)["verdict"] == "INSUFFICIENT_SAMPLE"
 def test_first_pass_comes_from_first_registry_attempt(): assert run(ev=registry(first_fail=True))["metrics"]["exact_state_first_pass"]["numerator"] == 9
 def test_open_control_blocks_overhead(): assert run(ev=registry(open_control=True))["verdict"] == "INSUFFICIENT_SAMPLE"
+def test_nested_same_kind_controls_close_lifo_without_corrupting_registry():
+    events=registry(1); terminal=next(i for i,e in enumerate(events) if e["type"]=="terminal")
+    common={"run_id_hash":H("r0"),"session_id_hash":H("s0")}
+    original=events[:terminal]; tail=events[terminal:]
+    # Replace the single pair with two nested starts and two ends.
+    original=[e for e in original if e["type"] not in {"control_started","control_ended"}]
+    def row(kind): return {"schema_version":1,"sequence":0,"timestamp":"2026-01-02T00:00:01Z","monotonic_ns":0,"type":kind,"payload":{**common,"kind":"ledger"},"previous_hash":"","hash":""}
+    combined=[original[0],row("control_started"),row("control_started"),row("control_ended"),row("control_ended"),*tail]
+    for n,event in enumerate(combined,1):
+        event.update(sequence=n,monotonic_ns=n*10,previous_hash=combined[n-2]["hash"] if n>1 else "0"*64); unsigned={k:v for k,v in event.items() if k!="hash"}; event["hash"]=hashlib.sha256(canonical(unsigned)).hexdigest()
+    view=session_views(combined)[H("s0")]
+    assert not view["open"] and len(view["controls"])==2
+def test_control_unavailable_terminates_latest_open_observation():
+    events=registry(1); start=next(e for e in events if e["type"]=="control_started"); end=next(e for e in events if e["type"]=="control_ended")
+    end_index=events.index(end); unavailable={**end,"type":"control_unavailable","payload":{**end["payload"],"reason":"operation_failed"}}
+    events[end_index]=unavailable
+    view=session_views(events)[H("s0")]
+    assert not view["open"] and "ledger" in view["unavailable"]
 def test_typed_control_na_still_blocks_promotion_claim():
     events=registry(); start=next(item for item in events if item["type"]=="control_started"); start["type"]="control_unavailable"; start["payload"]={**start["payload"],"reason":"native_surface_unavailable"}
     events.remove(next(item for item in events if item["type"]=="control_ended" and item["payload"]["session_id_hash"]==start["payload"]["session_id_hash"]))
@@ -99,7 +119,7 @@ def test_delayed_terminal_observation_cannot_dilute_overhead():
     decision=run(ev=events)
     assert decision["verdict"]=="FAIL" and decision["metrics"]["overhead"]["value"]==pytest.approx(0.15)
 def test_cli_real_registry_record_evaluate_fail_closed_and_tamper(tmp_path):
-    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    repo=tmp_path/"repo"; repo.mkdir(parents=True); subprocess.run(["git","init","-q",str(repo)],check=True)
     cli=SCRIPTS/"slice_calibration.py"
     def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
     started=call("session-start","--run-id","r","--session-id","s","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger")
@@ -119,3 +139,33 @@ def test_control_na_rejects_arbitrary_reason(tmp_path):
     assert call("session-start","--run-id","r","--session-id","s","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger").returncode==0
     bad=call("control-na","--run-id","r","--session-id","s","--kind","ledger","--reason","made up prose")
     assert bad.returncode==2 and json.loads(bad.stderr)["type"]=="error"
+
+def _ledger_call(repo, *args):
+    return subprocess.run([sys.executable,str(SCRIPTS/"slice_ledger.py"),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+
+def _bound_verification_repo(tmp_path, status):
+    repo=tmp_path/"repo"; repo.mkdir(parents=True); subprocess.run(["git","init","-q",str(repo)],check=True)
+    assert _ledger_call(repo,"acquire","--slice-id","s","--artifact-contract","base","--allowed-path","a.py","--session-id","sess","--run-id","run").returncode==0
+    ledger=repo/".claude/state/slice_ledger.json"; events=repo/".claude/state/slice_events.jsonl"; state,history=ledger_load(ledger,events)
+    ledger_append(events,"baseline_bound",{"run_id":"run","revision":2,"updated_at":"2026-01-01T00:00:00Z","baseline_sha256":"b"*64,"baseline_path":".claude/state/runs/base/slice_baseline.json"},history); state,history=ledger_load(ledger,events)
+    receipt={"status":status}; run_hash=H("run"); path=repo/f".claude/state/runs/{run_hash}/slice_verification.json"; path.parent.mkdir(parents=True); path.write_bytes(canonical(receipt)+b"\n"); path.chmod(0o600); digest=hashlib.sha256(canonical(receipt)).hexdigest()
+    ledger_append(events,"verification_bound",{"run_id":"run","revision":3,"updated_at":"2026-01-01T00:00:01Z","verification_sha256":digest,"state_sha256":"c"*64,"verification_path":f".claude/state/runs/{run_hash}/slice_verification.json"},history); ledger_load(ledger,events)
+    return repo,digest
+
+def _repair_update(values):
+    repo,contract,path=values
+    return _ledger_call(Path(repo),"update","--run-id","run","--session-id","sess","--revision","3","--artifact-contract",contract,"--allowed-path","a.py","--allowed-path",path,"--reason","repair immutable fail","--provenance-actor","test","--provenance-source","verified_recon","--provenance-evidence-sha256","d"*64).returncode
+
+def test_post_fail_repair_expansion_is_bound_concurrent_and_pass_immutable(tmp_path):
+    repo,failed_sha=_bound_verification_repo(tmp_path/"fail","fail")
+    with ProcessPoolExecutor(max_workers=2) as pool: codes=list(pool.map(_repair_update,[(str(repo),"repair one","b.py"),(str(repo),"repair two","c.py")]))
+    assert sorted(codes)==[0,3]
+    event=json.loads((repo/".claude/state/slice_events.jsonl").read_text().splitlines()[-1]); assert event["type"]=="contract_expanded" and event["payload"]["post_fail_repair"] is True and event["payload"]["failed_verification_sha256"]==failed_sha
+    state=json.loads((repo/".claude/state/slice_ledger.json").read_text()); assert state["verification_sha256"]==failed_sha and set(state["allowed_paths"]) >= {"a.py"}
+    passed,_=_bound_verification_repo(tmp_path/"pass","pass"); assert _repair_update((str(passed),"forbidden","b.py"))==3
+
+def test_post_fail_repair_event_rehash_tamper_is_rejected(tmp_path):
+    repo,_=_bound_verification_repo(tmp_path,"fail"); assert _repair_update((str(repo),"repair","b.py"))==0
+    ledger=repo/".claude/state/slice_ledger.json"; events=repo/".claude/state/slice_events.jsonl"; rows=[json.loads(line) for line in events.read_text().splitlines()]; rows[-1]["payload"]["post_fail_repair"]=False
+    unsigned={key:value for key,value in rows[-1].items() if key!="hash"}; rows[-1]["hash"]=hashlib.sha256(canonical(unsigned)).hexdigest(); events.write_text("".join(json.dumps(row,sort_keys=True,separators=(",",":"))+"\n" for row in rows)); state=json.loads(ledger.read_text()); state["last_event_hash"]=rows[-1]["hash"]; ledger.write_text(json.dumps(state,sort_keys=True,separators=(",",":"))+"\n")
+    assert _ledger_call(repo,"status").returncode==4

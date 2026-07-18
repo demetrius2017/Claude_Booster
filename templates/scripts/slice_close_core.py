@@ -33,6 +33,7 @@ MAX_OUTPUT = 16 * 1024
 MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 EVIDENCE_KEYS = {"schema_version", "argv", "timeout_seconds"}
 BACKLOG_KEYS = {"schema_version", "run_id", "slice_id", "path", "reason", "state_sha256", "discovered_at", "previous_hash", "hash"}
+VERIFY_ATTEMPT_KEYS = {"schema_version", "attempt_id", "attempt_number", "receipt_path", "receipt_sha256", "evidence_sha256", "previous_verification_sha256", "status", "first_pass", "previous_hash", "hash"}
 
 
 class VerifyError(Exception):
@@ -45,6 +46,39 @@ class VerifyError(Exception):
 
 def canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def verification_attempts(path: Path) -> list[dict[str, Any]]:
+    """Read and authenticate the immutable retry manifest."""
+    if not path.exists(): return []
+    if path.is_symlink(): raise VerifyError("verification attempt manifest symlink forbidden", 4)
+    info = path.stat()
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1: raise VerifyError("verification attempt manifest permissions invalid", 4)
+    raw = path.read_bytes()
+    if raw and not raw.endswith(b"\n"): raise VerifyError("truncated verification attempt manifest", 4)
+    records, previous = [], "0" * 64
+    for line in raw.splitlines():
+        try: item = json.loads(line)
+        except json.JSONDecodeError as exc: raise VerifyError("invalid verification attempt manifest", 4) from exc
+        unsigned = {key:item[key] for key in VERIFY_ATTEMPT_KEYS-{"hash"}} if isinstance(item, dict) and set(item)==VERIFY_ATTEMPT_KEYS else None
+        digest = hashlib.sha256(canonical(unsigned)).hexdigest() if unsigned else ""
+        if not unsigned or item["previous_hash"] != previous or item["hash"] != digest: raise VerifyError("verification attempt manifest hash mismatch", 4)
+        if item["attempt_number"] != len(records)+2 or item["attempt_id"] in {record["attempt_id"] for record in records}: raise VerifyError("verification attempt sequence invalid", 4)
+        records.append(item); previous = digest
+    return records
+
+
+def append_verification_attempt(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    records = verification_attempts(path)
+    if record["attempt_number"] != len(records)+2 or any(record["attempt_id"] == item["attempt_id"] for item in records): raise VerifyError("duplicate or nonsequential verification attempt", 3)
+    unsigned = {**record, "previous_hash":records[-1]["hash"] if records else "0"*64}
+    item = {**unsigned, "hash":hashlib.sha256(canonical(unsigned)).hexdigest()}
+    fd = os.open(path, os.O_WRONLY|os.O_CREAT|os.O_APPEND|os.O_NOFOLLOW, 0o600)
+    try:
+        if os.fstat(fd).st_nlink != 1: raise VerifyError("verification attempt manifest hardlink forbidden", 4)
+        os.fchmod(fd, 0o600); os.write(fd, canonical(item)+b"\n"); os.fsync(fd)
+    finally: os.close(fd)
+    return item
 
 
 def now() -> str:
@@ -275,7 +309,7 @@ def build_handoff(state: dict[str, Any], disposition: str, attribution: dict[str
         grouped[item["classification"]].append(item["path"])
         if item["classification"] == "ambiguous":
             unknowns.append({"path": item["path"], "reason": ",".join(item["reasons"])})
-    handoff = {"schema_version": 1, "run_id": state["run_id"], "slice_id": state["slice_id"], "disposition": disposition, "facts": {"baseline_sha256": state["baseline_sha256"], "verification_sha256": state["verification_sha256"], "state_sha256": attribution["state_sha256"], "head": attribution["anchors"]["head"], "tree": attribution["anchors"]["tree"], "index_sha256": attribution["anchors"]["index_sha256"], "commit_oid": commit_oid, "commit_class": commit_class, "backlog_tail_hash": backlog_tail, "backlog_count": backlog_count}, "claims": {"artifact_contract_sha256": hashlib.sha256(state["artifact_contract"].encode()).hexdigest(), "blocked": blocked, "close_request": close_request}, "paths": {**grouped, "delivered": sorted(delivered), "excluded": [{"path": path, "reason": exclusions[path]} for path in sorted(exclusions)]}, "unknowns": unknowns, "coverage": {"required_paths": len(attribution["classifications"]), "covered_paths": len(delivered) + len(exclusions)}, "created_at": timestamp}
+    handoff = {"schema_version": 1, "run_id": state["run_id"], "slice_id": state["slice_id"], "disposition": disposition, "facts": {"baseline_sha256": state["baseline_sha256"], "verification_sha256": state["verification_sha256"], "verification_first_pass": "slice_verification_attempt_" not in state["verification_path"], "state_sha256": attribution["state_sha256"], "head": attribution["anchors"]["head"], "tree": attribution["anchors"]["tree"], "index_sha256": attribution["anchors"]["index_sha256"], "commit_oid": commit_oid, "commit_class": commit_class, "backlog_tail_hash": backlog_tail, "backlog_count": backlog_count}, "claims": {"artifact_contract_sha256": hashlib.sha256(state["artifact_contract"].encode()).hexdigest(), "blocked": blocked, "close_request": close_request}, "paths": {**grouped, "delivered": sorted(delivered), "excluded": [{"path": path, "reason": exclusions[path]} for path in sorted(exclusions)]}, "unknowns": unknowns, "coverage": {"required_paths": len(attribution["classifications"]), "covered_paths": len(delivered) + len(exclusions)}, "created_at": timestamp}
     if handoff["coverage"]["required_paths"] != handoff["coverage"]["covered_paths"]:
         raise VerifyError("handoff would drop path evidence", 3)
     if len(canonical(handoff)) > 64 * 1024:

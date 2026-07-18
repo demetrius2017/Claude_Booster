@@ -7,6 +7,7 @@ import hashlib
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,42 @@ def _status(repo: Path, revision: str = "3") -> tuple[int, dict]:
 
 def _verification_path(repo: Path, run_id: str = "run1") -> Path:
     return repo / ".claude/state/runs" / hashlib.sha256(run_id.encode()).hexdigest() / "slice_verification.json"
+
+
+def _retry(repo: Path, evidence: Path, attempt_id: str = "repair-2") -> tuple[int, dict]:
+    return _run(CLOSE, repo, "verify", "--run-id", "run1", "--session-id", "sess", "--revision", "3", "--evidence-file", str(evidence), "--attempt-id", attempt_id, "--attempt-number", "2", "--repair-reason", "bounded command-only repair", "--provenance-actor", "codex:test", "--provenance-source", "verified_recon")
+
+
+def test_fail_to_pass_retry_is_append_only_and_closure_eligible(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    failed_evidence = _evidence(tmp_path, [sys.executable, "-c", "raise SystemExit(7)"])
+    code, failed = _verify(repo, failed_evidence)
+    failed_path = _verification_path(repo); failed_bytes = failed_path.read_bytes()
+    assert code == 0 and failed["result"]["status"] == "fail"
+    passing = tmp_path / "passing.json"
+    passing.write_text(json.dumps({"schema_version":1,"argv":[sys.executable,"-c","print('repaired')"],"timeout_seconds":10}))
+    code, retried = _retry(repo, passing)
+    assert code == 0 and retried["result"]["status"] == "pass"
+    assert retried["result"]["attempt"]["first_pass"] is False and failed_path.read_bytes() == failed_bytes
+    ledger = json.loads((repo/".claude/state/slice_ledger.json").read_text())
+    events = [json.loads(line) for line in (repo/".claude/state/slice_events.jsonl").read_text().splitlines()]
+    assert ledger["revision"] == 4 and events[-1]["type"] == "verification_retried"
+    assert events[-1]["payload"]["previous_verification_sha256"] == hashlib.sha256(json.dumps(failed["result"],sort_keys=True,separators=(",",":")).encode()).hexdigest()
+    assert _status(repo,"4")[1]["result"]["receipt"]["attempt"]["first_pass"] is False
+
+
+def test_retry_duplicate_concurrency_and_manifest_tamper_fail_closed(tmp_path: Path) -> None:
+    repo = _repo(tmp_path); _verify(repo,_evidence(tmp_path,[sys.executable,"-c","raise SystemExit(1)"]))
+    passing = tmp_path/"passing.json"; passing.write_text(json.dumps({"schema_version":1,"argv":[sys.executable,"-c","print('ok')"],"timeout_seconds":10}))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: _retry(repo,passing), range(2)))
+    assert sorted(code for code,_ in results) == [0,3]
+    manifest = _verification_path(repo).parent/"slice_verification_attempts.jsonl"
+    assert len(manifest.read_text().splitlines()) == 1
+    item=json.loads(manifest.read_text()); item["attempt_id"]="tampered"; manifest.write_text(json.dumps(item)+"\n"); os.chmod(manifest,0o600)
+    assert _status(repo,"4")[0] == 0
+    # A later retry must authenticate history before it can append.
+    assert _run(CLOSE,repo,"verify","--run-id","run1","--session-id","sess","--revision","4","--evidence-file",str(passing),"--attempt-id","repair-3","--attempt-number","3","--repair-reason","next","--provenance-actor","codex:test","--provenance-source","verified_recon")[0] in {3,4}
 
 
 def test_argv_runner_passes_without_shell_and_records_bounded_claims(tmp_path: Path) -> None:
