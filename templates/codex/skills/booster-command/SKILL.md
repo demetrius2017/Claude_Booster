@@ -89,6 +89,12 @@ Execute the command behavior, not the literal Claude Code tool names.
   unrelated unfinished goal: surface the conflict. `status` and `off` do not
   create goals. A successful activation must immediately start the first
   autonomous North-Star step in the same turn, not end at setup confirmation.
+- Autopilot slice instrumentation is advisory. After its first artifact
+  contract, use installed `slice_ledger.py acquire` then `slice_git.py capture`.
+  Status reads only cached `slice_telemetry.py status` evidence and must say
+  `Claude hooks/wrappers advisory; native Codex observational/no enforcement`;
+  it never scans transcript stores. Directional autopilot state remains
+  separate, and `off` neither deletes slice history nor fabricates closure.
 
 ### Cross-provider stages (SHIP-1..4 in `go` and `hackathon`)
 

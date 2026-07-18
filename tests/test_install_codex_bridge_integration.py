@@ -238,6 +238,14 @@ def test_t3_yes_installs_bridge_manifest() -> None:
                 ROOT / "templates" / "commands" / "autopilot.md",
                 commands_dir / "autopilot.md",
             ),
+            (
+                ROOT / "templates" / "commands" / "start.md",
+                commands_dir / "start.md",
+            ),
+            (
+                ROOT / "templates" / "commands" / "handover.md",
+                commands_dir / "handover.md",
+            ),
         )
         installed_goal_text = []
         for source, installed in goal_mirrors:
@@ -254,6 +262,93 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         for term in ("get_goal", "create_goal", "same turn"):
             if term not in combined_goal_text:
                 errors.append(f"installed autopilot goal contract missing {term!r}")
+        for term in ("slice_ledger.py", "slice_git.py", "slice_telemetry.py", "claude hooks/wrappers advisory; native codex observational/no enforcement", "transcript discovery"):
+            if term not in combined_goal_text:
+                errors.append(f"installed advisory telemetry contract missing {term!r}")
+
+        # Main installer delivery: the bridge command specs depend on these
+        # project-agnostic CLIs, so a fresh temp HOME must receive exact bytes.
+        for script_name in ("slice_telemetry.py", "slice_telemetry_core.py"):
+            source = ROOT / "templates" / "scripts" / script_name
+            installed = Path(home) / ".claude" / "scripts" / script_name
+            if not installed.is_file():
+                errors.append(f"installed telemetry script missing: {installed}")
+            elif installed.read_bytes() != source.read_bytes():
+                errors.append(f"installed telemetry script differs from canonical source: {installed}")
+
+        # Executable advisory chain in the installed temp HOME. This proves the
+        # command prose names callable CLIs and that `off` mutates only
+        # directional state, not slice history.
+        project = Path(home) / "advisory-project"
+        project.mkdir()
+        for command in (
+            ["git", "init", "-q", str(project)],
+            ["git", "-C", str(project), "config", "user.name", "Test"],
+            ["git", "-C", str(project), "config", "user.email", "test@example.invalid"],
+        ):
+            result = _run(command, home)
+            if result.returncode != 0:
+                errors.append(f"fixture git setup failed: {result.stderr.strip()}")
+        (project / "work.txt").write_text("baseline\n", encoding="utf-8")
+        (project / ".gitignore").write_text(".claude/state/\n", encoding="utf-8")
+        _run(["git", "-C", str(project), "add", "."], home)
+        _run(["git", "-C", str(project), "commit", "-qm", "seed"], home)
+        directional = project / ".claude" / "autopilot.json"
+        directional.parent.mkdir(exist_ok=True)
+        directional_state = {"version": 1, "enabled": True, "scope": str(project), "north_star": "test", "calls_used": 0, "max_fable_calls": 3, "degraded": False, "decision_policy": "delegate_except_ui_and_hard_authority", "reservations": {}, "checkpoints": [], "provenance": []}
+        directional.write_text(json.dumps(directional_state), encoding="utf-8")
+        scripts = Path(home) / ".claude" / "scripts"
+        ledger_cli, git_cli, telemetry_cli = scripts / "slice_ledger.py", scripts / "slice_git.py", scripts / "slice_telemetry.py"
+
+        acquire = _run([sys.executable, str(ledger_cli), "--cwd", str(project), "acquire", "--slice-id", "slice-test", "--artifact-contract", "change work.txt", "--allowed-path", "work.txt", "--session-id", "session-test", "--run-id", "run-test"], home)
+        if acquire.returncode != 0:
+            errors.append(f"installed acquire failed: {acquire.stderr.strip()}")
+        else:
+            acquired = json.loads(acquire.stdout)
+            if acquired.get("ledger", {}).get("revision") != 1 or acquired.get("ledger", {}).get("run_id") != "run-test":
+                errors.append("installed acquire returned wrong revision/run identity")
+
+        failed_capture = _run([sys.executable, str(git_cli), "--cwd", str(project), "capture", "--run-id", "run-test", "--session-id", "wrong-session", "--revision", "1"], home)
+        ledger_after_failure = json.loads((project / ".claude/state/slice_ledger.json").read_text(encoding="utf-8"))
+        if failed_capture.returncode == 0 or ledger_after_failure.get("state") != "active" or ledger_after_failure.get("terminal_disposition") is not None:
+            errors.append("failed advisory capture changed slice terminal truth")
+        if json.loads(directional.read_text(encoding="utf-8")).get("enabled") is not True:
+            errors.append("failed advisory capture changed directional goal state")
+
+        capture = _run([sys.executable, str(git_cli), "--cwd", str(project), "capture", "--run-id", "run-test", "--session-id", "session-test", "--revision", "1"], home)
+        if capture.returncode != 0:
+            errors.append(f"installed capture failed: {capture.stderr.strip()}")
+        transcript = Path(home) / "sanitized-rollout.jsonl"
+        transcript_rows = [
+            {"timestamp": "2026-01-01T00:00:00Z", "type": "session_meta", "payload": {"id": "session-test", "session_id": "session-test", "parent_thread_id": None, "thread_source": "user", "source": "user", "cwd": str(project), "cli_version": "0.145.0-alpha.13"}},
+            {"timestamp": "2026-01-01T00:00:01Z", "type": "event_msg", "payload": {"type": "task_started"}},
+            {"timestamp": "2026-01-01T00:00:02Z", "type": "event_msg", "payload": {"type": "task_complete"}},
+        ]
+        transcript.write_text("".join(json.dumps(row) + "\n" for row in transcript_rows), encoding="utf-8")
+        failed_record = _run([sys.executable, str(telemetry_cli), "--cwd", str(project), "record", "--provider", "codex_rollout_v1", "--transcript", str(transcript), "--run-id", "run-test", "--session-id", "wrong-session"], home)
+        state_after_record_failure = json.loads((project / ".claude/state/slice_ledger.json").read_text(encoding="utf-8"))
+        if failed_record.returncode == 0 or state_after_record_failure.get("state") != "active" or state_after_record_failure.get("terminal_disposition") is not None:
+            errors.append("failed advisory record changed slice terminal truth")
+        if "goal_status" in json.loads(directional.read_text(encoding="utf-8")):
+            errors.append("failed advisory record fabricated directional goal completion")
+
+        record_args = [sys.executable, str(telemetry_cli), "--cwd", str(project), "record", "--provider", "codex_rollout_v1", "--transcript", str(transcript), "--run-id", "run-test", "--session-id", "session-test"]
+        record = _run(record_args, home)
+        status = _run([sys.executable, str(telemetry_cli), "--cwd", str(project), "status", "--run-id", "run-test", "--session-id", "session-test"], home)
+        if record.returncode != 0 or status.returncode != 0:
+            errors.append(f"installed telemetry record/status failed: record={record.stderr.strip()} status={status.stderr.strip()}")
+        else:
+            record_json, status_json = json.loads(record.stdout), json.loads(status.stdout)
+            if record_json.get("result", {}).get("receipt_sha256") != status_json.get("result", {}).get("receipt_sha256"):
+                errors.append("installed telemetry cached receipt is not readable/stable")
+
+        ledger_path, events_path = project / ".claude/state/slice_ledger.json", project / ".claude/state/slice_events.jsonl"
+        before_off = (ledger_path.read_bytes(), events_path.read_bytes())
+        directional_state["enabled"] = False
+        directional.write_text(json.dumps(directional_state, sort_keys=True), encoding="utf-8")
+        after_off = (ledger_path.read_bytes(), events_path.read_bytes())
+        if before_off != after_off or b'"type":"closed"' in after_off[1]:
+            errors.append("directional off mutated or falsely closed slice history")
 
         if errors:
             _fail(label, "; ".join(errors))

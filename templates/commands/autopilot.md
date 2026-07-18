@@ -145,3 +145,55 @@ stale entries expire after the bounded TTL with an audited release reason.
 `final_diff` cannot complete while any watchlist item remains `OPEN`.
 Use `fable_autopilot_state.py recover --reason <reason>` to clear degradation
 explicitly while preserving history and appending recovery provenance.
+
+## Advisory implementation-slice integration
+
+Directional autopilot state and implementation-slice state are separate
+authorities. `.claude/autopilot.json` stores the North Star, Fable budget, and
+decision provenance. `.claude/state/slice_ledger.json` stores one concrete
+artifact contract and its Git evidence. Never merge their schemas or present
+directional activation as proof that a slice was acquired, verified, or closed.
+
+For `on <North Star>`, after the host goal has been created or retained and the
+first coherent roadmap step has supplied an artifact contract plus explicit
+allowed paths, create fresh UUID identifiers for `run_id` and the wrapper
+session. Retain the real host session identifier when it is available; record
+the generated wrapper identifier otherwise. Then call the installed tools in
+this order, using the revision returned by each command:
+
+```text
+python3 ~/.claude/scripts/slice_ledger.py --cwd <root> acquire --slice-id <slice> --artifact-contract <contract> --allowed-path <path> --session-id <session> --run-id <run>
+python3 ~/.claude/scripts/slice_git.py --cwd <root> capture --run-id <run> --session-id <session> --revision 1
+```
+
+This is advisory instrumentation. A failure must be printed as a typed
+diagnostic with the failed command and exit status. It must not be described as
+native enforcement and must not silently end the activation turn: continue the
+first safe work step while making the missing baseline/coverage explicit.
+
+`status` reads cached project-local state only. Read directional status, then
+`slice_ledger.py status`; when the exact run/session/revision permits it, read
+`slice_git.py attribute`, `slice_close.py status`, and finally:
+
+```text
+python3 ~/.claude/scripts/slice_telemetry.py --cwd <root> status --run-id <run> --session-id <session>
+```
+
+Do not discover or scan transcripts during status. Print one compact advisory
+block containing exactly this capability statement: `Claude hooks/wrappers
+advisory; native Codex observational/no enforcement`, plus provider, parser
+coverage, unknown count/reasons, terminal disposition, and receipt hash when
+available. If cached telemetry is absent, resolve the absolute project root,
+one explicitly supported adapter (`codex_rollout_v1` or
+`booster_wrapper_v1`), one explicit existing transcript JSONL, and the actual
+ledger run/session identifiers before emitting anything. Construct the
+executable argv in this exact order: `python3`, the installed
+`slice_telemetry.py`, global `--cwd`, resolved root, `record`, `--provider`,
+adapter, `--transcript`, JSONL, `--run-id`, run, `--session-id`, session. Print
+the shell-quoted concrete command with no ellipsis, metavariables, angle-bracket
+placeholders, or guessed transcript path.
+
+`off` disables directional autopilot without deleting slice ledger, event,
+backlog, handoff, or telemetry history. If a slice is active, surface its typed
+state and the appropriate `slice_close.py close` disposition requirement. Do
+not invent a terminal disposition or close it merely because autopilot stopped.

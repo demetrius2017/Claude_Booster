@@ -27,6 +27,16 @@ create a goal. After creating or retaining the matching goal, immediately begin
 the first autonomous North-Star/roadmap step in the same turn; never end the
 activation turn with only setup confirmation or status.
 
+After the first concrete artifact contract and allowed paths are known, follow
+the command spec's advisory slice sequence: generate run/wrapper-session UUIDs,
+call installed `slice_ledger.py acquire`, then `slice_git.py capture`. Failure is
+an explicit diagnostic, not native enforcement, and does not silently stop the
+first safe work step. `status` uses cached ledger/close/telemetry status only—no
+transcript discovery—and reports `Claude hooks/wrappers advisory; native Codex
+observational/no enforcement`. `off` preserves all slice history and never
+fabricates closure for an active slice. Directional `.claude/autopilot.json`
+and the implementation slice ledger remain separate.
+
 Codex must use the same trusted lifecycle as Claude:
 `fable_autopilot.py consult-decision --prompt-file` or trusted
 `checkpoint plan_complete|first_slice|final_diff --prompt-file`. The runner

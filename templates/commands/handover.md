@@ -24,6 +24,22 @@ Format as: `Session UUID: <uuid>  JSONL: <full-path>`. Add a one-line note that 
 
 Update roadmap. Git add + commit + push.
 
+**`## Slice telemetry`** — snapshot cached advisory evidence only. Read the
+current `slice_ledger.py status`, then call `slice_telemetry.py status` with its
+exact run/session. Do not scan transcript stores. Record capability `Claude
+hooks/wrappers advisory; native Codex observational/no enforcement`, receipt
+path/hash, provider/adapter, parser coverage, unknown count/reasons, and typed
+terminal disposition. If no receipt exists, first resolve the absolute project
+root, explicit supported adapter, explicit existing transcript JSONL, and
+actual ledger run/session IDs. Emit a fully concrete shell-quoted command whose
+argv order is `python3`, installed `slice_telemetry.py`, global `--cwd`, root,
+`record`, `--provider`, adapter, `--transcript`, JSONL, `--run-id`, run,
+`--session-id`, session. Ellipses and placeholders are forbidden. This snapshot
+does not close an active slice and does not merge `.claude/autopilot.json` with
+the slice ledger. The handover remains docs-only for verify-gate purposes when
+the staged diff contains only allowlisted documentation/report/test paths;
+merely reading or citing telemetry does not turn it into runtime verification.
+
 **Model routing for handover delegation:** when spawning the handover-write agent, pass `model: "sonnet"` explicitly (Sonnet 4.6 is sufficient for report synthesis). For separate git-log/diff collection spawns, use `model: "haiku"`. Do NOT default to Opus — Lead's expensive model is for orchestration, not report writing.
 
 **[CRITICAL] Verify-gate JSON block — required before `git add`/`git commit` of the handover file.**
