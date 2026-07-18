@@ -1,12 +1,12 @@
-"""Verification runner and receipt primitives for Slice 3A.
+"""Verification, backlog, and terminal handoff primitives for Slice 3A.
 
-Purpose: Execute one argv-only verifier and bind its evidence to immutable Git
-attribution facts without granting closure or commit authority.
+Purpose: Execute an argv-only verifier and build bounded tamper-evident
+verification, backlog, exclusion, and terminal handoff evidence.
 Contract: Evidence is strict/bounded, subprocesses never use a shell, output is
 bounded but fully hashed, and PASS requires exit zero plus unchanged state.
 CLI/Examples: Library for slice_close.py; no standalone CLI.
-Limitations: No dispositions, commits, quarantine, backlog, handoff, telemetry,
-hooks, or integration. Pre/post snapshots cannot observe a verifier that mutates
+Limitations: No Git commit creation, integration, push, or lifecycle control.
+Pre/post snapshots cannot observe a verifier that mutates
 bytes and restores them exactly before exit; command provenance records this
 boundary but does not claim prevention. Verifier output remains a claim.
 ENV/Files: Uses the caller environment for executable lookup and explicit
@@ -309,7 +309,7 @@ def build_handoff(state: dict[str, Any], disposition: str, attribution: dict[str
         grouped[item["classification"]].append(item["path"])
         if item["classification"] == "ambiguous":
             unknowns.append({"path": item["path"], "reason": ",".join(item["reasons"])})
-    handoff = {"schema_version": 1, "run_id": state["run_id"], "slice_id": state["slice_id"], "disposition": disposition, "facts": {"baseline_sha256": state["baseline_sha256"], "verification_sha256": state["verification_sha256"], "verification_first_pass": "slice_verification_attempt_" not in state["verification_path"], "state_sha256": attribution["state_sha256"], "head": attribution["anchors"]["head"], "tree": attribution["anchors"]["tree"], "index_sha256": attribution["anchors"]["index_sha256"], "commit_oid": commit_oid, "commit_class": commit_class, "backlog_tail_hash": backlog_tail, "backlog_count": backlog_count}, "claims": {"artifact_contract_sha256": hashlib.sha256(state["artifact_contract"].encode()).hexdigest(), "blocked": blocked, "close_request": close_request}, "paths": {**grouped, "delivered": sorted(delivered), "excluded": [{"path": path, "reason": exclusions[path]} for path in sorted(exclusions)]}, "unknowns": unknowns, "coverage": {"required_paths": len(attribution["classifications"]), "covered_paths": len(delivered) + len(exclusions)}, "created_at": timestamp}
+    handoff = {"schema_version": 1, "run_id": state["run_id"], "slice_id": state["slice_id"], "disposition": disposition, "facts": {"baseline_sha256": state["baseline_sha256"], "verification_sha256": state["verification_sha256"], "verification_first_pass": "slice_verification_attempt_" not in state["verification_path"], "state_sha256": attribution["state_sha256"], "attribution_sha256": attribution["attribution_sha256"], "head": attribution["anchors"]["head"], "tree": attribution["anchors"]["tree"], "index_sha256": attribution["anchors"]["index_sha256"], "commit_oid": commit_oid, "commit_class": commit_class, "backlog_tail_hash": backlog_tail, "backlog_count": backlog_count}, "claims": {"artifact_contract_sha256": hashlib.sha256(state["artifact_contract"].encode()).hexdigest(), "blocked": blocked, "delivery_claimed": bool(delivered), "close_request": close_request}, "paths": {**grouped, "delivered": sorted(delivered), "excluded": [{"path": path, "reason": exclusions[path]} for path in sorted(exclusions)]}, "unknowns": unknowns, "coverage": {"required_paths": len(attribution["classifications"]), "covered_paths": len(delivered) + len(exclusions)}, "created_at": timestamp}
     if handoff["coverage"]["required_paths"] != handoff["coverage"]["covered_paths"]:
         raise VerifyError("handoff would drop path evidence", 3)
     if len(canonical(handoff)) > 64 * 1024:

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Exact-state verification transaction CLI for Slice 3A.
+"""Exact-state verification and terminal closure CLI for Slice 3A.
 
-Purpose: Run an argv-only verifier, record bounded evidence, and bind its
-immutable receipt into the authoritative slice event chain.
+Purpose: Verify a slice, prove terminal disposition/commit facts, and persist
+tamper-evident verification, backlog, and handoff artifacts.
 Contract: Exact run/session/revision guards apply; PASS requires exit zero and
 identical pre/post attribution state; every receipt read is checked against the
 ledger-bound canonical SHA-256.
-CLI/Examples: ``slice_close.py --cwd ROOT verify --run-id R --session-id S
---revision N --evidence-file evidence.json`` or ``status`` after binding.
-Limitations: No closure dispositions, commit proof, quarantine, backlog,
-handoff, telemetry, hooks, autopilot integration, or shell execution.
-ENV/Files: Uses normal executable lookup and writes only mode-0600
-``<git-root>/.claude/state/runs/<run-hash>/slice_verification.json``.
+CLI/Examples: Commands are ``verify``, ``status``, and ``close``; close requires
+an explicit disposition and exhaustive delivered/excluded path accounting.
+Limitations: No integration, push, lifecycle orchestration, shell execution, or
+proof of transient mutations/external side effects.
+ENV/Files: Git uses an isolated deterministic environment. Run artifacts live
+under ``<git-root>/.claude/state/runs/<run-hash>/``.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
 import sys
 from pathlib import Path
@@ -28,7 +29,7 @@ from typing import Any
 
 from slice_close_core import EVIDENCE_KEYS, VerifyError, append_backlog, append_verification_attempt, backlog_state, build_handoff, canonical, read_secure_json, run_verifier, validate_evidence, validate_exclusions, verification_attempts
 from slice_git import _relative, _run_dir, current_attribution
-from slice_ledger import _bind_verification, _bind_verification_retry, _git_root, _locked
+from slice_ledger import _bind_verification, _bind_verification_retry, _locked
 from slice_ledger_core import LedgerError, _append, _atomic_projection, _load, _now
 
 
@@ -227,7 +228,12 @@ def _status(root: Path, args: argparse.Namespace) -> dict[str, Any]:
 
 def _git(root: Path, *args: str, allow: tuple[int, ...] = (0,)) -> bytes:
     import subprocess
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=False)
+    path = "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"
+    git = shutil.which("git", path=path)
+    if git is None: raise VerifyError("git unavailable on deterministic search path", 6)
+    env = {"PATH": path, "LANG": "C", "LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0"}
+    try: result = subprocess.run([git, "-c", f"core.excludesFile={os.devnull}", "-C", str(root), *args], capture_output=True, check=False, timeout=20, env=env)
+    except (OSError, subprocess.TimeoutExpired) as exc: raise VerifyError(f"git unavailable: {exc}", 6) from exc
     if result.returncode not in allow:
         raise VerifyError(f"git {' '.join(args)} failed", 3)
     return result.stdout
@@ -235,9 +241,12 @@ def _git(root: Path, *args: str, allow: tuple[int, ...] = (0,)) -> bytes:
 
 def _git_result(root: Path, *args: str, allow: tuple[int, ...] = (0,)) -> tuple[int, bytes]:
     import subprocess
-    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=False)
-    if result.returncode not in allow:
-        raise VerifyError(f"git {' '.join(args)} failed", 3)
+    path = "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"; git = shutil.which("git", path=path)
+    if git is None: raise VerifyError("git unavailable on deterministic search path", 6)
+    env = {"PATH": path, "LANG": "C", "LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0"}
+    try: result = subprocess.run([git, "-c", f"core.excludesFile={os.devnull}", "-C", str(root), *args], capture_output=True, check=False, timeout=20, env=env)
+    except (OSError, subprocess.TimeoutExpired) as exc: raise VerifyError(f"git unavailable: {exc}", 6) from exc
+    if result.returncode not in allow: raise VerifyError(f"git {' '.join(args)} failed", 3)
     return result.returncode, result.stdout
 
 
@@ -297,6 +306,17 @@ def _commit_proof(root: Path, state: dict[str, Any], attribution: dict[str, Any]
     return commit_class
 
 
+def _contextual_commit(root: Path, attribution: dict[str, Any], oid: str | None) -> None:
+    """Validate an optional blocked-state commit reference without claiming delivery."""
+    if oid is None:
+        return
+    length = 40 if attribution["anchors"]["object_format"] == "sha1" else 64
+    if len(oid) != length or any(char not in "0123456789abcdef" for char in oid):
+        raise VerifyError("contextual commit requires exact full lowercase OID", 2)
+    if _git(root, "cat-file", "-t", oid).strip() != b"commit" or _git(root, "rev-parse", "HEAD").strip().decode() != oid:
+        raise VerifyError("contextual commit must be current HEAD commit", 3)
+
+
 def _close(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     state_dir = root / ".claude/state"
     ledger_path, events_path = state_dir / "slice_ledger.json", state_dir / "slice_events.jsonl"
@@ -338,16 +358,33 @@ def _close(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         current = current_attribution(root, state)
         verified_by_path = {item["path"]: item for item in verified["classifications"]}
         candidates = delivered
-        for item in current["classifications"]:
-            path = item["path"]
-            if path in candidates:
-                continue
+        current_by_path = {item["path"]: item for item in current["classifications"]}
+        noncandidates = set(verified_by_path) - candidates
+        if set(current_by_path) - candidates != noncandidates:
+            raise VerifyError("post-verification noncandidate path set changed", 3)
+        for path in sorted(noncandidates):
+            item = current_by_path[path]
             old = verified_by_path.get(path)
-            unchanged_foreign = (
-                old is not None and old["classification"] == "foreign" and path in exclusions
-                and item["current"] == old["current"]
+            old_current, new_current = (old or {}).get("current"), item.get("current")
+            old_fact = old_current.get("fact") if isinstance(old_current, dict) else None
+            new_fact = new_current.get("fact") if isinstance(new_current, dict) else None
+            compatible_current = old_current == new_current
+            if isinstance(old_fact, dict) and isinstance(new_fact, dict) and ("mode" not in old_fact or "mode" not in new_fact):
+                legacy_old, legacy_new = dict(old_fact), dict(new_fact)
+                legacy_old.pop("mode", None); legacy_new.pop("mode", None)
+                compatible_current = {**old_current, "fact": legacy_old} == {**new_current, "fact": legacy_new}
+            digest = new_fact.get("sha256") if isinstance(new_fact, dict) else None
+            safe_fact = (
+                isinstance(new_fact, dict) and new_fact.get("kind") == "regular"
+                and new_fact.get("hash_status") == "hashed" and isinstance(digest, str)
+                and len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)
+                and isinstance(new_fact.get("mode"), int)
             )
-            if not unchanged_foreign:
+            unchanged_excluded_noncandidate = (
+                old is not None and old["classification"] in {"foreign", "off-scope"} and path in exclusions
+                and compatible_current and safe_fact
+            )
+            if not unchanged_excluded_noncandidate:
                 raise VerifyError(f"unclassified post-verification delta: {path}", 3)
         closure_attribution = {**current, "classifications": verified["classifications"]}
     elif args.disposition == "delivered_uncommitted":
@@ -363,17 +400,23 @@ def _close(root: Path, args: argparse.Namespace) -> dict[str, Any]:
             raise VerifyError("quarantine delivery requires fresh state and pass", 3)
         validate_exclusions(verified["classifications"], delivered, exclusions)
     else:
-        if not fresh or not args.blocked_category or not args.blocked_reason or not args.next_safe_action:
-            raise VerifyError("blocked requires fresh typed reason and next safe action", 3)
-        blocked = {"category": args.blocked_category, "reason": args.blocked_reason, "next_safe_action": args.next_safe_action}
+        reason, action = args.blocked_reason or "", args.next_safe_action or ""
+        if (not args.blocked_category or not reason.strip() or not action.strip()
+                or len(reason) > 512 or len(action) > 512):
+            raise VerifyError("blocked requires bounded typed reason and next safe action", 2)
+        if delivered:
+            raise VerifyError("blocked closure cannot claim delivered paths", 3)
+        _contextual_commit(root, current, args.commit_oid)
+        blocked = {"category": args.blocked_category, "reason": reason, "next_safe_action": action}
         delivered = set()
-        exclusions = {item["path"]: exclusions.get(item["path"], "blocked unresolved fact") for item in verified["classifications"]}
-        validate_exclusions(verified["classifications"], delivered, exclusions)
-    offscope = [item["path"] for item in verified["classifications"] if item["classification"] == "off-scope"]
+        exclusions = {item["path"]: exclusions.get(item["path"], "blocked unresolved fact") for item in current["classifications"]}
+        validate_exclusions(current["classifications"], delivered, exclusions)
+        closure_attribution = current
+    closure_attribution = closure_attribution if args.disposition in {"committed", "blocked"} else verified
+    offscope = [item["path"] for item in closure_attribution["classifications"] if item["classification"] == "off-scope"]
     timestamp = receipt["claim"]["ended_at"]
     backlog_path = run_dir / "slice_backlog.jsonl"
-    tail, count = append_backlog(backlog_path, state["run_id"], state["slice_id"], verified["state_sha256"], offscope, timestamp)
-    closure_attribution = closure_attribution if args.disposition == "committed" else verified
+    tail, count = append_backlog(backlog_path, state["run_id"], state["slice_id"], closure_attribution["state_sha256"], offscope, timestamp)
     handoff = build_handoff(state, args.disposition, closure_attribution, delivered, exclusions, args.commit_oid, commit_class, tail, count, blocked, timestamp, request)
     handoff_hash = __import__("hashlib").sha256(canonical(handoff)).hexdigest()
     if handoff_path.exists():
@@ -399,7 +442,7 @@ def _read_handoff(path: Path, expected_hash: str) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _parser().parse_args(argv)
-        root = _git_root(args.cwd)
+        root = Path(_git(Path(args.cwd), "rev-parse", "--show-toplevel").decode("utf-8", "strict").strip()).resolve()
         with _locked(root):
             result = _verify(root, args) if args.command == "verify" else _close(root, args) if args.command == "close" else _status(root, args)
         _emit(True, args.command, result=result)

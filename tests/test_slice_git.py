@@ -375,7 +375,7 @@ def test_receipt_link_permission_and_corruption_attacks_fail_closed(tmp_path: Pa
     assert _attribute(repo)[0] == 4
 
 
-def test_no_recursive_hashing_of_unrelated_untracked_tree(tmp_path: Path) -> None:
+def test_only_observed_untracked_leaf_is_safely_fingerprinted(tmp_path: Path) -> None:
     repo = _repo(tmp_path, ["allowed.txt"])
     _capture(repo)
     secret = repo / "unrelated" / "deep" / "secret.pem"
@@ -385,10 +385,53 @@ def test_no_recursive_hashing_of_unrelated_untracked_tree(tmp_path: Path) -> Non
     try:
         code, value = _attribute(repo)
         assert code == 0
-        assert "unrelated/deep/secret.pem" not in value["result"]["current"]["scoped_facts"]
+        fact = value["result"]["current"]["scoped_facts"]["unrelated/deep/secret.pem"]
+        assert fact["hash_status"] == "sensitive_skipped" and fact["sha256"] is None
         assert _classes(value)["unrelated/deep/secret.pem"]["classification"] == "off-scope"
     finally:
         os.chmod(secret, 0o600)
+
+
+def test_observed_offscope_facts_detect_content_mode_and_bound_unsafe_kinds(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ["allowed.txt"])
+    _capture(repo)
+    regular = repo / "outside.txt"
+    regular.write_text("first\n")
+    first = _attribute(repo)[1]["result"]
+    first_fact = first["current"]["scoped_facts"]["outside.txt"]
+    regular.write_text("other\n")
+    os.chmod(regular, 0o600)
+    second = _attribute(repo)[1]["result"]
+    second_fact = second["current"]["scoped_facts"]["outside.txt"]
+    assert first_fact["hash_status"] == second_fact["hash_status"] == "hashed"
+    assert first_fact["sha256"] != second_fact["sha256"] and second_fact["mode"] == 0o600
+    assert first["state_sha256"] != second["state_sha256"]
+    (repo / "unsafe-link").symlink_to("outside.txt")
+    with (repo / "oversized.bin").open("wb") as stream: stream.truncate(core.MAX_FILE + 1)
+    facts = _attribute(repo)[1]["result"]["current"]["scoped_facts"]
+    assert facts["unsafe-link"]["hash_status"] == "unsafe_symlink"
+    assert facts["oversized.bin"]["hash_status"] == "too_large"
+
+
+def test_legacy_mode_less_facts_preserve_clean_and_dirty_classification(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ["legacy.txt"])
+    baseline = core.snapshot(repo, ["legacy.txt"])
+    legacy = json.loads(json.dumps(baseline))
+    for fact in legacy["scoped_facts"].values(): fact.pop("mode", None)
+    assert core.classify(legacy, core.snapshot(repo, ["legacy.txt"]), ["legacy.txt"]) == []
+    (repo / "legacy.txt").write_text("legacy dirty\n")
+    classified = core.classify(legacy, core.snapshot(repo, ["legacy.txt"]), ["legacy.txt"])
+    assert [(item["path"], item["classification"]) for item in classified] == [("legacy.txt", "candidate-owned")]
+
+
+def test_literal_head_and_index_facts_do_not_expand_special_or_descendant_paths(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ["name:part", "tree/file.txt"])
+    colon = core._object_fact(repo, "name:part")
+    directory = core._object_fact(repo, "tree")
+    missing = core._object_fact(repo, "tree/missing")
+    assert colon["head_blob"] and len(colon["index_stages"]) == 1
+    assert directory["head_blob"] and directory["index_stages"] == []
+    assert missing == {"head_blob": None, "index_stages": []}
 
 
 def test_rewritten_receipt_with_valid_json_is_rejected_by_authoritative_event_hash(tmp_path: Path) -> None:

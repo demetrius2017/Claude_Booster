@@ -24,7 +24,7 @@ def _run(script: Path, repo: Path, *args: str) -> tuple[int, dict]:
     return result.returncode, json.loads(output)
 
 
-def _repo(tmp_path: Path, allowed: list[str] | None = None) -> Path:
+def _repo(tmp_path: Path, allowed: list[str] | None = None, dirty_delete: str | None = None) -> Path:
     allowed = allowed or ["work.txt"]
     repo = tmp_path / "repo"
     repo.mkdir(parents=True)
@@ -39,6 +39,7 @@ def _repo(tmp_path: Path, allowed: list[str] | None = None) -> Path:
     acquire = ["acquire", "--slice-id", "s", "--artifact-contract", "verify implementation", "--session-id", "sess", "--run-id", "run1"]
     for path in allowed: acquire += ["--allowed-path", path]
     assert _run(LEDGER, repo, *acquire)[0] == 0
+    if dirty_delete: (repo / dirty_delete).unlink()
     assert _run(GIT, repo, "capture", "--run-id", "run1", "--session-id", "sess", "--revision", "1")[0] == 0
     return repo
 
@@ -333,7 +334,7 @@ def test_closed_retry_requires_exact_guarded_canonical_request(tmp_path: Path) -
 
 
 def test_stale_verification_and_incomplete_exclusions_refuse_delivery(tmp_path: Path) -> None:
-    repo, receipt = _prepare_candidate(tmp_path)
+    repo, receipt = _prepare_candidate(tmp_path, offscope=True)
     candidates = {item["path"] for item in receipt["attribution"]["classifications"] if item["classification"] == "candidate-owned"}
     assert _run(CLOSE, repo, "close", "--run-id", "run1", "--session-id", "sess", "--revision", "3", "--disposition", "delivered_uncommitted", "--delivered-path", next(iter(candidates)))[0] == 3
     (repo / "work.txt").write_text("stale\n")
@@ -355,8 +356,6 @@ def test_quarantine_routes_offscope_backlog_and_detects_tamper(tmp_path: Path) -
     item = json.loads(lines[0]); item["reason"] = "tampered"
     backlog.write_text(json.dumps(item) + "\n")
     assert _run(CLOSE, repo, *retry)[0] == 4
-
-
 def test_blocked_is_typed_non_success_and_new_run_links_closed_hash(tmp_path: Path) -> None:
     repo, receipt = _prepare_candidate(tmp_path)
     args = ["close", "--run-id", "run1", "--session-id", "sess", "--revision", "3", "--disposition", "blocked", "--blocked-category", "external_blocker", "--blocked-reason", "dependency unavailable", "--next-safe-action", "retry after dependency"]
@@ -367,26 +366,82 @@ def test_blocked_is_typed_non_success_and_new_run_links_closed_hash(tmp_path: Pa
     assert code == 0 and next_run["ledger"]["run_id"] == "run2"
     event = json.loads((repo / ".claude/state/slice_events.jsonl").read_text().splitlines()[-1])
     assert event["payload"]["previous_terminal_hash"] == terminal["last_event_hash"]
-
-
-def test_committed_proves_direct_parent_exact_paths_blobs_and_class(tmp_path: Path) -> None:
+@pytest.mark.parametrize("missing", ["reason", "action"])
+def test_blocked_rejects_missing_reason_or_action(tmp_path: Path, missing: str) -> None:
+    repo, _ = _prepare_candidate(tmp_path)
+    args = ["close", "--run-id", "run1", "--session-id", "sess", "--revision", "3", "--disposition", "blocked", "--blocked-category", "other"]
+    if missing != "reason": args += ["--blocked-reason", "bounded reason"]
+    if missing != "action": args += ["--next-safe-action", "inspect evidence"]
+    assert _run(CLOSE, repo, *args)[0] == 2
+def test_blocked_after_commit_records_current_facts_zero_delivery_and_detects_tamper(tmp_path: Path) -> None:
+    repo, _ = _prepare_candidate(tmp_path)
+    subprocess.run(["git", "-C", str(repo), "add", "work.txt"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "context only"], check=True)
+    oid = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    _, current = _run(GIT, repo, "attribute", "--run-id", "run1", "--session-id", "sess", "--revision", "3")
+    args = ["close", "--run-id", "run1", "--session-id", "sess", "--revision", "3", "--disposition", "blocked", "--blocked-category", "ambiguous_state", "--blocked-reason", "commit occurred after verification", "--next-safe-action", "start a new verified run", "--commit-oid", oid]
+    code, value = _run(CLOSE, repo, *args)
+    assert code == 0 and value["result"]["paths"]["delivered"] == []
+    assert value["result"]["claims"]["delivery_claimed"] is False
+    assert value["result"]["facts"]["state_sha256"] == current["result"]["state_sha256"]
+    assert value["result"]["facts"]["attribution_sha256"] == current["result"]["attribution_sha256"]
+    handoff = next((repo / ".claude/state/runs").glob("*/slice_handoff.json"))
+    body = json.loads(handoff.read_text()); body["claims"]["delivery_claimed"] = True
+    handoff.write_text(json.dumps(body)); os.chmod(handoff, 0o600)
+    retry = ["4" if value == "3" and args[index - 1] == "--revision" else value for index, value in enumerate(args)]
+    assert _run(CLOSE, repo, *retry)[0] == 4
+def test_committed_proves_direct_parent_exact_paths_blobs_and_class(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo, receipt = _prepare_candidate(tmp_path)
     candidates = {item["path"] for item in receipt["attribution"]["classifications"] if item["classification"] == "candidate-owned"}
     subprocess.run(["git", "-C", str(repo), "add", *sorted(candidates)], check=True)
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "implement"], check=True)
     oid = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    for key in ("GIT_DIR", "GIT_WORK_TREE", "GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"): monkeypatch.setenv(key, str(tmp_path / "host-poison"))
     args = _closure_args(receipt, "committed", candidates) + ["--commit-oid", oid]
     code, value = _run(CLOSE, repo, *args)
     assert code == 0 and value["result"]["facts"]["commit_class"] == "implementation"
     assert json.loads((repo / ".claude/state/slice_ledger.json").read_text())["closure"]["commit_oid"] == oid
-
-
+def test_committed_accepts_only_unchanged_explicitly_excluded_offscope(tmp_path: Path) -> None:
+    repo, receipt = _prepare_candidate(tmp_path, offscope=True)
+    candidates = {item["path"] for item in receipt["attribution"]["classifications"] if item["classification"] == "candidate-owned"}
+    subprocess.run(["git", "-C", str(repo), "add", *sorted(candidates)], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "implement"], check=True)
+    oid = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    args = _closure_args(receipt, "committed", candidates) + ["--commit-oid", oid]
+    assert _run(CLOSE, repo, *args)[0] == 0
+    repo2, receipt2 = _prepare_candidate(tmp_path / "changed", offscope=True)
+    candidates2 = {item["path"] for item in receipt2["attribution"]["classifications"] if item["classification"] == "candidate-owned"}
+    subprocess.run(["git", "-C", str(repo2), "add", *sorted(candidates2)], check=True)
+    subprocess.run(["git", "-C", str(repo2), "commit", "-qm", "implement"], check=True)
+    oid2 = subprocess.check_output(["git", "-C", str(repo2), "rev-parse", "HEAD"], text=True).strip()
+    (repo2 / "outside.txt").write_text("changed after verification\n")
+    assert _run(CLOSE, repo2, *(_closure_args(receipt2, "committed", candidates2) + ["--commit-oid", oid2]))[0] == 3
+    (repo2 / "outside.txt").unlink()
+    assert _run(CLOSE, repo2, *(_closure_args(receipt2, "committed", candidates2) + ["--commit-oid", oid2]))[0] == 3
+    (repo2 / "outside.txt").symlink_to("work.txt")
+    assert _run(CLOSE, repo2, *(_closure_args(receipt2, "committed", candidates2) + ["--commit-oid", oid2]))[0] == 3
+def test_committed_rejects_unchanged_baseline_dirty_tracked_deletion_foreign(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, ["work.txt", "foreign.txt"], dirty_delete="foreign.txt"); (repo / "work.txt").write_text("implemented\n")
+    receipt = _verify(repo, _evidence(tmp_path, [sys.executable, "-c", "print('ok')"]))[1]["result"]
+    candidates = {item["path"] for item in receipt["attribution"]["classifications"] if item["classification"] == "candidate-owned"}
+    classes = {item["path"]: item["classification"] for item in receipt["attribution"]["classifications"]}; assert classes["foreign.txt"] == "foreign"
+    subprocess.run(["git", "-C", str(repo), "add", *sorted(candidates)], check=True); subprocess.run(["git", "-C", str(repo), "commit", "-qm", "implement"], check=True)
+    oid = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+    assert _run(CLOSE, repo, *(_closure_args(receipt, "committed", candidates) + ["--commit-oid", oid]))[0] == 3
+@pytest.mark.parametrize("target", ["receipt", "ledger"])
+def test_blocked_rejects_tampered_current_evidence_or_ledger(tmp_path: Path, target: str) -> None:
+    repo, _ = _prepare_candidate(tmp_path)
+    path = _verification_path(repo) if target == "receipt" else repo / ".claude/state/slice_ledger.json"
+    value = json.loads(path.read_text())
+    if target == "receipt": value["attribution"]["state_sha256"] = "0" * 64
+    else: value["verification_state_sha256"] = "0" * 64
+    path.write_text(json.dumps(value)); os.chmod(path, 0o600)
+    args = ["close", "--run-id", "run1", "--session-id", "sess", "--revision", "3", "--disposition", "blocked", "--blocked-category", "other", "--blocked-reason", "tamper", "--next-safe-action", "restart"]
+    assert _run(CLOSE, repo, *args)[0] == 4
 def test_committed_rejects_short_oid(tmp_path: Path) -> None:
     repo, receipt = _prepare_candidate(tmp_path / "short")
     candidates = {item["path"] for item in receipt["attribution"]["classifications"] if item["classification"] == "candidate-owned"}
     assert _run(CLOSE, repo, *(_closure_args(receipt, "committed", candidates) + ["--commit-oid", "abc123"]))[0] == 2
-
-
 def test_committed_rejects_empty_blob_resurrection_of_verified_deletion(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     (repo / "work.txt").unlink()
@@ -398,8 +453,6 @@ def test_committed_rejects_empty_blob_resurrection_of_verified_deletion(tmp_path
     subprocess.run(["git", "-C", str(repo), "commit", "-qm", "resurrect empty"], check=True)
     oid = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
     assert _run(CLOSE, repo, *(_closure_args(receipt, "committed", candidates) + ["--commit-oid", oid]))[0] == 3
-
-
 @pytest.mark.parametrize("delta", ["dirty_candidate", "untracked_offscope", "staged_allowed"])
 def test_committed_rejects_every_post_verification_delta(tmp_path: Path, delta: str) -> None:
     repo = _repo(tmp_path, ["work.txt", "extra.txt"])
@@ -418,8 +471,6 @@ def test_committed_rejects_every_post_verification_delta(tmp_path: Path, delta: 
         (repo / "extra.txt").write_text("staged delta\n")
         subprocess.run(["git", "-C", str(repo), "add", "extra.txt"], check=True)
     assert _run(CLOSE, repo, *(_closure_args(receipt, "committed", candidates) + ["--commit-oid", oid]))[0] == 3
-
-
 def test_docs_only_commit_cannot_satisfy_implementation_contract(tmp_path: Path) -> None:
     repo = _repo(tmp_path / "docs", ["work.txt", "guide.md"])
     (repo / "guide.md").write_text("docs only\n")

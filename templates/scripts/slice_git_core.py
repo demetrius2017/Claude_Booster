@@ -197,15 +197,15 @@ def file_fact(root: Path, path: str, budget: list[int]) -> dict[str, Any]:
             try:
                 next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
             except OSError:
-                return {"kind": "unknown", "size": None, "hash_status": "unsafe_ancestor", "sha256": None, "symlink_target_sha256": None}
+                return {"kind": "unknown", "mode": None, "size": None, "hash_status": "unsafe_ancestor", "sha256": None, "symlink_target_sha256": None}
             os.close(dir_fd)
             dir_fd = next_fd
         name = parts[-1]
         try:
             before = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
         except FileNotFoundError:
-            return {"kind": "absent", "size": 0, "hash_status": "absent", "sha256": None, "symlink_target_sha256": None}
-        common = {"size": before.st_size, "sha256": None, "symlink_target_sha256": None}
+            return {"kind": "absent", "mode": None, "size": 0, "hash_status": "absent", "sha256": None, "symlink_target_sha256": None}
+        common = {"mode": stat.S_IMODE(before.st_mode), "size": before.st_size, "sha256": None, "symlink_target_sha256": None}
         if stat.S_ISLNK(before.st_mode):
             target = os.readlink(name, dir_fd=dir_fd).encode("utf-8", "surrogateescape")
             return {**common, "kind": "symlink", "hash_status": "unsafe_symlink", "symlink_target_sha256": hashlib.sha256(target).hexdigest()}
@@ -243,9 +243,19 @@ def file_fact(root: Path, path: str, budget: list[int]) -> dict[str, Any]:
 
 def _object_fact(root: Path, path: str) -> dict[str, Any]:
     """Return HEAD and all index-stage object facts for one exact path."""
-    head_raw = _git(root, ["rev-parse", "--verify", f"HEAD:{path}"], allow=(0, 128)).strip()
-    head_blob = head_raw.decode("ascii") if head_raw else None
-    index_raw = _git(root, ["ls-files", "--stage", "-z", "--", path])
+    tree_raw = _git(root, ["ls-tree", "-z", "HEAD", "--", f":(literal){path}"])
+    head_blob = None
+    for record in tree_raw.split(b"\0"):
+        if not record:
+            continue
+        try:
+            metadata, raw_path = record.split(b"\t", 1)
+            _mode, _kind, oid = metadata.decode("ascii").split(" ")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise GitFactError("malformed HEAD tree record", 5) from exc
+        if canonical_path(raw_path) == path:
+            head_blob = oid
+    index_raw = _git(root, ["ls-files", "--stage", "-z", "--", f":(literal){path}"])
     stages: list[dict[str, str]] = []
     for record in index_raw.split(b"\0"):
         if not record:
@@ -256,20 +266,22 @@ def _object_fact(root: Path, path: str) -> dict[str, Any]:
         except (ValueError, UnicodeDecodeError) as exc:
             raise GitFactError("malformed index stage record", 5) from exc
         if canonical_path(raw_path) != path:
-            raise GitFactError("index path identity mismatch", 5)
+            continue
         stages.append({"mode": mode, "oid": oid, "stage": stage})
     return {"head_blob": head_blob, "index_stages": stages}
 
 
 def snapshot(root: Path, allowed: list[str]) -> dict[str, Any]:
     anchors, raw, entries = stable_git_state(root)
+    entries = [entry for entry in entries if not (
+        entry["kind"] == "!" and (entry["path"] == ".claude" or entry["path"].startswith(".claude/state"))
+    )]
     _validate_path_collisions([{"path": path} for path in allowed] + entries)
     relevant = set(allowed)
     for entry in entries:
-        if entry["path"] in relevant or entry.get("original_path") in relevant:
-            relevant.add(entry["path"])
-            if entry.get("original_path"):
-                relevant.add(entry["original_path"])
+        relevant.add(entry["path"])
+        if entry.get("original_path"):
+            relevant.add(entry["original_path"])
     budget = [0]
     facts = {path: {**file_fact(root, path, budget), **_object_fact(root, path)} for path in sorted(relevant)}
     end = _anchors(root)
@@ -287,12 +299,23 @@ def _entry_map(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def facts_compatible(left: Any, right: Any) -> bool:
+    """Compare facts while treating additive mode as optional only for legacy facts."""
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return left == right
+    if "mode" not in left or "mode" not in right:
+        left, right = dict(left), dict(right)
+        left.pop("mode", None)
+        right.pop("mode", None)
+    return left == right
+
+
 def classify(baseline: dict[str, Any], current: dict[str, Any], allowed: list[str]) -> list[dict[str, Any]]:
     """Exhaustively classify baseline/current changed paths without authorship claims."""
     base_entries, now_entries = _entry_map(baseline["entries"]), _entry_map(current["entries"])
     paths = set(base_entries) | set(now_entries)
     for path in allowed:
-        if baseline["scoped_facts"].get(path) != current["scoped_facts"].get(path):
+        if not facts_compatible(baseline["scoped_facts"].get(path), current["scoped_facts"].get(path)):
             paths.add(path)
     anchor_mismatch = baseline["anchors"] != current["anchors"]
     output: list[dict[str, Any]] = []
@@ -308,11 +331,11 @@ def classify(baseline: dict[str, Any], current: dict[str, Any], allowed: list[st
         elif anchor_mismatch:
             classification, reasons = "ambiguous", ["head_tree_or_index_mismatch"]
         elif base_entry is not None:
-            if base_entry == now_entry and base_fact == now_fact:
+            if base_entry == now_entry and facts_compatible(base_fact, now_fact):
                 classification, reasons = "foreign", ["baseline_dirty_unchanged"]
             else:
                 classification, reasons = "ambiguous", ["baseline_dirty_changed"]
-        elif now_entry is None and base_fact == now_fact:
+        elif now_entry is None and facts_compatible(base_fact, now_fact):
             continue
         elif now_entry and (now_entry["kind"] in {"u", "!"} or now_entry.get("sub", "N...") != "N..."):
             classification, reasons = "ambiguous", ["unmerged_ignored_or_submodule"]
