@@ -32,6 +32,7 @@ MAX_EVIDENCE = 32 * 1024
 MAX_OUTPUT = 16 * 1024
 MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 EVIDENCE_KEYS = {"schema_version", "argv", "timeout_seconds"}
+BACKLOG_KEYS = {"schema_version", "run_id", "slice_id", "path", "reason", "state_sha256", "discovered_at", "previous_hash", "hash"}
 
 
 class VerifyError(Exception):
@@ -195,3 +196,88 @@ def run_verifier(root: Path, evidence: dict[str, Any], state_reader: Callable[[]
         "claim": {"argv": evidence["argv"], "resolved_executable": executable, "executable_before": identity_before, "executable_after": identity_after, "started_at": started, "ended_at": ended, "exit_code": process.returncode, "timed_out": timed_out, "stdout": stdout_fact, "stderr": stderr_fact, "environment_keys": sorted(clean_env)},
         "attribution": pre,
     }
+
+
+def _secure_lines(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    if path.is_symlink():
+        raise VerifyError("backlog symlink forbidden", 4)
+    info = path.stat()
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
+        raise VerifyError("backlog must be regular, single-link, mode 0600", 4)
+    raw = path.read_bytes()
+    if raw and not raw.endswith(b"\n"):
+        raise VerifyError("truncated backlog", 4)
+    result, previous = [], "0" * 64
+    for line in raw.splitlines():
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise VerifyError("invalid backlog JSON", 4) from exc
+        unsigned = {key: item[key] for key in BACKLOG_KEYS - {"hash"}} if isinstance(item, dict) and set(item) == BACKLOG_KEYS else None
+        expected = hashlib.sha256(canonical(unsigned)).hexdigest() if unsigned else ""
+        if not unsigned or item["previous_hash"] != previous or item["hash"] != expected:
+            raise VerifyError("backlog hash chain mismatch", 4)
+        previous, result = expected, [*result, item]
+    return result
+
+
+def append_backlog(path: Path, run_id: str, slice_id: str, state_sha: str, offscope: list[str], timestamp: str) -> tuple[str | None, int]:
+    """Append deduplicated deterministic off-scope paths and fsync the log."""
+    records = _secure_lines(path)
+    seen = {(item["run_id"], item["path"], item["state_sha256"]) for item in records}
+    previous = records[-1]["hash"] if records else "0" * 64
+    new_records: list[dict[str, Any]] = []
+    for changed_path in sorted(offscope):
+        if (run_id, changed_path, state_sha) in seen:
+            continue
+        unsigned = {"schema_version": 1, "run_id": run_id, "slice_id": slice_id, "path": changed_path, "reason": "outside_artifact_contract", "state_sha256": state_sha, "discovered_at": timestamp, "previous_hash": previous}
+        item = {**unsigned, "hash": hashlib.sha256(canonical(unsigned)).hexdigest()}
+        new_records.append(item)
+        previous = item["hash"]
+    if new_records:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        try:
+            opened = os.fstat(fd)
+            if opened.st_nlink != 1:
+                raise VerifyError("backlog hardlink forbidden", 4)
+            os.fchmod(fd, 0o600)
+            for item in new_records:
+                os.write(fd, canonical(item) + b"\n")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    all_records = [*records, *new_records]
+    return (all_records[-1]["hash"] if all_records else None), len(all_records)
+
+
+def backlog_state(path: Path) -> tuple[str | None, int]:
+    records = _secure_lines(path)
+    return (records[-1]["hash"] if records else None), len(records)
+
+
+def validate_exclusions(classifications: list[dict[str, Any]], delivered: set[str], exclusions: dict[str, str]) -> None:
+    paths = {item["path"] for item in classifications}
+    if delivered - paths or set(exclusions) - paths or delivered & set(exclusions) or delivered | set(exclusions) != paths:
+        raise VerifyError("delivered/excluded paths are not exhaustive and disjoint", 3)
+    if any(not reason.strip() for reason in exclusions.values()):
+        raise VerifyError("every exclusion requires a nonblank reason", 2)
+    candidates = {item["path"] for item in classifications if item["classification"] == "candidate-owned"}
+    if not delivered <= candidates:
+        raise VerifyError("only candidate-owned paths may be delivered", 3)
+
+
+def build_handoff(state: dict[str, Any], disposition: str, attribution: dict[str, Any], delivered: set[str], exclusions: dict[str, str], commit_oid: str | None, commit_class: str | None, backlog_tail: str | None, backlog_count: int, blocked: dict[str, str] | None, timestamp: str, close_request: dict[str, Any]) -> dict[str, Any]:
+    grouped = {name: [] for name in ("candidate-owned", "foreign", "ambiguous", "off-scope")}
+    unknowns: list[dict[str, str]] = []
+    for item in attribution["classifications"]:
+        grouped[item["classification"]].append(item["path"])
+        if item["classification"] == "ambiguous":
+            unknowns.append({"path": item["path"], "reason": ",".join(item["reasons"])})
+    handoff = {"schema_version": 1, "run_id": state["run_id"], "slice_id": state["slice_id"], "disposition": disposition, "facts": {"baseline_sha256": state["baseline_sha256"], "verification_sha256": state["verification_sha256"], "state_sha256": attribution["state_sha256"], "head": attribution["anchors"]["head"], "tree": attribution["anchors"]["tree"], "index_sha256": attribution["anchors"]["index_sha256"], "commit_oid": commit_oid, "commit_class": commit_class, "backlog_tail_hash": backlog_tail, "backlog_count": backlog_count}, "claims": {"artifact_contract_sha256": hashlib.sha256(state["artifact_contract"].encode()).hexdigest(), "blocked": blocked, "close_request": close_request}, "paths": {**grouped, "delivered": sorted(delivered), "excluded": [{"path": path, "reason": exclusions[path]} for path in sorted(exclusions)]}, "unknowns": unknowns, "coverage": {"required_paths": len(attribution["classifications"]), "covered_paths": len(delivered) + len(exclusions)}, "created_at": timestamp}
+    if handoff["coverage"]["required_paths"] != handoff["coverage"]["covered_paths"]:
+        raise VerifyError("handoff would drop path evidence", 3)
+    if len(canonical(handoff)) > 64 * 1024:
+        raise VerifyError("handoff exceeds 64 KiB; truncation forbidden", 5)
+    return handoff

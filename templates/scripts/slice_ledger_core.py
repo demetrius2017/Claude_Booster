@@ -25,14 +25,15 @@ from typing import Any
 
 CORRUPT, IO_ERROR, USAGE = 4, 6, 2
 GENESIS = "0" * 64
-STATES = {"active", "released"}
-DISPOSITIONS = {None}
+STATES = {"active", "released", "closed"}
+DISPOSITIONS = {None, "committed", "quarantined", "delivered_uncommitted", "blocked"}
 LEDGER_KEYS = {
     "schema_version", "revision", "run_id", "slice_id", "artifact_contract",
     "allowed_paths", "state", "terminal_disposition", "owner", "created_at",
     "updated_at", "last_event_hash", "baseline_sha256", "verification_sha256",
     "verification_state_sha256",
     "baseline_path", "verification_path",
+    "closure", "handoff_sha256",
 }
 LEGACY_LEDGER_KEYS = LEDGER_KEYS - {"baseline_sha256", "verification_sha256", "verification_state_sha256", "baseline_path", "verification_path"}
 OWNER_KEYS = {"session_id", "pid", "hostname", "process_start"}
@@ -44,6 +45,7 @@ RECOVER_PAYLOAD_KEYS = RELEASE_PAYLOAD_KEYS | {"reason", "previous_owner", "new_
 BASELINE_PAYLOAD_KEYS = RELEASE_PAYLOAD_KEYS | {"baseline_sha256", "baseline_path"}
 VERIFY_PAYLOAD_KEYS = RELEASE_PAYLOAD_KEYS | {"verification_sha256", "state_sha256", "verification_path"}
 NEW_RUN_PAYLOAD_KEYS = ACQUIRE_PAYLOAD_KEYS | {"previous_run_id", "previous_revision", "previous_terminal_hash"}
+CLOSED_PAYLOAD_KEYS = RELEASE_PAYLOAD_KEYS | {"disposition", "state_sha256", "verification_sha256", "commit_oid", "excluded_paths", "backlog_path", "backlog_tail_hash", "backlog_count", "handoff_path", "handoff_sha256", "commit_class"}
 
 
 class LedgerError(Exception):
@@ -159,6 +161,11 @@ def _validate_ledger(value: Any) -> dict[str, Any]:
     for key in ("baseline_path", "verification_path"):
         if value[key] is not None and (not isinstance(value[key], str) or not value[key].startswith(".claude/state/runs/")):
             raise LedgerError(f"invalid {key}", CORRUPT)
+    if value["state"] == "closed":
+        if value["terminal_disposition"] not in DISPOSITIONS - {None} or not isinstance(value["closure"], dict) or value["handoff_sha256"] is None:
+            raise LedgerError("invalid closed projection", CORRUPT)
+    elif value["terminal_disposition"] is not None or value["closure"] is not None or value["handoff_sha256"] is not None:
+        raise LedgerError("non-terminal projection carries closure", CORRUPT)
     return value
 
 
@@ -199,7 +206,7 @@ def _read_events(path: Path) -> list[dict[str, Any]]:
         expected = _event_hash(unsigned)
         if event["hash"] != expected:
             raise LedgerError("event content hash mismatch", CORRUPT)
-        if event["type"] not in {"acquired", "new_run", "updated", "released", "recovered", "baseline_bound", "verification_bound"} or not isinstance(event["payload"], dict):
+        if event["type"] not in {"acquired", "new_run", "updated", "released", "recovered", "baseline_bound", "verification_bound", "closed"} or not isinstance(event["payload"], dict):
             raise LedgerError("invalid event type/payload", CORRUPT)
         expected_payload_keys = {
             "acquired": ACQUIRE_PAYLOAD_KEYS,
@@ -209,6 +216,7 @@ def _read_events(path: Path) -> list[dict[str, Any]]:
             "baseline_bound": BASELINE_PAYLOAD_KEYS,
             "verification_bound": VERIFY_PAYLOAD_KEYS,
             "new_run": NEW_RUN_PAYLOAD_KEYS,
+            "closed": CLOSED_PAYLOAD_KEYS,
         }[event["type"]]
         payload_keys = set(event["payload"])
         legacy_acquire = event["type"] == "acquired" and payload_keys == ACQUIRE_PAYLOAD_KEYS - {"baseline_sha256"}
@@ -232,9 +240,11 @@ def _project(events: list[dict[str, Any]]) -> dict[str, Any] | None:
             state.setdefault("verification_state_sha256", None)
             state.setdefault("baseline_path", None)
             state.setdefault("verification_path", None)
+            state.setdefault("closure", None)
+            state.setdefault("handoff_sha256", None)
             state["last_event_hash"] = event["hash"]
         elif event["type"] == "new_run":
-            if state is None or state["state"] != "released" or state["run_id"] != payload["previous_run_id"]:
+            if state is None or state["state"] not in {"released", "closed"} or state["run_id"] != payload["previous_run_id"]:
                 raise LedgerError("new-run event violates terminal transition", CORRUPT)
             if payload["previous_revision"] != state["revision"] or payload["previous_terminal_hash"] != state["last_event_hash"] or payload["run_id"] == state["run_id"]:
                 raise LedgerError("new-run provenance mismatch", CORRUPT)
@@ -282,6 +292,13 @@ def _project(events: list[dict[str, Any]]) -> dict[str, Any] | None:
             state["revision"] = payload["revision"]
             state["updated_at"] = payload["updated_at"]
             state["last_event_hash"] = event["hash"]
+        elif event["type"] == "closed":
+            if state is None or state["state"] != "active" or state["verification_sha256"] != payload["verification_sha256"]:
+                raise LedgerError("closed event violates lifecycle", CORRUPT)
+            if payload["run_id"] != state["run_id"] or payload["revision"] != state["revision"] + 1 or payload["disposition"] not in DISPOSITIONS - {None}:
+                raise LedgerError("closed event guard mismatch", CORRUPT)
+            _validate_hash(payload["handoff_sha256"], "handoff_sha256")
+            state.update(state="closed", terminal_disposition=payload["disposition"], closure=dict(payload), handoff_sha256=payload["handoff_sha256"], revision=payload["revision"], updated_at=payload["updated_at"], last_event_hash=event["hash"])
         else:
             if state is None or state["state"] != "active":
                 raise LedgerError("recover event violates lifecycle", CORRUPT)
@@ -311,10 +328,10 @@ def _read_projection(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(_read_secure(path, "ledger projection"))
         if isinstance(value, dict) and set(value) == LEGACY_LEDGER_KEYS:
-            value.update(baseline_sha256=None, verification_sha256=None, verification_state_sha256=None, baseline_path=None, verification_path=None)
+            value.update(baseline_sha256=None, verification_sha256=None, verification_state_sha256=None, baseline_path=None, verification_path=None, closure=None, handoff_sha256=None)
         elif isinstance(value, dict):
             for key in LEDGER_KEYS - set(value):
-                if key in {"baseline_path", "verification_path", "verification_sha256", "verification_state_sha256"}:
+                if key in {"baseline_path", "verification_path", "verification_sha256", "verification_state_sha256", "closure", "handoff_sha256"}:
                     value[key] = None
         return _validate_ledger(value)
     except LedgerError:

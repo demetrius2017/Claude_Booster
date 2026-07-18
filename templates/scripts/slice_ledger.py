@@ -179,6 +179,7 @@ def _acquire(args: argparse.Namespace, ledger: Path, events_path: Path) -> dict[
         "baseline_sha256": None,
         "verification_sha256": None, "verification_state_sha256": None,
         "baseline_path": None, "verification_path": None,
+        "closure": None, "handoff_sha256": None,
         "owner": _owner(args.session_id), "created_at": now, "updated_at": now,
     }
     event = _append(events_path, "acquired", payload, events)
@@ -381,14 +382,14 @@ def _new_run(args: argparse.Namespace, ledger: Path, events_path: Path) -> dict[
         and events[-1]["payload"]["previous_revision"] == args.previous_revision
     ):
         return state
-    if state is None or state["state"] != "released":
-        raise LedgerError("new-run requires a terminal released run", CONFLICT)
+    if state is None or state["state"] not in {"released", "closed"}:
+        raise LedgerError("new-run requires a terminal run", CONFLICT)
     if state["run_id"] != args.previous_run_id or state["revision"] != args.previous_revision:
         raise LedgerError("previous run/revision guard conflict", CONFLICT)
     if not paths or not args.run_id or args.run_id == state["run_id"] or not args.session_id.strip() or not args.artifact_contract.strip():
         raise LedgerError("invalid new-run identity or contract", USAGE)
     now = _now()
-    acquired = {"schema_version": 1, "revision": 1, "run_id": args.run_id, "slice_id": args.slice_id, "artifact_contract": args.artifact_contract, "allowed_paths": paths, "state": "active", "terminal_disposition": None, "baseline_sha256": None, "verification_sha256": None, "verification_state_sha256": None, "baseline_path": None, "verification_path": None, "owner": _owner(args.session_id), "created_at": now, "updated_at": now}
+    acquired = {"schema_version": 1, "revision": 1, "run_id": args.run_id, "slice_id": args.slice_id, "artifact_contract": args.artifact_contract, "allowed_paths": paths, "state": "active", "terminal_disposition": None, "baseline_sha256": None, "verification_sha256": None, "verification_state_sha256": None, "baseline_path": None, "verification_path": None, "closure": None, "handoff_sha256": None, "owner": _owner(args.session_id), "created_at": now, "updated_at": now}
     payload = {**acquired, "previous_run_id": state["run_id"], "previous_revision": state["revision"], "previous_terminal_hash": state["last_event_hash"]}
     event = _append(events_path, "new_run", payload, events)
     result = {**acquired, "last_event_hash": event["hash"]}
