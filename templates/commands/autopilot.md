@@ -35,6 +35,28 @@ For `on <North Star>`, require a nonblank North Star and write:
 `status` reads and validates state without changing it. `off` atomically sets
 `enabled=false`; do not delete history or counters.
 
+## Activation and continuation
+
+`on <North Star>` is a work command, not a setup-only command. After the state
+write has been validated, activate the host's persistent goal mechanism when it
+is callable, then immediately begin the first autonomous step implied by the
+North Star in the same turn. A response that only reports enabled/status and
+stops is forbidden.
+
+On Codex, call `get_goal` first. If no unfinished goal exists, call
+`create_goal` with an objective derived from the North Star (for example,
+`Execute <North Star> to completion`) and omit `token_budget`. If the active
+goal already matches that objective, retain it and continue; do not create a
+duplicate. If a different unfinished goal exists, surface the concrete conflict
+and do not replace, complete, or block that goal merely to enable autopilot.
+`status` and `off` never create a goal.
+
+Claude Code's built-in `/goal` is an opaque host feature and is not callable by
+this command, skill, or hooks. Do not claim that Booster invoked it and do not
+emit a nested `/goal` as if it had executed. Continue the first autonomous
+North-Star step in the activation turn anyway; a brief non-blocking advisory
+may tell Dmitry that only the host/user can activate or clear Claude's `/goal`.
+
 ## Routing contract
 
 When `fable_autopilot.py` returns `FABLE_DELEGATE`:

@@ -136,6 +136,30 @@ def main() -> int:
     )
     check("autopilot" in CODEX_RUNNER.read_text(encoding="utf-8").lower(), "Codex runner exposes autopilot")
     check("autopilot" in AGENTS.read_text(encoding="utf-8").lower(), "AGENTS command contract exposes autopilot")
+    codex_goal_contract = skill_text + "\n" + CODEX_RUNNER.read_text(encoding="utf-8").lower()
+    for term, label in (
+        ("get_goal", "Codex activation inspects the existing host goal"),
+        ("create_goal", "Codex activation creates a persistent host goal"),
+        ("without `token_budget`", "Codex activation omits an unsolicited goal budget"),
+        ("matching unfinished goal", "Codex activation retains a matching goal"),
+        ("different unfinished goal", "Codex activation detects an unrelated active-goal conflict"),
+        ("same turn", "Codex activation begins North-Star work immediately"),
+    ):
+        check(term in codex_goal_contract, label)
+    check(
+        "`status` and `off` never create a goal" in combined,
+        "status/off cannot accidentally activate a Codex goal",
+    )
+    check(
+        "setup-only command" in command_text
+        and "only reports enabled/status" in command_text,
+        "activation-only completion is forbidden",
+    )
+    check(
+        "opaque host feature" in command_text
+        and "do not claim that booster invoked it" in command_text,
+        "Claude /goal boundary is documented honestly",
+    )
 
     with tempfile.TemporaryDirectory(prefix="fable-autopilot-") as tmp:
         home = Path(tmp)

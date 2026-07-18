@@ -221,6 +221,40 @@ def test_t3_yes_installs_bridge_manifest() -> None:
                 f"extra={sorted(manifest_sources - expected_sources)}"
             )
 
+        # Delivery contract: the installed bridge must carry the exact canonical
+        # autopilot goal lifecycle, not merely the right artifact counts. This
+        # catches a stale/partial mirror that would make `$autopilot roadmap.md`
+        # stop after setup even though source-level acceptance tests pass.
+        goal_mirrors = (
+            (
+                ROOT / "templates" / "codex" / "skills" / "autopilot" / "SKILL.md",
+                agents_dir / "skills" / "autopilot" / "SKILL.md",
+            ),
+            (
+                ROOT / "templates" / "codex" / "skills" / "booster-command" / "SKILL.md",
+                agents_dir / "skills" / "booster-command" / "SKILL.md",
+            ),
+            (
+                ROOT / "templates" / "commands" / "autopilot.md",
+                commands_dir / "autopilot.md",
+            ),
+        )
+        installed_goal_text = []
+        for source, installed in goal_mirrors:
+            if not installed.is_file():
+                errors.append(f"installed goal-contract artifact missing: {installed}")
+                continue
+            source_text = source.read_text(encoding="utf-8")
+            installed_text = installed.read_text(encoding="utf-8")
+            if installed_text != source_text:
+                errors.append(f"installed artifact differs from canonical source: {installed}")
+            installed_goal_text.append(installed_text.lower())
+
+        combined_goal_text = "\n".join(installed_goal_text)
+        for term in ("get_goal", "create_goal", "same turn"):
+            if term not in combined_goal_text:
+                errors.append(f"installed autopilot goal contract missing {term!r}")
+
         if errors:
             _fail(label, "; ".join(errors))
         else:

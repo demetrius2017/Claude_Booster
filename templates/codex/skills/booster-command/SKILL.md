@@ -83,6 +83,12 @@ Execute the command behavior, not the literal Claude Code tool names.
   caller-supplied receipt may assert Fable provenance. They validate
   typed `ON_COURSE|REFOCUS|REPLAN|ASK_USER` verdicts and `/go fable` watchlist
   reconciliation. Codex must not fall back to ambient HOME autopilot state.
+- Autopilot activation is also goal activation on Codex. For `on <North Star>`,
+  call `get_goal` first; retain a matching unfinished goal, or call
+  `create_goal` without `token_budget` when none exists. Never replace an
+  unrelated unfinished goal: surface the conflict. `status` and `off` do not
+  create goals. A successful activation must immediately start the first
+  autonomous North-Star step in the same turn, not end at setup confirmation.
 
 ### Cross-provider stages (SHIP-1..4 in `go` and `hackathon`)
 
