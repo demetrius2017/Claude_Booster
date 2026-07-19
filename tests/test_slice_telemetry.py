@@ -50,7 +50,7 @@ def codex_sources(tmp_path: Path, root: Path, *, terminal_b: bool = False) -> li
         return {"timestamp": "2026-01-01T00:00:00Z", "type": "session_meta", "payload": payload}
 
     root_rows = [
-        meta("sess", None, 0, root),
+        meta("thread-root", None, 0, root),
         {"timestamp": "2026-01-01T00:00:01Z", "type": "event_msg", "payload": {"type": "task_started"}},
         {"timestamp": "2026-01-01T00:00:02Z", "type": "response_item", "payload": {"type": "function_call", "name": "spawn_agent", "call_id": "spawn-a", "arguments": "SECRET_CANARY prompt AgentAlice"}},
         {"timestamp": "2026-01-01T00:00:02.1Z", "type": "response_item", "payload": {"type": "function_call_output", "call_id": "spawn-a", "output": "SECRET_CANARY"}},
@@ -64,13 +64,13 @@ def codex_sources(tmp_path: Path, root: Path, *, terminal_b: bool = False) -> li
         {"timestamp": "2026-01-01T00:00:08Z", "type": "event_msg", "payload": {"type": "task_completed", "output": "SECRET_CANARY"}},
     ]
     child_a = [
-        meta("child-a", "sess", 1, root / "subdir"),
+        meta("child-a", "thread-root", 1, root / "subdir"),
         {"timestamp": "2026-01-01T00:00:03Z", "type": "event_msg", "payload": {"type": "task_started"}},
         {"timestamp": "2026-01-01T00:00:04Z", "type": "response_item", "payload": {"type": "function_call", "name": "wait_agent"}},
         {"timestamp": "2026-01-01T00:00:05Z", "type": "event_msg", "payload": {"type": "task_completed"}},
     ]
     child_b = [
-        meta("child-b", "sess", 1, root),
+        meta("child-b", "thread-root", 1, root),
         {"timestamp": "2026-01-01T00:00:04Z", "type": "event_msg", "payload": {"type": "task_started"}},
     ]
     if terminal_b:
@@ -107,6 +107,8 @@ def test_nested_codex_dedup_wait_scopes_tokens_privacy_and_right_censor(tmp_path
     assert "SECRET_CANARY" not in rendered and "AgentAlice" not in rendered and "SECRET_AGENT" not in rendered and "SECRET_TOOL_CANARY" not in rendered
     assert str(root) not in rendered and "private-user-canary" not in rendered
     assert all(set(item) == {"thread_hash", "root_hash", "parent_hash", "depth"} for item in observation["thread_identities"])
+    root_identity=next(item for item in observation["thread_identities"] if item["depth"]==0)
+    assert root_identity["thread_hash"] != root_identity["root_hash"]
 
 
 def test_complete_background_and_source_generation_rotation(tmp_path: Path) -> None:

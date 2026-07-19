@@ -151,7 +151,11 @@ def read_events(raw_lines: list[bytes]) -> list[dict[str, Any]]:
         payload = event["payload"]
         if not isinstance(payload, dict): raise RegistryError("registry payload invalid", 4)
         for name in ("run_id_hash", "session_id_hash"): _hash(payload.get(name), name)
-        if event["type"] == "activated" and (set(payload) != {"run_id_hash", "session_id_hash", "provider", "artifact_domain", "expected_controls"} or payload["provider"] not in PROVIDERS or not isinstance(payload["artifact_domain"], str) or not payload["artifact_domain"] or not isinstance(payload["expected_controls"], list) or not payload["expected_controls"] or len(set(payload["expected_controls"])) != len(payload["expected_controls"]) or any(kind not in CONTROL_KINDS for kind in payload["expected_controls"])): raise RegistryError("activation payload invalid", 4)
+        activation_legacy = {"run_id_hash", "session_id_hash", "provider", "artifact_domain", "expected_controls"}
+        activation_proven = activation_legacy | {"thread_id_hash", "session_meta_sha256"}
+        if event["type"] == "activated" and (frozenset(payload) not in {frozenset(activation_legacy), frozenset(activation_proven)} or payload["provider"] not in PROVIDERS or not isinstance(payload["artifact_domain"], str) or not payload["artifact_domain"] or not isinstance(payload["expected_controls"], list) or not payload["expected_controls"] or len(set(payload["expected_controls"])) != len(payload["expected_controls"]) or any(kind not in CONTROL_KINDS for kind in payload["expected_controls"])): raise RegistryError("activation payload invalid", 4)
+        if event["type"] == "activated" and set(payload) == activation_proven:
+            _hash(payload["thread_id_hash"], "activation thread"); _hash(payload["session_meta_sha256"], "activation metadata")
         if event["type"] in {"control_started", "control_ended"} and (set(payload) != {"run_id_hash", "session_id_hash", "kind"} or payload["kind"] not in CONTROL_KINDS): raise RegistryError("control payload invalid", 4)
         if event["type"] == "control_unavailable" and (set(payload) != {"run_id_hash", "session_id_hash", "kind", "reason"} or payload["kind"] not in CONTROL_KINDS or payload["reason"] not in CONTROL_NA_REASONS): raise RegistryError("control unavailable payload invalid", 4)
         if event["type"] == "verification_attempt" and (set(payload) != {"run_id_hash", "session_id_hash", "status", "receipt_sha256"} or payload["status"] not in {"pass", "fail"}): raise RegistryError("verification payload invalid", 4)
@@ -172,14 +176,14 @@ def session_views(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     views: dict[str, dict[str, Any]] = {}
     for event in events:
         payload, session = event["payload"], event["payload"]["session_id_hash"]
-        view = views.setdefault(session, {"activation": None, "terminal": None, "outcome": None, "excluded": None, "attempts": [], "controls": [], "unavailable": set(), "open": {}})
+        view = views.setdefault(session, {"activation": None, "terminal": None, "outcome": None, "excluded": None, "attempts": [], "controls": [], "unavailable": set(), "open": {}, "ordering_unknown": False})
         if event["type"] == "activated":
             if view["activation"] is not None: raise RegistryError("duplicate activation session", 4)
             view["activation"] = event
             continue
         if view["activation"] is None: raise RegistryError("session event precedes activation", 4)
         if payload["run_id_hash"] != view["activation"]["payload"]["run_id_hash"]: raise RegistryError("session run identity changed", 4)
-        if view["outcome"] is not None: raise RegistryError("session event follows domain outcome", 4)
+        if view["outcome"] is not None and not (event["type"] in {"control_started", "control_ended", "control_unavailable"} and payload.get("kind") in {"telemetry", "calibration"}): raise RegistryError("session event follows domain outcome", 4)
         if event["type"] == "terminal":
             if view["terminal"] is not None or view["open"]: raise RegistryError("invalid/duplicate terminal event", 4)
             view["terminal"] = event
@@ -196,11 +200,12 @@ def session_views(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         elif event["type"] == "control_started":
             view["open"].setdefault(payload["kind"], []).append(event)
         elif event["type"] == "control_unavailable":
-            view["unavailable"].add(payload["kind"])
             stack = view["open"].get(payload["kind"])
-            if stack:
-                stack.pop()
-                if not stack: view["open"].pop(payload["kind"])
+            if not stack:
+                if view["outcome"] is not None: raise RegistryError("control unavailable without start", 4)
+                view["ordering_unknown"] = True; view["unavailable"].add(payload["kind"]); continue
+            view["unavailable"].add(payload["kind"]); stack.pop()
+            if not stack: view["open"].pop(payload["kind"])
         elif event["type"] == "control_ended":
             stack = view["open"].get(payload["kind"])
             if not stack: raise RegistryError("control end without start", 4)

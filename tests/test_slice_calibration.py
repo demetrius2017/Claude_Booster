@@ -9,11 +9,23 @@ from concurrent.futures import ProcessPoolExecutor
 ROOT = Path(__file__).parents[1]; SCRIPTS = ROOT / "templates/scripts"
 sys.path.insert(0, str(SCRIPTS))
 from slice_calibration_core import CalibrationError, evaluate, sha256, validate_labels, validate_telemetry
-from slice_session_registry_core import RegistryError, canonical, session_views
+from slice_session_registry_core import RegistryError, canonical, read_events, session_views
 from slice_ledger_core import _append as ledger_append, _load as ledger_load
 
 H = lambda value: hashlib.sha256(value.encode()).hexdigest()
 WINDOW = {"schema_version":1,"window_id":"w","started_at":"2026-01-01T00:00:00Z","ended_at":"2026-02-01T00:00:00Z"}
+
+def root_meta(repo, session="s", thread=None, **changes):
+    payload={"id":thread or session,"session_id":session,"parent_thread_id":None,"thread_source":"user","source":"user","cwd":str(repo),"cli_version":"0.145.0-alpha.13"}
+    payload.update(changes)
+    return {"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":payload}
+
+def rehash(events):
+    previous="0"*64
+    for sequence,event in enumerate(events,1):
+        event.update(sequence=sequence,previous_hash=previous)
+        event["hash"]=hashlib.sha256(canonical({key:value for key,value in event.items() if key!="hash"})).hexdigest(); previous=event["hash"]
+    return read_events([canonical(event) for event in events])
 
 def registry(count=10, first_fail=False, exclude=False, open_control=False):
     events=[]; mono=1_000
@@ -23,7 +35,7 @@ def registry(count=10, first_fail=False, exclude=False, open_control=False):
         events.append({**unsigned,"hash":hashlib.sha256(canonical(unsigned)).hexdigest()}); mono += 10
     for i in range(count):
         common={"run_id_hash":H(f"r{i}"),"session_id_hash":H(f"s{i}")}
-        add("activated",{**common,"provider":"codex_rollout_v1","artifact_domain":"code","expected_controls":["ledger"]},"2026-01-02T00:00:00Z")
+        add("activated",{**common,"provider":"codex_rollout_v1","artifact_domain":"code","expected_controls":["ledger"],"thread_id_hash":H(f"thread{i}"),"session_meta_sha256":H(f"meta{i}")},"2026-01-02T00:00:00Z")
         if not (open_control and i==0):
             add("control_started",{**common,"kind":"ledger"},"2026-01-02T00:00:01Z")
             add("control_ended",{**common,"kind":"ledger"},"2026-01-02T00:00:02Z")
@@ -94,8 +106,7 @@ def test_control_unavailable_terminates_latest_open_observation():
     view=session_views(events)[H("s0")]
     assert not view["open"] and "ledger" in view["unavailable"]
 def test_typed_control_na_still_blocks_promotion_claim():
-    events=registry(); start=next(item for item in events if item["type"]=="control_started"); start["type"]="control_unavailable"; start["payload"]={**start["payload"],"reason":"native_surface_unavailable"}
-    events.remove(next(item for item in events if item["type"]=="control_ended" and item["payload"]["session_id_hash"]==start["payload"]["session_id_hash"]))
+    events=registry(); start=next(item for item in events if item["type"]=="control_started"); end=next(item for item in events if item["type"]=="control_ended" and item["payload"]["session_id_hash"]==start["payload"]["session_id_hash"]); end["type"]="control_unavailable"; end["payload"]={**end["payload"],"reason":"native_surface_unavailable"}
     assert run(ev=events)["verdict"] == "INSUFFICIENT_SAMPLE"
 def test_foreign_commit_stop_precedence():
     rs=rows(); rs[0]["machine"]["foreign_managed_commit"]=True
@@ -107,6 +118,38 @@ def test_registry_rejects_event_before_activation():
 def test_registry_rejects_vacuous_domain_transition():
     events=registry(); outcome=next(item for item in events if item["type"]=="domain_outcome"); outcome["payload"]["next_domain"]="code"
     with pytest.raises(RegistryError): session_views(events)
+def test_legacy_activation_replays_but_blocks_promotion():
+    events=registry()
+    for event in events:
+        if event["type"]=="activated": event["payload"].pop("thread_id_hash"); event["payload"].pop("session_meta_sha256")
+    assert run(ev=events)["verdict"]=="INSUFFICIENT_SAMPLE"
+def test_only_telemetry_calibration_controls_may_follow_outcome():
+    events=registry(1); common={"run_id_hash":H("r0"),"session_id_hash":H("s0")}
+    for kind,control in (("control_started","telemetry"),("control_ended","telemetry"),("control_started","calibration"),("control_unavailable","calibration")):
+        payload={**common,"kind":control}; payload.update(reason="operation_failed") if kind=="control_unavailable" else None
+        unsigned={"schema_version":1,"sequence":len(events)+1,"timestamp":"2026-01-02T00:00:06Z","monotonic_ns":events[-1]["monotonic_ns"]+1,"type":kind,"payload":payload,"previous_hash":events[-1]["hash"]}; events.append({**unsigned,"hash":hashlib.sha256(canonical(unsigned)).hexdigest()})
+    assert session_views(events)[H("s0")]["open"]=={}
+    events[-1]["type"]="verification_attempt"; events[-1]["payload"]={**common,"status":"pass","receipt_sha256":H("receipt")}
+    with pytest.raises(RegistryError): session_views(rehash(events))
+def test_rehashed_legacy_pre_outcome_naked_unavailable_replays_unknown_nonpass():
+    events=registry(); index=next(i for i,item in enumerate(events) if item["type"]=="terminal")
+    common={"run_id_hash":H("r0"),"session_id_hash":H("s0")}; previous=events[index-1]
+    events.insert(index,{"schema_version":1,"sequence":0,"timestamp":"2026-01-02T00:00:03.5Z","monotonic_ns":previous["monotonic_ns"]+1,"type":"control_unavailable","payload":{**common,"kind":"ledger","reason":"operation_failed"},"previous_hash":"","hash":""})
+    events=rehash(events); view=session_views(events)[H("s0")]
+    assert view["ordering_unknown"] is True and "ledger" in view["unavailable"] and run(ev=events)["verdict"]!="PASS"
+def test_rehashed_post_outcome_naked_control_unavailable_rejected():
+    events=registry(1); common={"run_id_hash":H("r0"),"session_id_hash":H("s0")}; tail=events[-1]
+    events.append({"schema_version":1,"sequence":0,"timestamp":"2026-01-02T00:00:07Z","monotonic_ns":tail["monotonic_ns"]+1,"type":"control_unavailable","payload":{**common,"kind":"calibration","reason":"operation_failed"},"previous_hash":"","hash":""})
+    with pytest.raises(RegistryError,match="without start"): session_views(rehash(events))
+@pytest.mark.parametrize("event_type,payload",[
+    ("control_started",{"kind":"ledger"}),
+    ("excluded",{"reason":"operator_cancelled","evidence_sha256":H("e")}),
+    ("domain_outcome",{"next_domain":"other"}),
+])
+def test_rehashed_forbidden_post_outcome_events_rejected(event_type,payload):
+    events=registry(1); common={"run_id_hash":H("r0"),"session_id_hash":H("s0")}
+    tail=events[-1]; events.append({"schema_version":1,"sequence":0,"timestamp":"2026-01-02T00:00:07Z","monotonic_ns":tail["monotonic_ns"]+1,"type":event_type,"payload":{**common,**payload},"previous_hash":"","hash":""})
+    with pytest.raises(RegistryError): session_views(rehash(events))
 def test_terminal_binding_tamper_rejected():
     events=registry(); terminal=next(item for item in events if item["type"]=="terminal"); terminal["payload"]["handoff_sha256"]=H("tamper")
     with pytest.raises(CalibrationError): run(ev=events)
@@ -122,7 +165,8 @@ def test_cli_real_registry_record_evaluate_fail_closed_and_tamper(tmp_path):
     repo=tmp_path/"repo"; repo.mkdir(parents=True); subprocess.run(["git","init","-q",str(repo)],check=True)
     cli=SCRIPTS/"slice_calibration.py"
     def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
-    started=call("session-start","--run-id","r","--session-id","s","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger")
+    transcript=tmp_path/"session.jsonl"; transcript.write_text(json.dumps(root_meta(repo))+"\n")
+    started=call("session-start","--run-id","r","--session-id","s","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger","--transcript",str(transcript))
     assert started.returncode==0 and json.loads(started.stdout)["ok"] is True
     labels=tmp_path/"labels.json"; labels.write_text(json.dumps({"schema_version":1,"path_reviews":[],"docs_only_dirty":"none"}))
     record=call("record","--run-id","r","--session-id","s","--labels-file",str(labels))
@@ -136,9 +180,41 @@ def test_cli_real_registry_record_evaluate_fail_closed_and_tamper(tmp_path):
 def test_control_na_rejects_arbitrary_reason(tmp_path):
     repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True); cli=SCRIPTS/"slice_calibration.py"
     def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
-    assert call("session-start","--run-id","r","--session-id","s","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger").returncode==0
+    transcript=tmp_path/"session.jsonl"; transcript.write_text(json.dumps(root_meta(repo))+"\n")
+    assert call("session-start","--run-id","r","--session-id","s","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger","--transcript",str(transcript)).returncode==0
     bad=call("control-na","--run-id","r","--session-id","s","--kind","ledger","--reason","made up prose")
     assert bad.returncode==2 and json.loads(bad.stderr)["type"]=="error"
+
+@pytest.mark.parametrize("mutation",["evil_version","unsupported_version","parent","subagent","source","nonleading","missing","wrong_root","wrong_cwd","symlink"])
+def test_activation_hostiles_are_typed_byte_stable_and_private(tmp_path,mutation):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    cli=SCRIPTS/"slice_calibration.py"; transcript=tmp_path/"session.jsonl"; meta=root_meta(repo)
+    if mutation=="evil_version": meta["payload"]["cli_version"]="0.145.0;SECRET_RAW_ID"
+    elif mutation=="unsupported_version": meta["payload"]["cli_version"]="0.146.0"
+    elif mutation=="parent": meta["payload"]["parent_thread_id"]="SECRET_RAW_PARENT"
+    elif mutation=="subagent": meta["payload"].update(thread_source="subagent",source={"subagent":{"thread_spawn":{"parent_thread_id":"p","depth":1}}},parent_thread_id="p")
+    elif mutation=="source": meta["payload"]["source"]="system"
+    elif mutation=="nonleading": transcript.write_text(json.dumps({"type":"event_msg","payload":{}})+"\n")
+    elif mutation=="missing": meta["payload"].pop("cli_version")
+    elif mutation=="wrong_root": meta["payload"]["session_id"]="SECRET_WRONG_ROOT"
+    elif mutation=="wrong_cwd": meta["payload"]["cwd"]=str(tmp_path)
+    if mutation!="nonleading": transcript.write_text(json.dumps(meta)+"\n")
+    if mutation=="symlink":
+        target=tmp_path/"target.jsonl"; transcript.replace(target); transcript.symlink_to(target)
+    registry_path=repo/".claude/state/slice_session_events.jsonl"; before=registry_path.read_bytes() if registry_path.exists() else b""
+    result=subprocess.run([sys.executable,str(cli),"--cwd",str(repo),"session-start","--run-id","r","--session-id","s","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger","--transcript",str(transcript)],text=True,capture_output=True,check=False)
+    after=registry_path.read_bytes() if registry_path.exists() else b""; rendered=result.stdout+result.stderr+after.decode(errors="replace")
+    assert result.returncode in {4,5} and before==after and "SECRET_RAW" not in rendered and "SECRET_WRONG_ROOT" not in rendered
+
+def test_successful_activation_persists_hashes_not_raw_ids(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    secret="ROOT-IDENTITY-SECRET-CANARY"; thread="THREAD-IDENTITY-SECRET-CANARY"; transcript=tmp_path/"session.jsonl"; transcript.write_text(json.dumps(root_meta(repo,secret,thread))+"\n")
+    argv=[sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),"session-start","--run-id","r","--session-id",secret,"--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger","--transcript",str(transcript)]
+    result=subprocess.run(argv,text=True,capture_output=True,check=False)
+    persisted=(repo/".claude/state/slice_session_events.jsonl").read_text()
+    assert result.returncode==0 and secret not in persisted and thread not in persisted and H(secret) in persisted and H(thread) in persisted and H(secret)!=H(thread)
+    before=persisted.encode(); wrong=subprocess.run([*argv[:8],thread,*argv[9:]],text=True,capture_output=True,check=False)
+    assert wrong.returncode==4 and (repo/".claude/state/slice_session_events.jsonl").read_bytes()==before
 
 def _ledger_call(repo, *args):
     return subprocess.run([sys.executable,str(SCRIPTS/"slice_ledger.py"),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)

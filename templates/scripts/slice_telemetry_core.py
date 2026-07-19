@@ -16,6 +16,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import stat
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -24,7 +26,8 @@ from typing import Any
 MAX_SOURCE = 32 * 1024 * 1024
 MAX_LINE = 256 * 1024
 MAX_ROWS = 200_000
-CODEX_VERSION_FAMILIES = ("0.145.",)
+_CODEX_VERSION = re.compile(r"^0\.145\.(?:0|[1-9][0-9]*)(?:[-+][A-Za-z0-9][A-Za-z0-9.-]*)?$")
+_META_KEYS = {"id", "session_id", "parent_thread_id", "thread_source", "source", "cwd", "cli_version"}
 
 
 class TelemetryError(Exception):
@@ -33,6 +36,70 @@ class TelemetryError(Exception):
     def __init__(self, message: str, code: int = 3) -> None:
         super().__init__(message)
         self.code = code
+
+
+class CodexIdentityError(Exception):
+    """Typed Codex identity/read failure with a stable process exit code."""
+
+    def __init__(self, message: str, code: int = 4) -> None:
+        super().__init__(message); self.code = code
+
+
+def secure_jsonl(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Read bounded JSONL after validating the opened descriptor itself."""
+    if not hasattr(os, "O_NOFOLLOW"): raise CodexIdentityError("secure no-follow transcript open unsupported")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW
+    try: fd = os.open(path, flags)
+    except OSError as exc: raise CodexIdentityError("transcript open failed") from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode): raise CodexIdentityError("transcript must be a regular non-symlink file")
+        if info.st_size > MAX_SOURCE: raise CodexIdentityError("transcript exceeds 32 MiB bound", 5)
+        rows: list[dict[str, Any]] = []; total = 0; hasher = hashlib.sha256()
+        with os.fdopen(os.dup(fd), "rb") as stream:
+            while True:
+                raw = stream.readline(MAX_LINE + 1)
+                if not raw: break
+                total += len(raw); hasher.update(raw)
+                if len(raw) > MAX_LINE: raise CodexIdentityError("transcript line bound exceeded", 5)
+                if total > MAX_SOURCE: raise CodexIdentityError("transcript exceeds 32 MiB bound", 5)
+                if len(rows) >= MAX_ROWS: raise CodexIdentityError("transcript row bound exceeded", 5)
+                try: value = json.loads(raw)
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc: raise CodexIdentityError(f"truncated or malformed JSONL at row {len(rows) + 1}") from exc
+                if not isinstance(value, dict): raise CodexIdentityError(f"non-object JSONL row {len(rows) + 1}")
+                rows.append(value)
+        final = os.fstat(fd)
+        if (final.st_dev, final.st_ino, final.st_size, final.st_mtime_ns) != (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns) or total != final.st_size: raise CodexIdentityError("transcript changed during read")
+        facts = {"size": total, "rows": len(rows), "source_sha256": hasher.hexdigest(), "stat": (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)}
+        return rows, facts
+    finally: os.close(fd)
+
+
+def validate_session_meta(row: Any, root: Path, *, expected_session_id: str | None = None, require_root: bool) -> dict[str, Any]:
+    """Validate the leading, versioned Codex root or subagent identity."""
+    if not isinstance(row, dict) or set(row) != {"timestamp", "type", "payload"} or row.get("type") != "session_meta": raise CodexIdentityError("Codex transcript requires leading session_meta")
+    raw_timestamp = row.get("timestamp")
+    if not isinstance(raw_timestamp, str) or not raw_timestamp or len(raw_timestamp) > 64 or timestamp(raw_timestamp) is None: raise CodexIdentityError("invalid Codex session_meta timestamp")
+    payload = row.get("payload")
+    if not isinstance(payload, dict) or set(payload) != _META_KEYS: raise CodexIdentityError("unsupported Codex session_meta schema")
+    for key, limit in (("id", 512), ("session_id", 512), ("cwd", 4096), ("cli_version", 128)):
+        value = payload.get(key)
+        if not isinstance(value, str) or not value or len(value.encode()) > limit: raise CodexIdentityError(f"invalid Codex {key}")
+    if not _CODEX_VERSION.fullmatch(payload["cli_version"]): raise CodexIdentityError("unsupported Codex cli_version")
+    if expected_session_id is not None and payload["session_id"] != expected_session_id: raise CodexIdentityError("activation root session identity mismatch")
+    try:
+        cwd, project = Path(payload["cwd"]).resolve(strict=True), root.resolve(strict=True); cwd.relative_to(project)
+    except (OSError, ValueError) as exc: raise CodexIdentityError("Codex project identity mismatch") from exc
+    if payload["thread_source"] == "user":
+        if payload["source"] != "user" or payload["parent_thread_id"] is not None or cwd != project: raise CodexIdentityError("invalid Codex root thread metadata")
+        return {**payload, "depth": 0, "resolved_parent": None}
+    if require_root or payload["thread_source"] != "subagent": raise CodexIdentityError("unsupported Codex thread source")
+    source = payload["source"]
+    spawn = source.get("subagent", {}).get("thread_spawn") if isinstance(source, dict) and isinstance(source.get("subagent"), dict) else None
+    if not isinstance(spawn, dict) or set(spawn) - {"parent_thread_id", "depth", "agent_path", "agent_nickname"}: raise CodexIdentityError("invalid Codex subagent metadata")
+    parent, depth = spawn.get("parent_thread_id"), spawn.get("depth")
+    if payload["parent_thread_id"] != parent or not isinstance(parent, str) or not parent or len(parent.encode()) > 512 or not isinstance(depth, int) or isinstance(depth, bool) or depth < 1: raise CodexIdentityError("invalid Codex subagent identity")
+    return {**payload, "depth": depth, "resolved_parent": parent}
 
 
 def canonical(value: Any) -> bytes:
@@ -112,29 +179,10 @@ def _ranges(rows: list[int]) -> dict[str, Any]:
 
 
 def _secure_rows(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    if path.is_symlink() or not path.is_file():
-        raise TelemetryError("transcript must be a regular non-symlink file", 4)
-    info = path.stat()
-    if info.st_size > MAX_SOURCE:
-        raise TelemetryError("transcript exceeds 32 MiB bound", 5)
-    rows: list[dict[str, Any]] = []
-    hasher = hashlib.sha256()
-    with path.open("rb") as stream:
-        for number, raw in enumerate(stream, start=1):
-            if number > MAX_ROWS:
-                raise TelemetryError("transcript row bound exceeded", 5)
-            hasher.update(raw)
-            if len(raw) > MAX_LINE:
-                raise TelemetryError("transcript line bound exceeded", 5)
-            try:
-                value = json.loads(raw)
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                raise TelemetryError(f"truncated or malformed JSONL at row {number}", 4) from exc
-            if not isinstance(value, dict):
-                raise TelemetryError(f"non-object JSONL row {number}", 4)
-            rows.append(value)
-    generation = {"source_sha256": hasher.hexdigest(), "size": info.st_size, "rows": len(rows), "generation": digest(f"{info.st_dev}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}")}
-    return rows, generation
+    try: rows, facts = secure_jsonl(path)
+    except CodexIdentityError as exc: raise TelemetryError(str(exc), exc.code) from exc
+    facts["generation"] = digest(":".join(str(item) for item in facts.pop("stat")))
+    return rows, facts
 
 
 def _project_ok(raw: Any, root: Path) -> bool:
@@ -178,22 +226,10 @@ def _codex(paths: list[Path], root: Path) -> Parsed:
     parsed: Parsed | None = None
     for path in paths:
         rows, generation = _secure_rows(path)
-        if not rows or rows[0].get("type") != "session_meta":
-            raise TelemetryError("codex_rollout_v1 requires leading session_meta", 4)
-        meta = rows[0].get("payload")
-        if not isinstance(meta, dict) or not isinstance(meta.get("cli_version"), str) or not any(meta["cli_version"].startswith(item) for item in CODEX_VERSION_FAMILIES) or not _project_ok(meta.get("cwd"), root):
-            raise TelemetryError("unsupported Codex metadata/version/project", 4)
-        raw_id, root_id = meta.get("id"), meta.get("session_id")
-        parent, source = meta.get("parent_thread_id"), meta.get("source")
-        if meta.get("thread_source") == "user":
-            parent, depth = None, 0
-        elif meta.get("thread_source") == "subagent" and isinstance(source, dict) and isinstance(source.get("subagent"), dict) and isinstance(source["subagent"].get("thread_spawn"), dict):
-            spawn_meta = source["subagent"]["thread_spawn"]
-            parent, depth = spawn_meta.get("parent_thread_id", parent), spawn_meta.get("depth")
-        else:
-            raise TelemetryError("unsupported Codex thread source", 4)
-        if not isinstance(raw_id, str) or not isinstance(root_id, str) or not isinstance(depth, int):
-            raise TelemetryError("invalid Codex identity metadata", 4)
+        try: meta = validate_session_meta(rows[0] if rows else None, root, require_root=False)
+        except CodexIdentityError as exc: raise TelemetryError(str(exc), exc.code) from exc
+        raw_id, root_id = meta["id"], meta["session_id"]
+        parent, depth = meta["resolved_parent"], meta["depth"]
         if parsed is None:
             parsed = Parsed("codex", "codex_rollout_v1", digest(str(root.resolve())), digest(root_id), {}, [])
         if parsed.root_session_hash != digest(root_id) or raw_id in parsed.threads:

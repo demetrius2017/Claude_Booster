@@ -45,6 +45,11 @@ observational/no enforcement`. `off` preserves all slice history and never
 fabricates closure for an active slice. Directional `.claude/autopilot.json`
 and the implementation slice ledger remain separate.
 
+Codex activation requires one explicit existing transcript. The leading
+`session_meta.payload.session_id` is the root session and must match
+`--session-id`; `session_meta.payload.id` is a distinct thread identity and may
+differ. Persist only their hashes and the metadata hash, never raw metadata.
+
 Codex must use the same trusted lifecycle as Claude:
 `fable_autopilot.py consult-decision --prompt-file` or trusted
 `checkpoint plan_complete|first_slice|final_diff --prompt-file`. The runner

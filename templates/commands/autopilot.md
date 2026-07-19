@@ -217,7 +217,11 @@ executable argv in this exact order: `python3`, the installed
 `slice_telemetry.py`, global `--cwd`, resolved root, `record`, `--provider`,
 adapter, `--transcript`, JSONL, `--run-id`, run, `--session-id`, session. Print
 the shell-quoted concrete command with no ellipsis, metavariables, angle-bracket
-placeholders, or guessed transcript path.
+placeholders, or guessed transcript path. Codex `session-start` also receives
+that explicit transcript: leading `session_meta.payload.session_id` is the root
+session identity and must equal `--session-id`; `session_meta.payload.id` is the
+thread identity and may intentionally differ. Persist only their hashes and the
+metadata hash, never raw transcript metadata.
 
 `off` disables directional autopilot without deleting slice ledger, event,
 backlog, handoff, or telemetry history. If a slice is active, surface its typed

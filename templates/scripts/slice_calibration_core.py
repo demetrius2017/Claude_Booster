@@ -122,7 +122,9 @@ def evaluate(rows: list[dict[str, Any]], window: dict[str, Any], manifest: list[
     parser_unknown = sum(t["parser_unknown"] + (1 if t["parser_expected"] == 0 else 0) for t in telemetries); sample = len(rows)
     changed = sum(len(m["paths"]) for m in machines); attributed = sum(len(m["paths"]) for m in machines)
     overhead = statistics.median(overheads) if overheads else None
-    gate_unknown = parser_unknown + exclusion_unknown
+    identity_unknown = sum(not {"thread_id_hash", "session_meta_sha256"} <= set(population[s]["activation"]["payload"]) for s in eligible)
+    ordering_unknown = sum(bool(population[s]["ordering_unknown"]) for s in eligible)
+    gate_unknown = parser_unknown + exclusion_unknown + identity_unknown + ordering_unknown
     metrics = {
       "false_quarantine": _ratio("false_quarantine", false, reviewed, truth_unknown + gate_unknown, "<15%", false / reviewed < .15 if reviewed else None),
       "manual_repair": _ratio("manual_repair", sum(m["repair_required"] for m in machines), sample, gate_unknown, "<20%", sum(m["repair_required"] for m in machines) / sample < .2 if sample else None),

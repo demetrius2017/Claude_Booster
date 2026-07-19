@@ -33,6 +33,7 @@ from slice_git import _relative, _run_dir
 from slice_ledger import _git_root, _locked
 from slice_ledger_core import LedgerError, _atomic_projection, _load
 from slice_session_registry_core import RegistryError, canonical as registry_canonical, read_events
+from slice_telemetry_core import CodexIdentityError, secure_jsonl, validate_session_meta
 
 RECEIPT_KEYS = {"schema_version", "run_id_hash", "session_id_hash", "ledger_tail_hash", "labels", "machine", "telemetry", "sources", "recorded_at"}
 LOG_KEYS = {"schema_version", "run_id_hash", "session_id_hash", "ledger_tail_hash", "telemetry_path", "telemetry_sha256", "label_path", "label_sha256", "previous_hash", "hash"}
@@ -52,7 +53,7 @@ def _parser() -> argparse.ArgumentParser:
     evaluate_cmd = sub.add_parser("evaluate"); evaluate_cmd.add_argument("--window-file", required=True)
     for name in ("session-start", "control-start", "control-end", "control-na", "verification-attempt", "session-terminal", "domain-outcome", "exclude-session"):
         command = sub.add_parser(name); command.add_argument("--run-id", required=True); command.add_argument("--session-id", required=True)
-        if name == "session-start": command.add_argument("--provider", required=True); command.add_argument("--artifact-domain", required=True); command.add_argument("--expected-control", action="append", required=True)
+        if name == "session-start": command.add_argument("--provider", required=True); command.add_argument("--artifact-domain", required=True); command.add_argument("--expected-control", action="append", required=True); command.add_argument("--transcript")
         elif name in {"control-start", "control-end"}: command.add_argument("--kind", required=True)
         elif name == "control-na": command.add_argument("--kind", required=True); command.add_argument("--reason", required=True, choices=("native_surface_unavailable", "operation_failed", "capability_missing"))
         elif name == "verification-attempt": command.add_argument("--status", required=True); command.add_argument("--receipt-file", required=True)
@@ -68,11 +69,23 @@ def _registry(path: Path) -> list[dict[str, Any]]:
     return read_events(path.read_bytes().splitlines())
 
 
+def _activation_identity(path: str | None, root: Path, session_id: str) -> dict[str, str]:
+    if not path: raise CalibrationError("Codex session-start requires explicit transcript", 2)
+    try:
+        rows, _ = secure_jsonl(Path(path)); row = rows[0] if rows else None
+        payload = validate_session_meta(row, root, expected_session_id=session_id, require_root=True)
+    except CodexIdentityError as exc:
+        raise CalibrationError(str(exc), exc.code) from exc
+    return {"thread_id_hash": hashlib.sha256(payload["id"].encode()).hexdigest(), "session_meta_sha256": hashlib.sha256(registry_canonical(row)).hexdigest()}
+
+
 def _registry_event(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     path = root / ".claude/state/slice_session_events.jsonl"; events = _registry(path)
     common = {"run_id_hash": hashlib.sha256(args.run_id.encode()).hexdigest(), "session_id_hash": hashlib.sha256(args.session_id.encode()).hexdigest()}
     kind = {"session-start":"activated", "session-terminal":"terminal", "control-start":"control_started", "control-end":"control_ended", "control-na":"control_unavailable", "exclude-session":"excluded"}.get(args.command, args.command.replace("-", "_"))
-    if kind == "activated": payload = {**common, "provider": args.provider, "artifact_domain": args.artifact_domain, "expected_controls":args.expected_control}
+    if kind == "activated":
+        proof = _activation_identity(args.transcript, root, args.session_id) if args.provider == "codex_rollout_v1" else {}
+        payload = {**common, "provider": args.provider, "artifact_domain": args.artifact_domain, "expected_controls":args.expected_control, **proof}
     elif kind in {"control_started", "control_ended"}: payload = {**common, "kind": args.kind}
     elif kind == "control_unavailable": payload = {**common, "kind":args.kind, "reason":args.reason}
     elif kind == "verification_attempt": payload = {**common, "status": args.status, "receipt_sha256": hashlib.sha256(Path(args.receipt_file).read_bytes()).hexdigest()}

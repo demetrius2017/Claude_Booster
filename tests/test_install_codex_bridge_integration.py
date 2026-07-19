@@ -14,63 +14,14 @@ Run:
 """
 from __future__ import annotations
 
-import ast
 import json
 import os
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
-INSTALL_PY = ROOT / "install.py"
-WRAPPER = ROOT / "scripts" / "install_codex_bridge.sh"
-
-# Fake identity flags to avoid interactive prompts
-IDENTITY = ["--name", "Test", "--email", "test@example.com"]
-
-# ─── helpers ────────────────────────────────────────────────────────────────
-
-passed = 0
-failed = 0
-
-
-def _ok(label: str) -> None:
-    global passed
-    passed += 1
-    print(f"[PASS] {label}")
-
-
-def _fail(label: str, detail: str = "") -> None:
-    global failed
-    failed += 1
-    msg = f"[FAIL] {label}"
-    if detail:
-        msg += f"\n       {detail}"
-    print(msg)
-
-
-def _run(cmd: list[str], home: str, timeout: int = 120) -> subprocess.CompletedProcess:
-    """Run a command with HOME set to the sandboxed temp dir."""
-    env = {**os.environ, "HOME": home, "CODEX_BRIDGE_ROOT": str(ROOT)}
-    return subprocess.run(
-        cmd,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-
-
-def _fresh_home() -> str:
-    """Create a fresh temp directory to use as a sandboxed HOME."""
-    return tempfile.mkdtemp(prefix="cb_test_home_")
-
-
-def _cleanup(path: str) -> None:
-    shutil.rmtree(path, ignore_errors=True)
+import install_codex_bridge_test_support as _h
+from install_codex_bridge_test_support import IDENTITY, INSTALL_PY, ROOT, WRAPPER, _cleanup, _fail, _fresh_home, _ok, _run
+import test_install_codex_bridge_safety as _safety
 
 
 # ─── T1: dry-run shows BOTH Claude plan AND bridge plan, writes nothing ──────
@@ -313,7 +264,16 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         if failed_activation.returncode == 0 or failed_acquire is not None or (failed_project / ".claude/state/slice_ledger.json").exists():
             errors.append("failed durable session-start did not gate acquire fail-closed")
 
-        activation = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "session-start", "--run-id", "run-test", "--session-id", "session-test", "--provider", "codex_rollout_v1", "--artifact-domain", "implementation", "--expected-control", "ledger", "--expected-control", "git", "--expected-control", "verification", "--expected-control", "closure"], home)
+        activation_transcript = Path(home) / "activation-rollout.jsonl"
+        activation_payload={"id":"thread-test","session_id":"session-test","parent_thread_id":None,"thread_source":"user","source":"user","cwd":str(project),"cli_version":"0.145.0-alpha.13"}
+        activation_transcript.write_text(json.dumps({"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":activation_payload})+"\n", encoding="utf-8")
+        wrong_activation = Path(home) / "wrong-activation.jsonl"
+        wrong_activation.write_text(json.dumps({"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":{**activation_payload,"session_id":"wrong-root"}})+"\n", encoding="utf-8")
+        registry_before = (project / ".claude/state/slice_session_events.jsonl").read_bytes() if (project / ".claude/state/slice_session_events.jsonl").exists() else b""
+        rejected_activation = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "session-start", "--run-id", "run-test", "--session-id", "session-test", "--provider", "codex_rollout_v1", "--artifact-domain", "implementation", "--expected-control", "ledger", "--transcript", str(wrong_activation)], home)
+        registry_after = (project / ".claude/state/slice_session_events.jsonl").read_bytes() if (project / ".claude/state/slice_session_events.jsonl").exists() else b""
+        if rejected_activation.returncode == 0 or registry_before != registry_after: errors.append("wrong root activation was not byte-stable rejected")
+        activation = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "session-start", "--run-id", "run-test", "--session-id", "session-test", "--provider", "codex_rollout_v1", "--artifact-domain", "implementation", "--expected-control", "ledger", "--expected-control", "git", "--expected-control", "verification", "--expected-control", "closure", "--transcript", str(activation_transcript)], home)
         ledger_control_start = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-start", "--run-id", "run-test", "--session-id", "session-test", "--kind", "ledger"], home)
         if activation.returncode != 0 or ledger_control_start.returncode != 0:
             errors.append(f"installed calibration activation/control failed: activation={activation.stderr.strip()} control={ledger_control_start.stderr.strip()}")
@@ -346,14 +306,16 @@ def test_t3_yes_installs_bridge_manifest() -> None:
             errors.append(f"installed capture failed: {capture.stderr.strip()}")
         if git_control_start.returncode != 0 or git_control_end.returncode != 0:
             errors.append("installed git control pair failed")
+        verification_start = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-start", "--run-id", "run-test", "--session-id", "session-test", "--kind", "verification"], home)
         unavailable = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-na", "--run-id", "run-test", "--session-id", "session-test", "--kind", "verification", "--reason", "native_surface_unavailable"], home)
+        closure_start = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-start", "--run-id", "run-test", "--session-id", "session-test", "--kind", "closure"], home)
         closure_unavailable = _run([sys.executable, str(calibration_cli), "--cwd", str(project), "control-na", "--run-id", "run-test", "--session-id", "session-test", "--kind", "closure", "--reason", "capability_missing"], home)
         registry_path = project / ".claude/state/slice_session_events.jsonl"
-        if unavailable.returncode != 0 or closure_unavailable.returncode != 0 or not registry_path.is_file():
+        if verification_start.returncode != 0 or unavailable.returncode != 0 or closure_start.returncode != 0 or closure_unavailable.returncode != 0 or not registry_path.is_file():
             errors.append("installed typed UNKNOWN/registry missing")
         else:
             registry_types = [json.loads(line)["type"] for line in registry_path.read_text(encoding="utf-8").splitlines()]
-            if registry_types != ["activated", "control_started", "control_ended", "control_started", "control_ended", "control_unavailable", "control_unavailable"]:
+            if registry_types != ["activated", "control_started", "control_ended", "control_started", "control_ended", "control_started", "control_unavailable", "control_started", "control_unavailable"]:
                 errors.append(f"installed prospective registry sequence wrong: {registry_types}")
         window = project / "window.json"
         window.write_text(json.dumps({"schema_version": 1, "window_id": "integration", "started_at": "2000-01-01T00:00:00Z", "ended_at": "2099-01-01T00:00:00Z"}), encoding="utf-8")
@@ -465,187 +427,6 @@ def test_t5_no_bridge_opt_out() -> None:
         _cleanup(home)
 
 
-# ─── T6: wrapper script delegates --dry-run ──────────────────────────────────
-
-def test_t6_wrapper_dry_run() -> None:
-    label = "T6: scripts/install_codex_bridge.sh --dry-run exits 0 and prints bridge plan"
-    home = _fresh_home()
-    try:
-        if not WRAPPER.exists():
-            _fail(label, f"Wrapper not found: {WRAPPER}")
-            return
-
-        result = _run(
-            [str(WRAPPER), "--dry-run"] + IDENTITY,
-            home,
-        )
-        stdout = (result.stdout + result.stderr).lower()
-
-        if result.returncode != 0:
-            _fail(label, f"exit={result.returncode}\nstdout={result.stdout[:500]}\nstderr={result.stderr[:300]}")
-            return
-
-        has_bridge = (
-            "bridge" in stdout
-            and (
-                re.search(r"skills?\s*:?\s*\d+", stdout)
-                or "codex" in stdout
-                or "prompts" in stdout
-            )
-        )
-        if not has_bridge:
-            _fail(label, f"Bridge plan not found in wrapper stdout.\nstdout={result.stdout[:600]}")
-        else:
-            _ok(label)
-    finally:
-        _cleanup(home)
-
-
-# ─── T7: bridge failure → exit 50, Claude manifest intact ───────────────────
-
-def test_t7_bridge_failure_isolation() -> None:
-    label = "T7: bridge collision → exit 50, Claude manifest intact (bridge fails, Claude NOT rolled back)"
-    home = _fresh_home()
-    try:
-        # Pre-create a non-bridge file at one of the bridge skill destinations.
-        # Pick the first real skill alias (not booster-command).
-        skills_src = ROOT / "templates" / "codex" / "skills"
-        aliases = sorted(
-            p.parent.name for p in skills_src.glob("*/SKILL.md")
-            if p.parent.name != "booster-command"
-        )
-        if not aliases:
-            _fail(label, "No skill aliases found in templates/codex/skills/")
-            return
-
-        collision_alias = aliases[0]
-        collision_dir = Path(home) / ".agents" / "skills" / collision_alias
-        collision_dir.mkdir(parents=True, exist_ok=True)
-        collision_file = collision_dir / "SKILL.md"
-        collision_file.write_text(
-            "# NOT a bridge file\nThis file is user-owned and must block the bridge.\n",
-            encoding="utf-8",
-        )
-
-        result = _run(
-            [sys.executable, str(INSTALL_PY), "--yes"] + IDENTITY,
-            home,
-        )
-
-        claude_manifest = Path(home) / ".claude" / ".booster-manifest.json"
-        errors = []
-
-        if result.returncode != 50:
-            errors.append(f"exit={result.returncode}, expected 50")
-
-        if not claude_manifest.exists():
-            errors.append(f"Claude manifest missing: {claude_manifest}")
-        else:
-            try:
-                data = json.loads(claude_manifest.read_text())
-                if not isinstance(data, dict):
-                    errors.append("Claude manifest is not a JSON object")
-            except json.JSONDecodeError as e:
-                errors.append(f"Claude manifest is not valid JSON: {e}")
-
-        if errors:
-            _fail(label, "\n       ".join(errors))
-        else:
-            _ok(label)
-    finally:
-        _cleanup(home)
-
-
-# ─── T8: no shadowed module-level helpers ────────────────────────────────────
-
-def test_t8_no_shadowed_helpers() -> None:
-    label = "T8: install.py has exactly one module-level def each of load_manifest/atomic_write/write_manifest"
-    try:
-        source = INSTALL_PY.read_text(encoding="utf-8")
-        tree = ast.parse(source)
-    except SyntaxError as e:
-        _fail(label, f"SyntaxError in install.py: {e}")
-        return
-
-    # Count only module-level (col_offset == 0) FunctionDef nodes
-    counts: dict[str, int] = {}
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.FunctionDef) and node.col_offset == 0:
-            counts[node.name] = counts.get(node.name, 0) + 1
-
-    errors = []
-    for name in ("load_manifest", "atomic_write", "write_manifest"):
-        c = counts.get(name, 0)
-        if c != 1:
-            errors.append(f"{name}: {c} module-level defs (expected exactly 1)")
-
-    if errors:
-        _fail(label, "; ".join(errors))
-    else:
-        _ok(label)
-
-
-# ─── T9: install.py parses cleanly ───────────────────────────────────────────
-
-def test_t9_syntax_valid() -> None:
-    label = "T9: install.py passes ast.parse (syntax valid)"
-    try:
-        source = INSTALL_PY.read_text(encoding="utf-8")
-        ast.parse(source)
-        _ok(label)
-    except SyntaxError as e:
-        _fail(label, f"SyntaxError: {e}")
-
-
-# ─── T10: no module-level HOME-derived bridge paths ──────────────────────────
-
-def test_t10_no_module_level_home_paths() -> None:
-    """
-    Bridge destination paths (SKILLS_DST, PROMPTS_DST, MANIFEST_PATH, etc.) must
-    NOT be module-level Assign nodes that bake in Path.home() at import time.
-    Functional check: a --dry-run with HOME=/nonexistent_tmpX must not create
-    anything under the real home directory's .codex or .agents.
-
-    We use the functional approach (a second sandboxed dry-run) as it tests the
-    actual observable guarantee rather than scanning AST for binding names.
-    """
-    label = "T10: bridge dest paths respect runtime HOME (no module-level baked paths)"
-    home = _fresh_home()
-    real_home = Path.home()
-    try:
-        result = _run(
-            [sys.executable, str(INSTALL_PY), "--dry-run"] + IDENTITY,
-            home,
-        )
-        # We only care about side-effects; even a non-zero exit is acceptable for
-        # this assertion as long as the real home is untouched by bridge writes.
-        real_codex = real_home / ".codex"
-        real_agents = real_home / ".agents"
-
-        # Record pre-existing state of real home bridge dirs
-        codex_existed = real_codex.exists()
-        agents_existed = real_agents.exists()
-
-        # A dry-run MUST NOT write files anywhere. If the installer respects HOME
-        # at runtime, nothing new appears under real_home/.codex or real_home/.agents.
-        # We verify by checking the sandboxed home stayed empty (bridge side).
-        codex_in_sandbox = Path(home) / ".codex"
-        agents_in_sandbox = Path(home) / ".agents"
-
-        errors = []
-        if codex_in_sandbox.exists():
-            errors.append(f"--dry-run wrote .codex into sandbox HOME: {codex_in_sandbox}")
-        if agents_in_sandbox.exists():
-            errors.append(f"--dry-run wrote .agents into sandbox HOME: {agents_in_sandbox}")
-
-        if errors:
-            _fail(label, "\n       ".join(errors))
-        else:
-            _ok(label)
-    finally:
-        _cleanup(home)
-
-
 # ─── main ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -655,20 +436,20 @@ def main() -> int:
     print(f"WRAPPER: {WRAPPER}")
     print()
 
-    test_t9_syntax_valid()          # cheapest check first
-    test_t8_no_shadowed_helpers()
+    _safety.test_t9_syntax_valid()          # cheapest check first
+    _safety.test_t8_no_shadowed_helpers()
     test_t1_dry_run_shows_both_plans()
     test_t2_dry_run_no_bridge()
-    test_t10_no_module_level_home_paths()
+    _safety.test_t10_no_module_level_home_paths()
     test_t3_yes_installs_bridge_manifest()
     test_t4_idempotent_no_new_backup()
     test_t5_no_bridge_opt_out()
-    test_t6_wrapper_dry_run()
-    test_t7_bridge_failure_isolation()
+    _safety.test_t6_wrapper_dry_run()
+    _safety.test_t7_bridge_failure_isolation()
 
     print()
-    print(f"Results: {passed} passed, {failed} failed")
-    return 0 if failed == 0 else 1
+    print(f"Results: {_h.passed} passed, {_h.failed} failed")
+    return 0 if _h.failed == 0 else 1
 
 
 if __name__ == "__main__":

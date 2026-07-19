@@ -96,6 +96,9 @@ Execute the command behavior, not the literal Claude Code tool names.
   control-end means success only, while failure records typed
   `control-na --reason operation_failed`. Bind verification/terminal/domain events only at real wrapper
   lifecycle points; unsupported native Codex is typed UNKNOWN, never backfill.
+  Session-start requires an explicit transcript: root identity is leading
+  `session_meta.payload.session_id`, while `payload.id` is the possibly distinct
+  thread identity. Validate the root join and persist hashes only.
   Status reads only cached `slice_telemetry.py status` evidence and must say
   `Claude hooks/wrappers advisory; native Codex observational/no enforcement`;
   it never scans transcript stores. Directional autopilot state remains
