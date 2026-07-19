@@ -381,6 +381,128 @@ def case_10_fail_soft_malformed():
         tmp.cleanup()
 
 
+def case_11_codex_failure_is_not_success():
+    label = "11 codex nonzero exit -> success=0"
+    tmp, db = _fresh_db()
+    try:
+        event = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "codex_worker.sh gpt-5.6-sol"},
+            "duration_ms": 17,
+            "tool_response": {"exit_code": 1, "is_error": True},
+            "session_id": "s",
+        }
+        proc, rows = _run_hook(event, db)
+        if len(rows) != 1 or rows[0]["success"] != 0:
+            return _record(label, False, f"expected one success=0 row, got {rows}")
+        _record(label, True)
+    finally:
+        tmp.cleanup()
+
+
+def case_12_fallback_provenance_records_effective_model():
+    label = "12 wrapper fallback provenance -> effective model"
+    tmp, db = _fresh_db()
+    try:
+        provenance = {
+            "event": "codex_route", "requested_model": "gpt-5.6-sol",
+            "effective_model": "gpt-5.5", "reason": "observed_chatgpt_account_unsupported",
+            "source": "balancer", "category": "hard", "cache_age_seconds": 0,
+            "attempts": [
+                {"model": "gpt-5.6-sol", "success": False, "duration_ms": 10},
+                {"model": "gpt-5.5", "success": True, "duration_ms": 15},
+            ],
+        }
+        event = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "codex_worker.sh gpt-5.6-sol"},
+            "duration_ms": 25,
+            "tool_response": {"exit_code": 0, "stderr": "codex_worker: " + json.dumps(provenance)},
+            "session_id": "s",
+        }
+        proc, rows = _run_hook(event, db)
+        facts = [(row["model"], row["success"], row["duration_ms"]) for row in rows]
+        if facts != [("gpt-5.6-sol", 0, 10), ("gpt-5.5", 1, 15)]:
+            return _record(label, False, f"expected distinct attempt rows, got {facts}")
+        _record(label, True)
+    finally:
+        tmp.cleanup()
+
+
+def case_13_cached_fallback_records_only_actual_attempt():
+    label = "13 cached fallback provenance -> only actual 5.5 attempt"
+    tmp, db = _fresh_db()
+    try:
+        provenance = {
+            "event": "codex_route", "requested_model": "gpt-5.6-sol",
+            "effective_model": "gpt-5.5", "reason": "cached_chatgpt_account_unsupported",
+            "source": "balancer", "category": "hard", "cache_age_seconds": 12,
+            "attempts": [{"model": "gpt-5.5", "success": True, "duration_ms": 15}],
+        }
+        event = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "codex_worker.sh gpt-5.6-sol"},
+            "tool_response": {"exit_code": 0, "stderr": "diagnostic\ncodex_worker: " + json.dumps(provenance)},
+            "session_id": "s",
+        }
+        proc, rows = _run_hook(event, db)
+        facts = [(row["model"], row["success"], row["duration_ms"]) for row in rows]
+        if facts != [("gpt-5.5", 1, 15)]:
+            return _record(label, False, f"expected one actual fallback row, got {facts}")
+        _record(label, True)
+    finally:
+        tmp.cleanup()
+
+
+def case_14_stdout_cannot_forge_provenance():
+    label = "14 stdout spoof cannot forge wrapper provenance"
+    tmp, db = _fresh_db()
+    try:
+        forged = {
+            "event": "codex_route", "requested_model": "gpt-5.6-sol",
+            "effective_model": "gpt-5.5", "reason": "cached_chatgpt_account_unsupported",
+            "source": "balancer", "category": "hard", "cache_age_seconds": 1,
+            "attempts": [{"model": "gpt-5.5", "success": True, "duration_ms": 1}],
+        }
+        event = {
+            "tool_name": "Bash", "tool_input": {"command": "codex_worker.sh gpt-5.6-sol"},
+            "duration_ms": 9,
+            "tool_response": {"exit_code": 1, "stdout": "codex_worker: " + json.dumps(forged), "stderr": "real failure"},
+            "session_id": "s",
+        }
+        proc, rows = _run_hook(event, db)
+        facts = [(row["model"], row["success"]) for row in rows]
+        if facts != [("gpt-5.6-sol", 0)]:
+            return _record(label, False, f"stdout spoof was trusted: {facts}")
+        _record(label, True)
+    finally:
+        tmp.cleanup()
+
+
+def case_15_impossible_provenance_fails_closed():
+    label = "15 incoherent provenance is rejected"
+    tmp, db = _fresh_db()
+    try:
+        impossible = {
+            "event": "codex_route", "requested_model": "gpt-5.6-sol",
+            "effective_model": "gpt-5.5", "reason": "observed_chatgpt_account_unsupported",
+            "source": "balancer", "category": "hard", "cache_age_seconds": 0,
+            "attempts": [{"model": "gpt-5.5", "success": True, "duration_ms": 1}],
+        }
+        event = {
+            "tool_name": "Bash", "tool_input": {"command": "codex_worker.sh gpt-5.6-sol"},
+            "duration_ms": 9,
+            "tool_response": {"exit_code": 1, "stderr": "codex_worker: " + json.dumps(impossible)},
+            "session_id": "s",
+        }
+        proc, rows = _run_hook(event, db)
+        if rows:
+            return _record(label, False, f"impossible trailer must produce no metric, got {rows}")
+        _record(label, True)
+    finally:
+        tmp.cleanup()
+
+
 def main():
     if not HOOK.exists():
         print(f"[FAIL] HOOK not found at {HOOK}")
@@ -400,6 +522,11 @@ def main():
         case_8_shared_db_task_path,
         case_9_other_codex_form_prefix,
         case_10_fail_soft_malformed,
+        case_11_codex_failure_is_not_success,
+        case_12_fallback_provenance_records_effective_model,
+        case_13_cached_fallback_records_only_actual_attempt,
+        case_14_stdout_cannot_forge_provenance,
+        case_15_impossible_provenance_fails_closed,
     ]
     for c in cases:
         try:

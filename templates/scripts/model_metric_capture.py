@@ -110,8 +110,90 @@ INSERT INTO model_metrics
     (ts_utc, provider, model, task_category, duration_ms, num_turns,
      per_turn_ms, tokens_in, tokens_out, success, session_id, project_root)
 VALUES
-    (datetime(\'now\'), ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    (datetime(\'now\'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+
+def _tool_success(event: dict) -> bool:
+    """Derive command success from the observed tool result, never assume it."""
+    response = event.get("tool_response") or event.get("toolUseResult") or {}
+    candidates = (event.get("exit_code"), response.get("exit_code"), response.get("returncode"))
+    for value in candidates:
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value == 0
+    return not bool(event.get("is_error") or response.get("is_error"))
+
+
+def _codex_provenance(event: dict, requested: str) -> dict | None:
+    """Return validated sanitized wrapper provenance when present."""
+    response = event.get("tool_response") or event.get("toolUseResult") or ""
+    # Provenance is a wrapper-owned final stderr trailer. Never inspect stdout,
+    # merged model text, or arbitrary nested strings: model output is untrusted.
+    stderr = response.get("stderr") if isinstance(response, dict) else None
+    if not isinstance(stderr, str):
+        return None
+    lines = [line for line in stderr.splitlines() if line.strip()]
+    marker = "codex_worker: "
+    if not lines or not lines[-1].startswith(marker):
+        return None
+    for line in lines[-1:]:
+        try:
+            row = json.loads(line[len(marker):])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(row, dict) or set(row) != {
+            "event", "requested_model", "effective_model", "reason", "source",
+            "category", "cache_age_seconds", "attempts",
+        }:
+            continue
+        if row.get("event") != "codex_route" or row.get("requested_model") != requested:
+            continue
+        attempts = row.get("attempts")
+        if not isinstance(attempts, list) or not 1 <= len(attempts) <= 2:
+            continue
+        valid = True
+        for attempt in attempts:
+            valid = valid and isinstance(attempt, dict) and set(attempt) == {"model", "success", "duration_ms"}
+            if not valid:
+                break
+            valid = valid and attempt.get("model") in _CODEX_ALLOWLIST
+            valid = valid and isinstance(attempt.get("success"), bool)
+            valid = valid and isinstance(attempt.get("duration_ms"), int) and not isinstance(attempt.get("duration_ms"), bool) and attempt.get("duration_ms") >= 0
+        if (
+            not valid
+            or row.get("source") not in {"explicit", "balancer", "policy"}
+            or row.get("category") not in _KNOWN_TASK_CATEGORIES | {"unclassified"}
+        ):
+            continue
+        reason = row.get("reason")
+        effective = row.get("effective_model")
+        age = row.get("cache_age_seconds")
+        requested_path = (
+            reason == "requested" and effective == requested and age is None
+            and len(attempts) == 1 and attempts[0]["model"] == requested
+        )
+        observed_path = (
+            requested == "gpt-5.6-sol" and reason == "observed_chatgpt_account_unsupported"
+            and effective == "gpt-5.5" and age == 0 and len(attempts) == 2
+            and attempts[0]["model"] == requested and attempts[0]["success"] is False
+            and attempts[1]["model"] == effective
+        )
+        cached_path = (
+            requested == "gpt-5.6-sol" and reason == "cached_chatgpt_account_unsupported"
+            and effective == "gpt-5.5" and isinstance(age, int) and not isinstance(age, bool)
+            and age >= 0 and len(attempts) == 1 and attempts[0]["model"] == effective
+        )
+        if valid and (requested_path or observed_path or cached_path):
+            return row
+    return None
+
+
+def _has_wrapper_trailer(event: dict) -> bool:
+    """Report an exact final stderr trailer, including malformed trailers."""
+    response = event.get("tool_response") or event.get("toolUseResult") or ""
+    stderr = response.get("stderr") if isinstance(response, dict) else None
+    lines = [line for line in stderr.splitlines() if line.strip()] if isinstance(stderr, str) else []
+    return bool(lines and lines[-1].startswith("codex_worker: "))
 
 
 def _task_category(subagent_type: str, description: str) -> str:
@@ -299,11 +381,23 @@ def handle_event(event: dict) -> bool:
         bare = _strip_leading_env(command)
         model = _match_codex_command(bare)
         if model is not None:
+            provenance = _codex_provenance(event, model)
+            category = _codex_task_category(command)
+            if provenance is not None:
+                for attempt in provenance["attempts"]:
+                    _insert_row(PROVIDER_CODEX, attempt["model"], category,
+                                attempt["duration_ms"], 1, attempt["duration_ms"],
+                                None, None, session_id, project_root, attempt["success"])
+                return True
+            if _has_wrapper_trailer(event):
+                # A present-but-invalid trailer makes attempt attribution
+                # unknowable. Do not synthesize a requested-model metric.
+                return False
             duration_ms = _valid_duration_ms(event.get("duration_ms"))
             per_turn_ms = duration_ms if duration_ms is not None else None
-            _insert_row(PROVIDER_CODEX, model, _codex_task_category(command),
+            _insert_row(PROVIDER_CODEX, model, category,
                         duration_ms, 1, per_turn_ms,
-                        None, None, session_id, project_root)
+                        None, None, session_id, project_root, _tool_success(event))
             return True
 
     return False
@@ -311,7 +405,7 @@ def handle_event(event: dict) -> bool:
 
 def _insert_row(provider, model, task_category,
                 duration_ms, num_turns, per_turn_ms,
-                tokens_in, tokens_out, session_id, project_root):
+                tokens_in, tokens_out, session_id, project_root, success=True):
     # isolation_level=None -> autocommit; PRAGMA synchronous=NORMAL trades
     # one fsync per commit for ~3-8ms savings per PostToolUse invocation.
     conn = sqlite3.connect(
@@ -322,7 +416,7 @@ def _insert_row(provider, model, task_category,
         conn.execute(INSERT_SQL, (
             provider, model, task_category,
             duration_ms, num_turns, per_turn_ms,
-            tokens_in, tokens_out,
+            tokens_in, tokens_out, 1 if success else 0,
             session_id, project_root,
         ))
     finally:

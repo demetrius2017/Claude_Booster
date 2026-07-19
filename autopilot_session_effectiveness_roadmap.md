@@ -112,6 +112,15 @@ Standalone counts such as commits/hour, agents/session, waits, lines, tests, cle
 
 ## Phase 0 — Observational MVP
 
+Capability prerequisite (2026-07-19): Booster-managed automatic
+`hard`/`lead`/`consilium_bio` Sol routes now require capability-aware worker
+routing before they can contribute calibration evidence. The wrapper preserves
+Sol as the preferred route, classifies only the canonical ChatGPT-account 400,
+uses one bounded GPT-5.5 fallback with sanitized provenance, and retries Sol
+after the negative-cache TTL. Explicit model requests never downgrade. This is
+a Phase-0 measurement-integrity repair, not Phase-2 scheduling, and it does not
+increase the clean sealed calibration count.
+
 ### Artifact contract
 
 One independently testable, file-and-CLI shipment that adds a separate atomic slice ledger/event log, conservative git baseline attribution, typed advisory closure bound to exact hashes, deterministic backlog routing, and diagnostic telemetry. It must not change native Codex behavior or install hard WIP/spawn/wait gates.

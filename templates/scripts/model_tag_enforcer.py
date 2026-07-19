@@ -275,7 +275,7 @@ def _build_routing_block_message(
         "",
         f"  Description: {preview!r}",
         f"  Category:    {category}",
-        f"  Required:    codex-cli:{model} (not Agent)",
+        f"  Required:    codex-cli:{model} (not Agent; set CLAUDE_BOOSTER_ROUTE_SOURCE=balancer)",
         "",
         "Use Bash with codex worker instead of Agent:",
         f"  printf '%s\\n' '<task>' | ~/.claude/scripts/{worker_script} {model}",

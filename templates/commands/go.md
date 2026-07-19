@@ -207,7 +207,7 @@ Use the returned provider/model/reasoning_effort for the Flow Designer. Pass Cod
 | Provider from `get hard` | Flow Designer spawn path |
 |---|---|
 | `anthropic` or balancer error | Spawn ONE Flow Designer via the **Agent tool** with the returned model; fallback `model: "opus"`. **NOT `run_in_background`** — Lead waits for the result before Phase 1B. |
-| `codex-cli` | Run via `CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT="<reasoning_effort>" ~/.claude/scripts/codex_worker.sh <model> < <prompt-file>`. The prefixes are per invocation: category tags telemetry and effort prevents inheritance from the Lead. This is the read-only TEXT channel. |
+| `codex-cli` | Run via `CLAUDE_BOOSTER_ROUTE_SOURCE=balancer CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT="<reasoning_effort>" ~/.claude/scripts/codex_worker.sh <model> < <prompt-file>`. The prefixes are per invocation: source enables the bounded entitlement fallback for automatic Sol routes, category tags telemetry, and effort prevents inheritance from the Lead. This is the read-only TEXT channel. |
 | `zai-cli` | Run the Flow Designer via Bash: `printf '%s\n' "$PROMPT" \| ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5 --model <model>`. Use only when `ZAI_API_KEY` is present; otherwise fall back and log `zai-cli unavailable`. |
 
 **Flow Designer agent prompt:**
@@ -317,7 +317,7 @@ The Flow Designer drafted the PFD on the `hard` tier. This phase has a **differe
   `fable_control.degraded=true`, record `downgrade_reason`, and use the normal
   cross-provider Challenge mapping below with the same output contract.
 - **If Flow Designer's provider was `codex-cli` or `zai-cli`**: spawn ONE Challenge **Agent** with `model: "opus"` explicitly. **NOT `run_in_background`** — Lead waits.
-- **If Flow Designer's provider WAS `anthropic`**: prefer GLM-5.2 when available; otherwise use `CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < <prompt-file>`.
+- **If Flow Designer's provider WAS `anthropic`**: prefer GLM-5.2 when available; otherwise use `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < <prompt-file>`.
 
 Either way the prompt is identical:
 
@@ -810,7 +810,7 @@ The Verifier tested *observable behavior* but never saw the code. This phase giv
   `downgrade_reason`, and run the normal reviewer below against the same
   watchlist contract.
 - `WP=codex-cli` → reviewer = Opus **Agent** (`model: "opus"`), read-only.
-- `WP=anthropic` → reviewer = GLM-5.2 when available, else `CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < review_prompt.txt`.
+- `WP=anthropic` → reviewer = GLM-5.2 when available, else `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < review_prompt.txt`.
 - `WP=zai-cli` → reviewer = Opus Agent preferred, else Codex.
 - `WP=grok-cli` → reviewer = GLM-5.2 via `~/.claude/scripts/zai_cli.py review` when available, else Opus Agent/Codex.
 
