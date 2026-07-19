@@ -1,6 +1,6 @@
 # Autopilot Session Effectiveness Roadmap
 
-**Status:** planned  
+**Status:** Phase 0 mechanics installed; prospective calibration in progress
 **Decision authority:** Consilium 2026-07-18; Fable 5 final verdict `MODIFY`  
 **Scope:** Claude Booster-managed commands, wrappers, hooks, files, and diagnostic adapters
 
@@ -50,6 +50,47 @@ The initial baseline is the audited `electro-estimate-ai` autopilot session:
 | Goal activation | Required user intervention (`и?`); contract defect subsequently fixed |
 
 This is a failure baseline, not a universal performance distribution. Spawn and wait limits remain diagnostic until at least ten instrumented sessions establish valid event semantics and empirical ranges.
+
+## Current evidence state (2026-07-19)
+
+Phase 0's ledger, exact-state closure, recovery, calibration registry, root-session identity binding, telemetry runtime, and Booster/Codex command contracts are implemented and installed. The implementation is carried by commits `68fc40e10b7ae21265184346209766c1476012e9`, `66dac05231423d9e3f3a61fa4002e44a0b6e3d3c`, `33fd7bd7fd944b06d45ca332c4ae3fb5cc0c0d73`, `dde13fa9f33cdba73375929d0d3a5fd9f01ceee4`, and `4481f00950ad141e4759dbff558edb623cd6e96d`. The installed runtime and three updated command contracts were byte-identical to those sources, and the installation completed successfully with a retained backup.
+
+The first prospective specimen is recorded separately as **1 attempted session and 0 promotion-eligible sessions**. It closed `blocked`, originated before the corrected root-session contract and therefore carries legacy/wrong-root identity evidence, has unavailable controls, and has neither a valid telemetry receipt nor a human calibration label. It must not enter a promotion denominator or be repaired by backfill.
+
+The clean sealed calibration window therefore remains **0/10 eligible sessions**. Phase 1 and Phase 2 remain gated and have not started; none of their enforcement or orchestration claims is active.
+
+### Exact next-session procedure
+
+1. Start a genuinely new top-level Codex session and retain its unique root `payload.session_id`; do not reuse a thread ID, subagent ID, or the blocked specimen's identity.
+2. Before implementation work, bind the leading `session_meta` transcript row to the new run:
+
+   ```bash
+   python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" session-start \
+     --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID" \
+     --provider codex_rollout_v1 --artifact-domain implementation \
+     --expected-control ledger --expected-control git \
+     --expected-control verification --expected-control closure \
+     --transcript "$CODEX_TRANSCRIPT"
+   ```
+
+   Work may begin only if this command exits `0`; a thread/root mismatch is a byte-stable rejection, not a reason to retry with the thread ID.
+3. Complete the normal ledger, verification, terminal, and domain-outcome sequence, then record telemetry against the same immutable run/root pair:
+
+   ```bash
+   python3 ~/.claude/scripts/slice_telemetry.py --cwd "$PROJECT_ROOT" record \
+     --provider codex_rollout_v1 --transcript "$CODEX_TRANSCRIPT" \
+     --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID"
+   ```
+
+4. A human reviews every classified path and supplies the labels file; only then record calibration:
+
+   ```bash
+   python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" record \
+     --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID" \
+     --labels-file "$HUMAN_LABELS_JSON"
+   ```
+
+Only a session with valid root-bound activation, terminal evidence, telemetry, and human labels increments the clean sealed `0/10` promotion counter.
 
 ## KPI contract
 
@@ -212,16 +253,16 @@ Return orchestration policy to shadow/advisory mode. Keep WIP=1 only if its inde
 
 ### Phase 0
 
-- [ ] Freeze and test the versioned ledger schema, lifecycle, terminal dispositions, and claim-versus-fact invariants.
-- [ ] Define event schema, append semantics, corruption behavior, and provenance requirements.
-- [ ] Implement atomic persistence, acquisition, collision handling, stale-owner detection, and one-command recovery.
-- [ ] Implement the git baseline adapter with scoped hashing and explicit unsupported states.
-- [ ] Implement conservative path attribution and artifact-contract expansion with reasons.
-- [ ] Implement exact-hash verification and typed advisory closure.
-- [ ] Implement append-only backlog routing and compact fact/claim/unknown handoff receipts.
-- [ ] Implement versioned telemetry adapters with coverage and `unknown` reporting.
-- [ ] Add clean, dirty, overlap, untracked, crash, concurrent, hash-change, quarantine, parser-drift, and native-Codex-boundary fixtures.
-- [ ] Integrate the MVP in advisory mode with Booster autopilot without merging directional and slice state.
+- [x] Freeze and test the versioned ledger schema, lifecycle, terminal dispositions, and claim-versus-fact invariants.
+- [x] Define event schema, append semantics, corruption behavior, and provenance requirements.
+- [x] Implement atomic persistence, acquisition, collision handling, stale-owner detection, and one-command recovery.
+- [x] Implement the git baseline adapter with scoped hashing and explicit unsupported states.
+- [x] Implement conservative path attribution and artifact-contract expansion with reasons.
+- [x] Implement exact-hash verification and typed advisory closure.
+- [x] Implement append-only backlog routing and compact fact/claim/unknown handoff receipts.
+- [x] Implement versioned telemetry adapters with coverage and `unknown` reporting.
+- [x] Add clean, dirty, overlap, untracked, crash, concurrent, hash-change, quarantine, parser-drift, and native-Codex-boundary fixtures.
+- [x] Integrate the MVP in advisory mode with Booster autopilot without merging directional and slice state.
 - [ ] Instrument and review at least 10 real sessions.
 - [ ] Calculate KPI bundle and write a promotion decision from evidence.
 
@@ -282,4 +323,3 @@ The roadmap is complete only when all of the following are true:
 - Native Codex limitations, parser coverage, and unknown states are visible and truthfully reported.
 - Recovery is one-command, provenance-preserving, and tested; all immediate kill criteria have remained at zero during the final evaluation window.
 - The solution remains a small file/CLI control plane with no daemon, dashboard, database, service, or scheduler.
-
