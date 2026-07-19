@@ -14,6 +14,9 @@ ROOT = Path(__file__).parents[1]
 SCRIPTS = ROOT / "templates/scripts"
 LEDGER, GIT = SCRIPTS / "slice_ledger.py", SCRIPTS / "slice_git.py"
 TELEMETRY = SCRIPTS / "slice_telemetry.py"
+sys.path.insert(0, str(SCRIPTS))
+from slice_bootstrap_core import binding_value, secure_binding_write
+from slice_telemetry_core import secure_jsonl, validate_session_meta
 
 
 def run(script: Path, repo: Path, *args: str) -> tuple[int, dict]:
@@ -91,6 +94,34 @@ def telemetry_args(sources: list[Path], command: str = "inspect") -> list[str]:
     for source in sources:
         args += ["--transcript", str(source)]
     return args
+
+
+def protected_binding(root: Path, transcript: Path) -> str:
+    """Create the same protected reference emitted by bootstrap for run1."""
+    rows, facts = secure_jsonl(transcript)
+    payload = validate_session_meta(rows[0], root, expected_session_id="sess", require_root=True)
+    value = binding_value(root, "run1", transcript.resolve(), payload, facts, rows[0])
+    path = secure_binding_write(root, "run1", value)
+    return str(path.relative_to(root))
+
+
+def test_binding_drives_telemetry_without_raw_routing_arguments(tmp_path: Path) -> None:
+    root = repo(tmp_path)
+    source = codex_sources(tmp_path, root)[0]
+    binding = protected_binding(root, source)
+    code, body = run(TELEMETRY, root, "record", "--provider", "codex_rollout_v1", "--binding", binding)
+    assert code == 0 and body["result"]["receipt"]["run_id_hash"]
+    status, cached = run(TELEMETRY, root, "status", "--binding", binding)
+    assert status == 0 and cached["result"]["status"] == "recorded"
+    conflict, error = run(TELEMETRY, root, "inspect", "--provider", "codex_rollout_v1", "--binding", binding, "--run-id", "run1")
+    assert conflict == 2 and "mutually exclusive" in error["error"]
+
+
+@pytest.mark.parametrize("reference", ["/tmp/binding.json", "../binding.json", ".claude/state/runs/not-a-hash/slice_session_binding.json"])
+def test_binding_reference_rejects_noncanonical_or_hostile_paths(tmp_path: Path, reference: str) -> None:
+    root = repo(tmp_path)
+    code, body = run(TELEMETRY, root, "status", "--binding", reference)
+    assert code in {2, 4} and body["type"] == "error"
 
 
 def test_nested_codex_dedup_wait_scopes_tokens_privacy_and_right_censor(tmp_path: Path) -> None:

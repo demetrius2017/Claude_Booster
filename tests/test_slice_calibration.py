@@ -7,6 +7,7 @@ import pytest
 from concurrent.futures import ProcessPoolExecutor
 
 ROOT = Path(__file__).parents[1]; SCRIPTS = ROOT / "templates/scripts"
+LEDGER, GIT, CLOSE, TELEMETRY = (SCRIPTS/name for name in ("slice_ledger.py", "slice_git.py", "slice_close.py", "slice_telemetry.py"))
 sys.path.insert(0, str(SCRIPTS))
 from slice_calibration_core import CalibrationError, evaluate, sha256, validate_labels, validate_telemetry
 from slice_session_registry_core import RegistryError, canonical, read_events, session_views
@@ -233,6 +234,59 @@ def test_bootstrap_discovers_unique_root_and_generates_run(tmp_path):
     assert result.returncode==0 and payload["session_id_hash"]==H("root-session") and payload["resolution"]=="codex_thread_id"
     assert len(payload["run_id"])==36 and payload["binding_path"].endswith("slice_session_binding.json")
     assert "root-session" not in result.stdout and str(transcript) not in result.stdout
+
+
+def test_calibration_binding_cli_resolves_identity_and_rejects_conflict(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"session","thread"))+"\n")
+    call=lambda *args: subprocess.run([sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+    boot=call("bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger")
+    binding=json.loads(boot.stdout)["result"]["binding_path"]
+    # The binding is accepted and reaches the expected terminal-state gate;
+    # no raw session or transcript identity was needed in argv.
+    resolved=call("labels-template","--binding",binding)
+    assert resolved.returncode==3 and "exact ledger run/session required" in json.loads(resolved.stderr)["error"]
+    conflict=call("labels-template","--binding",binding,"--run-id","wrong")
+    assert conflict.returncode==2 and "mutually exclusive" in json.loads(conflict.stderr)["error"]
+
+
+def test_binding_options_are_visible_in_cli_help():
+    for script,command in ((SCRIPTS/"slice_telemetry.py","record"),(SCRIPTS/"slice_calibration.py","labels-template"),(SCRIPTS/"slice_calibration.py","record")):
+        result=subprocess.run([sys.executable,str(script),command,"--help"],text=True,capture_output=True,check=False)
+        assert result.returncode==0 and "--binding" in result.stdout
+
+
+def test_bootstrap_binding_full_telemetry_and_human_calibration_success(tmp_path):
+    """Exercise the operator path without exposing routing identities in argv."""
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    subprocess.run(["git","-C",str(repo),"config","user.name","Test"],check=True)
+    subprocess.run(["git","-C",str(repo),"config","user.email","test@example.invalid"],check=True)
+    (repo/"work.txt").write_text("baseline\n"); (repo/".gitignore").write_text(".claude/state/\n")
+    subprocess.run(["git","-C",str(repo),"add","."],check=True); subprocess.run(["git","-C",str(repo),"commit","-qm","seed"],check=True)
+    transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"session-secret","thread-secret"))+"\n")
+    def call(script,*args): return subprocess.run([sys.executable,str(script),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+    boot=call(SCRIPTS/"slice_calibration.py","bootstrap","--transcript",str(transcript),"--session-id","session-secret","--artifact-domain","code","--expected-control","ledger")
+    binding=json.loads(boot.stdout)["result"]["binding_path"]
+    assert call(LEDGER,"acquire","--slice-id","s","--artifact-contract","verify binding path","--allowed-path","work.txt","--binding",binding).returncode==0
+    assert call(GIT,"capture","--binding",binding,"--revision","1").returncode==0
+    (repo/"work.txt").write_text("delivered\n")
+    evidence=tmp_path/"evidence.json"; evidence.write_text(json.dumps({"schema_version":1,"argv":[sys.executable,"-c","print('ok')"],"timeout_seconds":10}))
+    # Verification/closure retain their existing compatibility interface; the
+    # operator-facing identity flow under test resumes at the protected binding.
+    assert call(CLOSE,"verify","--run-id",json.loads(boot.stdout)["result"]["run_id"],"--session-id","session-secret","--revision","2","--evidence-file",str(evidence)).returncode==0
+    close=call(CLOSE,"close","--run-id",json.loads(boot.stdout)["result"]["run_id"],"--session-id","session-secret","--revision","3","--disposition","delivered_uncommitted","--delivered-path","work.txt")
+    assert close.returncode==0, close.stderr
+    inspected=call(TELEMETRY,"inspect","--provider","codex_rollout_v1","--binding",binding)
+    recorded=call(TELEMETRY,"record","--provider","codex_rollout_v1","--binding",binding)
+    assert inspected.returncode==recorded.returncode==0
+    labels_path=tmp_path/"labels.json"; skeleton=call(SCRIPTS/"slice_calibration.py","labels-template","--binding",binding,"--output",str(labels_path))
+    assert skeleton.returncode==0
+    labels=json.loads(labels_path.read_text()); labels["docs_only_dirty"]="none"
+    for item in labels["path_reviews"]: item["truth"]="legitimate"
+    labels_path.write_text(json.dumps(labels)); labels_path.chmod(0o600)
+    calibrated=call(SCRIPTS/"slice_calibration.py","record","--binding",binding,"--labels-file",str(labels_path))
+    status=call(SCRIPTS/"slice_calibration.py","status","--binding",binding)
+    assert calibrated.returncode==status.returncode==0
 
 
 @pytest.mark.parametrize("count",[0,2])

@@ -270,18 +270,21 @@ def append_backlog(path: Path, run_id: str, slice_id: str, state_sha: str, offsc
         item = {**unsigned, "hash": hashlib.sha256(canonical(unsigned)).hexdigest()}
         new_records.append(item)
         previous = item["hash"]
-    if new_records:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
-        try:
-            opened = os.fstat(fd)
-            if opened.st_nlink != 1:
-                raise VerifyError("backlog hardlink forbidden", 4)
-            os.fchmod(fd, 0o600)
-            for item in new_records:
-                os.write(fd, canonical(item) + b"\n")
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+    # The empty backlog is itself an authoritative closure source.  Materialize
+    # it even when there are no off-scope rows so downstream calibration can
+    # hash and revalidate the exact empty generation instead of following a
+    # path that closure claimed but never created.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+    try:
+        opened = os.fstat(fd)
+        if opened.st_nlink != 1:
+            raise VerifyError("backlog hardlink forbidden", 4)
+        os.fchmod(fd, 0o600)
+        for item in new_records:
+            os.write(fd, canonical(item) + b"\n")
+        os.fsync(fd)
+    finally:
+        os.close(fd)
     all_records = [*records, *new_records]
     return (all_records[-1]["hash"] if all_records else None), len(all_records)
 

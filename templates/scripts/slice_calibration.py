@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from slice_calibration_core import CalibrationError, LABEL_KEYS, canonical, evaluate, sha256, validate_labels, validate_window
-from slice_bootstrap_core import BINDING_KEYS, binding_value, resolve_root_transcript, secure_binding_delete, secure_binding_read, secure_binding_write, secure_state_log_append, secure_state_log_read, validate_binding
+from slice_bootstrap_core import BINDING_KEYS, binding_value, resolve_binding_reference, resolve_root_transcript, secure_binding_delete, secure_binding_read, secure_binding_write, secure_state_log_append, secure_state_log_read, validate_binding
 from slice_close_core import VerifyError, _secure_lines, read_secure_json
 from slice_git import _relative, _run_dir
 from slice_ledger import _git_root, _locked
@@ -52,7 +52,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = Parser(description=__doc__); parser.add_argument("--cwd", default=".")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("record", "status", "labels-template"):
-        command = sub.add_parser(name); command.add_argument("--run-id", required=True); command.add_argument("--session-id", required=True)
+        command = sub.add_parser(name); command.add_argument("--binding"); command.add_argument("--run-id"); command.add_argument("--session-id")
         if name == "record": command.add_argument("--labels-file", required=True)
         elif name == "labels-template": command.add_argument("--output")
     evaluate_cmd = sub.add_parser("evaluate"); evaluate_cmd.add_argument("--window-file")
@@ -73,6 +73,17 @@ def _parser() -> argparse.ArgumentParser:
         elif name == "domain-outcome": command.add_argument("--next-domain", required=True)
         else: command.add_argument("--reason", required=True); command.add_argument("--evidence-file", required=True)
     return parser
+
+
+def _resolve_identity(root: Path, args: argparse.Namespace) -> None:
+    """Resolve a protected binding without placing raw routing fields in argv."""
+    if args.binding:
+        if args.run_id is not None or args.session_id is not None:
+            raise CalibrationError("--binding is mutually exclusive with raw run/session arguments", 2)
+        binding = resolve_binding_reference(root, args.binding)
+        args.run_id, args.session_id = binding["run_id"], binding["session_id"]
+    elif args.run_id is None or args.session_id is None:
+        raise CalibrationError("provide --binding or both --run-id and --session-id", 2)
 
 
 def _registry(path: Path) -> list[dict[str, Any]]:
@@ -443,6 +454,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _parser().parse_args(argv); root = _git_root(args.cwd)
         with _locked(root):
+            if args.command in {"record", "status", "labels-template"}:
+                _resolve_identity(root, args)
             result = (
                 _record(root, args) if args.command == "record" else
                 _status(root, args) if args.command == "status" else

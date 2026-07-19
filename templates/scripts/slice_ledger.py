@@ -418,9 +418,11 @@ def _parser() -> argparse.ArgumentParser:
     acquire.add_argument("--slice-id", required=True)
     acquire.add_argument("--artifact-contract", required=True)
     acquire.add_argument("--allowed-path", action="append", required=True)
-    acquire.add_argument("--session-id", required=True)
+    acquire.add_argument("--binding")
+    acquire.add_argument("--session-id")
     acquire.add_argument("--run-id")
     status = sub.add_parser("status")
+    status.add_argument("--binding")
     status.add_argument("--run-id")
     update = sub.add_parser("update")
     update.add_argument("--run-id", required=True)
@@ -453,6 +455,22 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_binding_args(root: Path, args: argparse.Namespace) -> None:
+    """Resolve protected bootstrap identity for acquire/status commands."""
+    if getattr(args, "binding", None):
+        if args.run_id is not None or getattr(args, "session_id", None) is not None:
+            raise LedgerError("--binding is mutually exclusive with raw run/session arguments", 2)
+        from slice_bootstrap_core import resolve_binding_reference
+        from slice_calibration_core import CalibrationError
+        try:
+            binding = resolve_binding_reference(root, args.binding)
+        except CalibrationError as exc:
+            raise LedgerError(str(exc), exc.code) from exc
+        args.run_id, args.session_id = binding["run_id"], binding["session_id"]
+    elif args.command == "acquire" and args.session_id is None:
+        raise LedgerError("acquire requires --binding or --session-id", 2)
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
@@ -464,6 +482,8 @@ def main(argv: list[str] | None = None) -> int:
         args = _parser().parse_args(raw)
         root = _git_root(args.cwd)
         with _locked(root) as (ledger, events):
+            if args.command in {"acquire", "status"}:
+                _resolve_binding_args(root, args)
             if args.command == "acquire":
                 state = _acquire(args, ledger, events)
             elif args.command == "update":

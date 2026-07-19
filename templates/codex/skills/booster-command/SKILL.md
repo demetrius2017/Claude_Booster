@@ -103,6 +103,10 @@ Execute the command behavior, not the literal Claude Code tool names.
   and a protected project-relative binding reference. Root identity is leading
   `session_meta.payload.session_id`, while `payload.id` is the possibly distinct
   thread identity. Validate the root join and persist hashes only.
+  Parse only bootstrap's `result.binding_path` with a JSON parser (never shell
+  evaluation), then pass it as `--binding` to telemetry status/record and
+  calibration labels-template/record. These consumers securely derive and
+  revalidate raw routing identities internally; never print or hand-copy them.
   Status reads only cached `slice_telemetry.py status` evidence and must say
   `Claude hooks/wrappers advisory; native Codex observational/no enforcement`;
   it never scans transcript stores. Directional autopilot state remains

@@ -27,7 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from slice_close_core import read_secure_json
-from slice_bootstrap_core import BINDING_KEYS, secure_binding_read, validate_binding
+from slice_bootstrap_core import BINDING_KEYS, resolve_binding_reference, secure_binding_read, validate_binding
+from slice_calibration_core import CalibrationError
 from slice_git import _relative, _run_dir
 from slice_ledger import _git_root, _locked
 from slice_ledger_core import LedgerError, _atomic_projection, _load
@@ -49,13 +50,38 @@ def _parser() -> argparse.ArgumentParser:
     for name in ("inspect", "record"):
         command = subs.add_parser(name)
         command.add_argument("--provider", required=True, choices=("codex_rollout_v1", "booster_wrapper_v1"))
-        command.add_argument("--transcript", action="append", required=True)
-        command.add_argument("--run-id", required=True)
-        command.add_argument("--session-id", required=True)
+        command.add_argument("--binding")
+        command.add_argument("--transcript", action="append")
+        command.add_argument("--run-id")
+        command.add_argument("--session-id")
     status = subs.add_parser("status")
-    status.add_argument("--run-id", required=True)
-    status.add_argument("--session-id", required=True)
+    status.add_argument("--binding")
+    status.add_argument("--run-id")
+    status.add_argument("--session-id")
     return parser
+
+
+def _resolve_identity(root: Path, args: argparse.Namespace, *, transcript: bool) -> None:
+    """Populate raw identities from a protected binding or validate legacy argv."""
+    explicit = [getattr(args, name, None) for name in ("run_id", "session_id")]
+    if transcript:
+        explicit.append(getattr(args, "transcript", None))
+    if args.binding:
+        if any(value is not None for value in explicit):
+            raise TelemetryError("--binding is mutually exclusive with raw run/session/transcript arguments", 2)
+        try:
+            binding = resolve_binding_reference(root, args.binding)
+        except CalibrationError as exc:
+            raise TelemetryError(str(exc), exc.code) from exc
+        args.run_id, args.session_id = binding["run_id"], binding["session_id"]
+        if transcript:
+            args.transcript = [binding["transcript"]]
+        return
+    required = [args.run_id, args.session_id]
+    if transcript:
+        required.append(args.transcript)
+    if any(value is None for value in required):
+        raise TelemetryError("provide --binding or the complete legacy run/session/transcript identity", 2)
 
 
 def _emit(ok: bool, kind: str, *, stream: Any = sys.stdout, **values: Any) -> None:
@@ -262,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         args = _parser().parse_args(argv)
         root = _git_root(args.cwd)
         with _locked(root):
+            _resolve_identity(root, args, transcript=args.command != "status")
             result = _build(root, args) if args.command == "inspect" else _record(root, args) if args.command == "record" else _status(root, args)
         _emit(True, args.command, result=result)
         return 0

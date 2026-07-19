@@ -53,43 +53,64 @@ This is a failure baseline, not a universal performance distribution. Spawn and 
 
 ## Current evidence state (2026-07-19)
 
-Phase 0's ledger, exact-state closure, recovery, calibration registry, root-session identity binding, telemetry runtime, and Booster/Codex command contracts are implemented and installed. The implementation is carried by commits `68fc40e10b7ae21265184346209766c1476012e9`, `66dac05231423d9e3f3a61fa4002e44a0b6e3d3c`, `33fd7bd7fd944b06d45ca332c4ae3fb5cc0c0d73`, `dde13fa9f33cdba73375929d0d3a5fd9f01ceee4`, and `4481f00950ad141e4759dbff558edb623cd6e96d`. The installed runtime and three updated command contracts were byte-identical to those sources, and the installation completed successfully with a retained backup.
+Phase 0's ledger, exact-state closure, recovery, calibration registry,
+root-session identity binding, telemetry runtime, and Booster/Codex command
+contracts are implemented and installed. In addition to the original Phase 0
+chain, commit `ae910b8` adds bounded capability-aware routing for a managed Sol
+route that the current ChatGPT-authenticated account rejects, and commit
+`80a131d` seals prospective root-session bootstrap and window accounting. The
+installed bridge passed its integration suite; adversarial coverage includes
+concurrent bootstrap, duplicate activation, permission failures, transcript
+substitution, symlink/hardlink escape, and rejection of post-close backfill.
 
 The first prospective specimen is recorded separately as **1 attempted session and 0 promotion-eligible sessions**. It closed `blocked`, originated before the corrected root-session contract and therefore carries legacy/wrong-root identity evidence, has unavailable controls, and has neither a valid telemetry receipt nor a human calibration label. It must not enter a promotion denominator or be repaired by backfill.
 
-The clean sealed calibration window therefore remains **0/10 eligible sessions**. Phase 1 and Phase 2 remain gated and have not started; none of their enforcement or orchestration claims is active.
+The canonical prospective window is **open**, with
+`started_at=2026-07-19T20:01:13.044241Z`, **0 activated**, **0 eligible**, a
+counter of **0/10**, and empty membership. The earlier blocked specimen is
+outside this boundary. The current session is not eligible and must not be
+inserted retrospectively. Phase 1 and Phase 2 remain gated and have not
+started; none of their enforcement or orchestration claims is active.
 
 ### Exact next-session procedure
 
-1. Start a genuinely new top-level Codex session and retain its unique root `payload.session_id`; do not reuse a thread ID, subagent ID, or the blocked specimen's identity.
-2. Before implementation work, create or inspect the one prospective window,
-   then fail-closed bootstrap the leading root `session_meta`. Explicit
-   transcript/session inputs are preferred; safe discovery accepts only one
-   root match for `CODEX_THREAD_ID` and never chooses the newest file:
+1. Start a genuinely new top-level Codex session. The installed bootstrap must
+   resolve its leading root `session_meta`; a wrapper UUID, thread ID, subagent
+   ID, or prior specimen identity is never an acceptable substitute. Do not
+   print raw routing identities or transcript paths in public output.
+2. Before implementation work, inspect the one prospective window, then run
+   fail-closed ambient bootstrap. Discovery accepts only one root match for the
+   current `CODEX_THREAD_ID` and never chooses the newest file:
 
    ```bash
-   python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" window-status \
-     || python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" window-create
+   python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" window-status
    python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" bootstrap \
-     --transcript "$CODEX_TRANSCRIPT" --session-id "$ROOT_SESSION_ID" \
      --artifact-domain implementation \
      --expected-control ledger --expected-control git \
      --expected-control verification --expected-control closure
    ```
 
-   Read `run_id` and the project-relative protected `binding_path` from the
-   command's JSON result; stdout intentionally contains neither the raw root
-   session ID nor the absolute transcript path. A trusted runner reads the
-   mode-0600 binding JSON directly for subsequent argv construction; never
-   shell-evaluate it. Work may begin only on exit `0`; zero/multiple
+   Extract only the project-relative protected `binding_path` with a JSON
+   parser. Stdout intentionally contains neither the raw root session ID nor
+   the absolute transcript path. Never print, source, `eval`, or hand-copy the
+   binding's raw routing fields. For example, after saving bootstrap's machine
+   JSON to a private temporary file:
+
+   ```bash
+   BINDING_PATH="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["result"]["binding_path"])' "$BOOTSTRAP_RESULT_JSON")"
+   ```
+
+   Every downstream consumer validates the path again. Work may begin only on exit `0`;
+   zero/multiple
    candidates or a thread/root mismatch are typed rejections, not reasons to
    substitute a wrapper or subagent UUID.
-3. Complete the normal ledger, verification, terminal, and domain-outcome sequence, then record telemetry against the same immutable run/root pair:
+3. Complete the normal ledger, verification, terminal, and domain-outcome
+   sequence, then record telemetry through the same immutable binding. The CLI
+   derives run, root session, and transcript internally:
 
    ```bash
    python3 ~/.claude/scripts/slice_telemetry.py --cwd "$PROJECT_ROOT" record \
-     --provider codex_rollout_v1 --transcript "$CODEX_TRANSCRIPT" \
-     --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID"
+     --provider codex_rollout_v1 --binding "$BINDING_PATH"
    ```
 
 4. Generate the exhaustive label skeleton from the immutable handoff. A human
@@ -98,10 +119,10 @@ The clean sealed calibration window therefore remains **0/10 eligible sessions**
 
    ```bash
    python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" labels-template \
-     --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID" \
+     --binding "$BINDING_PATH" \
      --output "$HUMAN_LABELS_JSON"
    python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" record \
-     --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID" \
+     --binding "$BINDING_PATH" \
      --labels-file "$HUMAN_LABELS_JSON"
    ```
 
@@ -296,6 +317,8 @@ Return orchestration policy to shadow/advisory mode. Keep WIP=1 only if its inde
 - [x] Implement versioned telemetry adapters with coverage and `unknown` reporting.
 - [x] Add clean, dirty, overlap, untracked, crash, concurrent, hash-change, quarantine, parser-drift, and native-Codex-boundary fixtures.
 - [x] Integrate the MVP in advisory mode with Booster autopilot without merging directional and slice state.
+- [x] Add bounded capability-aware fallback so unsupported managed model routes cannot corrupt calibration measurements.
+- [x] Seal prospective root-session bootstrap and open one canonical empty 0/10 calibration window.
 - [ ] Instrument and review at least 10 real sessions.
 - [ ] Calculate KPI bundle and write a promotion decision from evidence.
 

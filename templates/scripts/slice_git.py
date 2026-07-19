@@ -59,10 +59,27 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     for name in ("capture", "attribute", "refresh"):
         command = commands.add_parser(name)
-        command.add_argument("--run-id", required=True)
-        command.add_argument("--session-id", required=True)
+        command.add_argument("--binding")
+        command.add_argument("--run-id")
+        command.add_argument("--session-id")
         command.add_argument("--revision", type=_positive, required=True)
     return parser
+
+
+def _resolve_binding_args(root: Path, args: argparse.Namespace) -> None:
+    """Resolve the exact protected bootstrap identity for Git operations."""
+    if args.binding:
+        if args.run_id is not None or args.session_id is not None:
+            raise GitFactError("--binding is mutually exclusive with raw run/session arguments", 2)
+        from slice_bootstrap_core import resolve_binding_reference
+        from slice_calibration_core import CalibrationError
+        try:
+            binding = resolve_binding_reference(root, args.binding)
+        except CalibrationError as exc:
+            raise GitFactError(str(exc), exc.code) from exc
+        args.run_id, args.session_id = binding["run_id"], binding["session_id"]
+    elif args.run_id is None or args.session_id is None:
+        raise GitFactError("provide --binding or both --run-id and --session-id", 2)
 
 
 def _emit(ok: bool, kind: str, *, stream: Any = sys.stdout, **values: Any) -> None:
@@ -278,6 +295,7 @@ def main(argv: list[str] | None = None) -> int:
         args = _parser().parse_args(argv)
         root = _git_root(args.cwd)
         with _locked(root):
+            _resolve_binding_args(root, args)
             result = _capture(root,args) if args.command=="capture" else _refresh(root,args) if args.command=="refresh" else _attribute(root,args)
         _emit(True, args.command, result=result)
         return OK

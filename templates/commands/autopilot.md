@@ -165,15 +165,17 @@ documented Codex session store; zero or multiple matches are typed failures,
 never "pick latest". A subagent thread is never accepted as the root. Bootstrap
 stdout returns hashes, run ID, and a project-relative mode-0600 binding
 reference; it does not disclose the raw session ID or absolute transcript
-path. The trusted runner reads that JSON directly, never by shell evaluation.
+path. Parse only `result.binding_path` with a JSON parser; never use `eval`,
+`source`, or hand-copy routing fields. Telemetry and calibration consume that
+protected reference directly and derive raw identities internally.
 There is no backfill: immediately record the activation,
 then call the installed tools in this order, using the
 revision returned by each command:
 
 ```text
-python3 ~/.claude/scripts/slice_calibration.py --cwd <root> bootstrap [--transcript <jsonl> --session-id <root-session>] --artifact-domain <domain> --expected-control ledger --expected-control git --expected-control verification --expected-control closure
-python3 ~/.claude/scripts/slice_ledger.py --cwd <root> acquire --slice-id <slice> --artifact-contract <contract> --allowed-path <path> --session-id <session> --run-id <run>
-python3 ~/.claude/scripts/slice_git.py --cwd <root> capture --run-id <run> --session-id <session> --revision 1
+python3 ~/.claude/scripts/slice_calibration.py --cwd <root> bootstrap --artifact-domain <domain> --expected-control ledger --expected-control git --expected-control verification --expected-control closure
+python3 ~/.claude/scripts/slice_ledger.py --cwd <root> acquire --slice-id <slice> --artifact-contract <contract> --allowed-path <path> --binding <project-relative-binding-path>
+python3 ~/.claude/scripts/slice_git.py --cwd <root> capture --binding <project-relative-binding-path> --revision 1
 ```
 
 `session-start` is a durable prerequisite, not best-effort telemetry. If it
@@ -210,7 +212,7 @@ first safe work step while making the missing baseline/coverage explicit.
 `slice_git.py attribute`, `slice_close.py status`, and finally:
 
 ```text
-python3 ~/.claude/scripts/slice_telemetry.py --cwd <root> status --run-id <run> --session-id <session>
+python3 ~/.claude/scripts/slice_telemetry.py --cwd <root> status --binding <project-relative-binding-path>
 ```
 
 Do not discover or scan transcripts during status. Print one compact advisory
@@ -219,17 +221,14 @@ advisory; native Codex observational/no enforcement`, plus provider, parser
 coverage, unknown count/reasons, terminal disposition, and receipt hash when
 available. If cached telemetry is absent, resolve the absolute project root,
 one explicitly supported adapter (`codex_rollout_v1` or
-`booster_wrapper_v1`), one explicit existing transcript JSONL, and the actual
-ledger run/session identifiers before emitting anything. Construct the
-executable argv in this exact order: `python3`, the installed
-`slice_telemetry.py`, global `--cwd`, resolved root, `record`, `--provider`,
-adapter, `--transcript`, JSONL, `--run-id`, run, `--session-id`, session. Print
-the shell-quoted concrete command with no ellipsis, metavariables, angle-bracket
-placeholders, or guessed transcript path. Codex `session-start` also receives
-that explicit transcript: leading `session_meta.payload.session_id` is the root
-session identity and must equal `--session-id`; `session_meta.payload.id` is the
-thread identity and may intentionally differ. Persist only their hashes and the
-metadata hash, never raw transcript metadata.
+`booster_wrapper_v1`), and the protected project-relative binding emitted by
+bootstrap. Construct argv in this exact order: `python3`, installed
+`slice_telemetry.py`, global `--cwd`, root, `record`, `--provider`, adapter,
+`--binding`, binding path. The consumer validates its owner-controlled chain,
+link count, mode, project, transcript inode, and leading metadata. Print no raw
+session or transcript identity. Legacy explicit arguments remain CLI-only
+compatibility and are never operational guidance; they cannot be combined with
+`--binding`.
 
 `off` disables directional autopilot without deleting slice ledger, event,
 backlog, handoff, or telemetry history. If a slice is active, surface its typed

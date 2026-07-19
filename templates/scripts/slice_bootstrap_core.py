@@ -137,6 +137,29 @@ def secure_binding_read(root: Path, run_id: str, *, hashed: bool = False, option
         os.close(directory_fd)
 
 
+def resolve_binding_reference(root: Path, reference: str) -> dict[str, Any]:
+    """Resolve one canonical project-relative protected binding reference.
+
+    The reference is deliberately a capability-like path: callers do not need
+    to copy the raw run, session, or transcript identities into argv.  Only the
+    exact path emitted by ``bootstrap`` is accepted; all filesystem access is
+    still performed by :func:`secure_binding_read` through trusted dirfds.
+    """
+    if not isinstance(reference, str) or not reference:
+        raise CalibrationError("binding reference required", 2)
+    candidate = Path(reference)
+    parts = candidate.parts
+    if candidate.is_absolute() or len(parts) != 5 or parts[:3] != (".claude", "state", "runs") or parts[4] != "slice_session_binding.json":
+        raise CalibrationError("binding must be canonical project-relative .claude/state/runs/<hash>/slice_session_binding.json", 2)
+    run_hash = parts[3]
+    value = secure_binding_read(root, run_hash, hashed=True)
+    if value is None:  # Defensive: non-optional reads must never return None.
+        raise CalibrationError("session binding missing", 4)
+    if hashlib.sha256(value["run_id"].encode()).hexdigest() != run_hash:
+        raise CalibrationError("binding path/run identity mismatch", 4)
+    return validate_binding(root, value)
+
+
 def secure_binding_delete(root: Path, run_id: str) -> None:
     """Remove a bootstrap binding without resolving attacker-controlled ancestors."""
     run_hash = hashlib.sha256(run_id.encode()).hexdigest()
