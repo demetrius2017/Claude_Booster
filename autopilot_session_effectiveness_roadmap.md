@@ -62,18 +62,28 @@ The clean sealed calibration window therefore remains **0/10 eligible sessions**
 ### Exact next-session procedure
 
 1. Start a genuinely new top-level Codex session and retain its unique root `payload.session_id`; do not reuse a thread ID, subagent ID, or the blocked specimen's identity.
-2. Before implementation work, bind the leading `session_meta` transcript row to the new run:
+2. Before implementation work, create or inspect the one prospective window,
+   then fail-closed bootstrap the leading root `session_meta`. Explicit
+   transcript/session inputs are preferred; safe discovery accepts only one
+   root match for `CODEX_THREAD_ID` and never chooses the newest file:
 
    ```bash
-   python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" session-start \
-     --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID" \
-     --provider codex_rollout_v1 --artifact-domain implementation \
+   python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" window-status \
+     || python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" window-create
+   python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" bootstrap \
+     --transcript "$CODEX_TRANSCRIPT" --session-id "$ROOT_SESSION_ID" \
+     --artifact-domain implementation \
      --expected-control ledger --expected-control git \
-     --expected-control verification --expected-control closure \
-     --transcript "$CODEX_TRANSCRIPT"
+     --expected-control verification --expected-control closure
    ```
 
-   Work may begin only if this command exits `0`; a thread/root mismatch is a byte-stable rejection, not a reason to retry with the thread ID.
+   Read `run_id` and the project-relative protected `binding_path` from the
+   command's JSON result; stdout intentionally contains neither the raw root
+   session ID nor the absolute transcript path. A trusted runner reads the
+   mode-0600 binding JSON directly for subsequent argv construction; never
+   shell-evaluate it. Work may begin only on exit `0`; zero/multiple
+   candidates or a thread/root mismatch are typed rejections, not reasons to
+   substitute a wrapper or subagent UUID.
 3. Complete the normal ledger, verification, terminal, and domain-outcome sequence, then record telemetry against the same immutable run/root pair:
 
    ```bash
@@ -82,15 +92,29 @@ The clean sealed calibration window therefore remains **0/10 eligible sessions**
      --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID"
    ```
 
-4. A human reviews every classified path and supplies the labels file; only then record calibration:
+4. Generate the exhaustive label skeleton from the immutable handoff. A human
+   must replace every `truth: unknown` and classify `docs_only_dirty`; the tool
+   never infers either. `record` revalidates exact path/classification coverage:
 
    ```bash
+   python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" labels-template \
+     --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID" \
+     --output "$HUMAN_LABELS_JSON"
    python3 ~/.claude/scripts/slice_calibration.py --cwd "$PROJECT_ROOT" record \
      --run-id "$RUN_ID" --session-id "$ROOT_SESSION_ID" \
      --labels-file "$HUMAN_LABELS_JSON"
    ```
 
+5. Inspect the prospective counter with `window-status`. After the agreed
+   collection period, run `window-close` exactly once and `evaluate` without an
+   external window file. Closing seals the end time, registry tail, label-log
+   tail, and exact member identities; later receipts cannot be backfilled into
+   the denominator.
+
 Only a session with valid root-bound activation, terminal evidence, telemetry, and human labels increments the clean sealed `0/10` promotion counter.
+The Codex session must be a genuinely top-level `thread_source=user` session;
+a subagent's `CODEX_THREAD_ID` is intentionally rejected even when its cwd is
+inside the project.
 
 ## KPI contract
 

@@ -28,8 +28,9 @@ the first autonomous North-Star/roadmap step in the same turn; never end the
 activation turn with only setup confirmation or status.
 
 After the first concrete artifact contract and allowed paths are known, follow
-the prospective command sequence: generate concrete run/wrapper-session UUIDs,
-immediately call installed `slice_calibration.py session-start`, then wrap
+the prospective command sequence: call installed `slice_calibration.py
+bootstrap` to resolve one real Codex root transcript and atomically generate a
+fresh run UUID plus `session-start`, then wrap
 `slice_ledger.py acquire` and `slice_git.py capture` in paired control events.
 Treat durable session-start as a prerequisite: on failure do not acquire,
 capture, or begin managed slice work, although directional autopilot may remain
@@ -45,10 +46,19 @@ observational/no enforcement`. `off` preserves all slice history and never
 fabricates closure for an active slice. Directional `.claude/autopilot.json`
 and the implementation slice ledger remain separate.
 
-Codex activation requires one explicit existing transcript. The leading
+Codex activation requires either one explicit existing transcript or a unique
+root match from the documented Codex session store using `CODEX_THREAD_ID`.
+Zero or multiple matches fail closed; never choose the newest transcript, and
+a subagent `CODEX_THREAD_ID` is not a root identity. Bootstrap stdout exposes
+only hashes, run ID, and a protected project-relative binding reference—not a
+raw session ID or absolute transcript path. The leading
 `session_meta.payload.session_id` is the root session and must match
 `--session-id`; `session_meta.payload.id` is a distinct thread identity and may
-differ. Persist only their hashes and the metadata hash, never raw metadata.
+differ. Public stdout and the append-only registry persist only their hashes
+and the metadata hash. The minimum raw routing fields (session ID and absolute
+transcript path) live only
+in the owner-protected mode-0600 project binding; never persist raw transcript
+metadata or body there.
 
 Codex must use the same trusted lifecycle as Claude:
 `fable_autopilot.py consult-decision --prompt-file` or trusted

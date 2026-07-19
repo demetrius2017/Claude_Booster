@@ -4,7 +4,9 @@
 Purpose: Inspect explicit versioned transcripts and optionally bind a compact,
 privacy-preserving receipt to an exact slice ledger generation.
 Contract: ``inspect`` is read-only; ``record`` writes one immutable run receipt
-and one hash-chained calibration row; ``status`` validates both before output.
+and one hash-chained calibration row; ``status`` validates both before output,
+or returns typed ``not_recorded``/``unknown`` with exit 0 when absent. Malformed,
+stale, or conflicting evidence remains a nonzero fail-loud error.
 CLI/Examples: ``slice_telemetry.py --cwd ROOT inspect --provider
 codex_rollout_v1 --transcript rollout.jsonl --run-id R --session-id S``.
 Limitations: Advisory diagnostics only; no autopilot integration, policy gates,
@@ -25,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from slice_close_core import read_secure_json
+from slice_bootstrap_core import BINDING_KEYS, secure_binding_read, validate_binding
 from slice_git import _relative, _run_dir
 from slice_ledger import _git_root, _locked
 from slice_ledger_core import LedgerError, _atomic_projection, _load
@@ -159,6 +162,9 @@ def _joined_metrics(root: Path, state: dict[str, Any], events: list[dict[str, An
 
 
 def _build(root: Path, args: argparse.Namespace) -> dict[str, Any]:
+    binding = secure_binding_read(root, args.run_id, optional=True)
+    if binding is not None:
+        validate_binding(root, binding, run_id=args.run_id, session_id=args.session_id)
     state, events = _ledger(root, args.run_id, args.session_id)
     observation = report(parse(args.provider, [Path(item) for item in args.transcript], root))
     if observation["root_session_hash"] != digest(args.session_id):
@@ -234,8 +240,13 @@ def _record(root: Path, args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _status(root: Path, args: argparse.Namespace) -> dict[str, Any]:
+    binding = secure_binding_read(root, args.run_id, optional=True)
+    if binding is not None:
+        validate_binding(root, binding, run_id=args.run_id, session_id=args.session_id)
     state, _ = _ledger(root, args.run_id, args.session_id)
     path = _receipt_path(root, args.run_id)
+    if not path.exists():
+        return {"status": "not_recorded", "coverage": "unknown", "receipt": None, "receipt_sha256": None, "receipt_path": _relative(root, path)}
     receipt = _read_receipt(path)
     receipt_sha = hashlib.sha256(canonical(receipt)).hexdigest()
     if receipt["run_id_hash"] != digest(args.run_id) or receipt["session_id_hash"] != digest(args.session_id) or receipt["ledger"]["event_tail_hash"] != state["last_event_hash"]:
@@ -243,7 +254,7 @@ def _status(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     rows = _log_rows(root / ".claude/state/slice_calibration.jsonl")
     if not any(item["run_id_hash"] == receipt["run_id_hash"] and item["receipt_sha256"] == receipt_sha for item in rows):
         raise TelemetryError("telemetry receipt missing calibration binding", 4)
-    return {"receipt": receipt, "receipt_sha256": receipt_sha, "receipt_path": _relative(root, path)}
+    return {"status": "recorded", "coverage": "observed", "receipt": receipt, "receipt_sha256": receipt_sha, "receipt_path": _relative(root, path)}
 
 
 def main(argv: list[str] | None = None) -> int:

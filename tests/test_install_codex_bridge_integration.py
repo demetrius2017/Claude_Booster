@@ -219,7 +219,7 @@ def test_t3_yes_installs_bridge_manifest() -> None:
 
         # Main installer delivery: the bridge command specs depend on these
         # project-agnostic CLIs, so a fresh temp HOME must receive exact bytes.
-        for script_name in ("slice_telemetry.py", "slice_telemetry_core.py", "slice_calibration.py", "slice_calibration_core.py", "slice_session_registry_core.py"):
+        for script_name in ("slice_telemetry.py", "slice_telemetry_core.py", "slice_calibration.py", "slice_calibration_core.py", "slice_bootstrap_core.py", "slice_session_registry_core.py"):
             source = ROOT / "templates" / "scripts" / script_name
             installed = Path(home) / ".claude" / "scripts" / script_name
             if not installed.is_file():

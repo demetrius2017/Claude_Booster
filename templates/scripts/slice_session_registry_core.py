@@ -153,9 +153,12 @@ def read_events(raw_lines: list[bytes]) -> list[dict[str, Any]]:
         for name in ("run_id_hash", "session_id_hash"): _hash(payload.get(name), name)
         activation_legacy = {"run_id_hash", "session_id_hash", "provider", "artifact_domain", "expected_controls"}
         activation_proven = activation_legacy | {"thread_id_hash", "session_meta_sha256"}
-        if event["type"] == "activated" and (frozenset(payload) not in {frozenset(activation_legacy), frozenset(activation_proven)} or payload["provider"] not in PROVIDERS or not isinstance(payload["artifact_domain"], str) or not payload["artifact_domain"] or not isinstance(payload["expected_controls"], list) or not payload["expected_controls"] or len(set(payload["expected_controls"])) != len(payload["expected_controls"]) or any(kind not in CONTROL_KINDS for kind in payload["expected_controls"])): raise RegistryError("activation payload invalid", 4)
-        if event["type"] == "activated" and set(payload) == activation_proven:
+        activation_bound = activation_proven | {"transcript_path_hash", "project_hash"}
+        if event["type"] == "activated" and (frozenset(payload) not in {frozenset(activation_legacy), frozenset(activation_proven), frozenset(activation_bound)} or payload["provider"] not in PROVIDERS or not isinstance(payload["artifact_domain"], str) or not payload["artifact_domain"] or not isinstance(payload["expected_controls"], list) or not payload["expected_controls"] or len(set(payload["expected_controls"])) != len(payload["expected_controls"]) or any(kind not in CONTROL_KINDS for kind in payload["expected_controls"])): raise RegistryError("activation payload invalid", 4)
+        if event["type"] == "activated" and frozenset(payload) in {frozenset(activation_proven), frozenset(activation_bound)}:
             _hash(payload["thread_id_hash"], "activation thread"); _hash(payload["session_meta_sha256"], "activation metadata")
+        if event["type"] == "activated" and set(payload) == activation_bound:
+            for name in ("transcript_path_hash", "project_hash"): _hash(payload[name], f"activation {name}")
         if event["type"] in {"control_started", "control_ended"} and (set(payload) != {"run_id_hash", "session_id_hash", "kind"} or payload["kind"] not in CONTROL_KINDS): raise RegistryError("control payload invalid", 4)
         if event["type"] == "control_unavailable" and (set(payload) != {"run_id_hash", "session_id_hash", "kind", "reason"} or payload["kind"] not in CONTROL_KINDS or payload["reason"] not in CONTROL_NA_REASONS): raise RegistryError("control unavailable payload invalid", 4)
         if event["type"] == "verification_attempt" and (set(payload) != {"run_id_hash", "session_id_hash", "status", "receipt_sha256"} or payload["status"] not in {"pass", "fail"}): raise RegistryError("verification payload invalid", 4)

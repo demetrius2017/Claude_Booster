@@ -156,14 +156,22 @@ directional activation as proof that a slice was acquired, verified, or closed.
 
 For `on <North Star>`, after the host goal has been created or retained and the
 first coherent roadmap step has supplied an artifact contract plus explicit
-allowed paths, create fresh UUID identifiers for `run_id` and the wrapper
-session. Retain the real host session identifier when it is available; record
-the generated wrapper identifier otherwise. There is no backfill: immediately
-record the activation, then call the installed tools in this order, using the
+allowed paths, call the fail-closed bootstrap below. It generates a fresh
+`run_id`, but always binds the real leading
+`session_meta.payload.session_id`; a wrapper UUID is never a substitute for a
+Codex root session. Explicit transcript/session inputs are preferred. Ambient
+discovery is allowed only through a unique `CODEX_THREAD_ID` match in the
+documented Codex session store; zero or multiple matches are typed failures,
+never "pick latest". A subagent thread is never accepted as the root. Bootstrap
+stdout returns hashes, run ID, and a project-relative mode-0600 binding
+reference; it does not disclose the raw session ID or absolute transcript
+path. The trusted runner reads that JSON directly, never by shell evaluation.
+There is no backfill: immediately record the activation,
+then call the installed tools in this order, using the
 revision returned by each command:
 
 ```text
-python3 ~/.claude/scripts/slice_calibration.py --cwd <root> session-start --run-id <run> --session-id <session> --provider <codex_rollout_v1|booster_wrapper_v1> --artifact-domain <domain> --expected-control ledger --expected-control git --expected-control verification --expected-control closure
+python3 ~/.claude/scripts/slice_calibration.py --cwd <root> bootstrap [--transcript <jsonl> --session-id <root-session>] --artifact-domain <domain> --expected-control ledger --expected-control git --expected-control verification --expected-control closure
 python3 ~/.claude/scripts/slice_ledger.py --cwd <root> acquire --slice-id <slice> --artifact-contract <contract> --allowed-path <path> --session-id <session> --run-id <run>
 python3 ~/.claude/scripts/slice_git.py --cwd <root> capture --run-id <run> --session-id <session> --revision 1
 ```

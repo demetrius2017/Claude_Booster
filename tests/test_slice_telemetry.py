@@ -38,6 +38,13 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
+def test_status_without_receipt_is_typed_unknown_not_traceback(tmp_path):
+    root=repo(tmp_path)
+    code, body=run(TELEMETRY,root,"status","--run-id","run1","--session-id","sess")
+    result=body["result"]
+    assert code==0 and result["status"]=="not_recorded" and result["coverage"]=="unknown" and result["receipt"] is None
+
+
 def write_jsonl(path: Path, rows: list[dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))

@@ -1,7 +1,7 @@
 """Hostile promotion-calibration trust-model tests."""
 
 from __future__ import annotations
-import hashlib, importlib.util, json, subprocess, sys
+import hashlib, importlib.util, json, os, subprocess, sys
 from pathlib import Path
 import pytest
 from concurrent.futures import ProcessPoolExecutor
@@ -11,9 +11,15 @@ sys.path.insert(0, str(SCRIPTS))
 from slice_calibration_core import CalibrationError, evaluate, sha256, validate_labels, validate_telemetry
 from slice_session_registry_core import RegistryError, canonical, read_events, session_views
 from slice_ledger_core import _append as ledger_append, _load as ledger_load
+import slice_calibration as calibration_cli
 
 H = lambda value: hashlib.sha256(value.encode()).hexdigest()
 WINDOW = {"schema_version":1,"window_id":"w","started_at":"2026-01-01T00:00:00Z","ended_at":"2026-02-01T00:00:00Z"}
+
+def _bootstrap_call(values):
+    repo, transcript = values
+    result=subprocess.run([sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",repo,"bootstrap","--transcript",transcript,"--session-id","session","--artifact-domain","code","--expected-control","ledger"],text=True,capture_output=True,check=False)
+    return result.returncode
 
 def root_meta(repo, session="s", thread=None, **changes):
     payload={"id":thread or session,"session_id":session,"parent_thread_id":None,"thread_source":"user","source":"user","cwd":str(repo),"cli_version":"0.145.0-alpha.13"}
@@ -215,6 +221,229 @@ def test_successful_activation_persists_hashes_not_raw_ids(tmp_path):
     assert result.returncode==0 and secret not in persisted and thread not in persisted and H(secret) in persisted and H(thread) in persisted and H(secret)!=H(thread)
     before=persisted.encode(); wrong=subprocess.run([*argv[:8],thread,*argv[9:]],text=True,capture_output=True,check=False)
     assert wrong.returncode==4 and (repo/".claude/state/slice_session_events.jsonl").read_bytes()==before
+
+
+def test_bootstrap_discovers_unique_root_and_generates_run(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    home=tmp_path/"codex"; transcript=home/"sessions/2026/01/01/root.jsonl"; transcript.parent.mkdir(parents=True)
+    transcript.write_text(json.dumps(root_meta(repo,"root-session","thread-root"))+"\n")
+    env={**os.environ,"CODEX_HOME":str(home),"CODEX_THREAD_ID":"thread-root"}
+    result=subprocess.run([sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),"bootstrap","--artifact-domain","implementation","--expected-control","ledger"],text=True,capture_output=True,env=env,check=False)
+    body=json.loads(result.stdout); payload=body["result"]
+    assert result.returncode==0 and payload["session_id_hash"]==H("root-session") and payload["resolution"]=="codex_thread_id"
+    assert len(payload["run_id"])==36 and payload["binding_path"].endswith("slice_session_binding.json")
+    assert "root-session" not in result.stdout and str(transcript) not in result.stdout
+
+
+@pytest.mark.parametrize("count",[0,2])
+def test_bootstrap_discovery_zero_or_multiple_fails_without_registry(tmp_path,count):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    home=tmp_path/"codex"
+    for index in range(count):
+        transcript=home/f"sessions/2026/01/0{index+1}/root.jsonl"; transcript.parent.mkdir(parents=True)
+        transcript.write_text(json.dumps(root_meta(repo,f"session-{index}","same-thread"))+"\n")
+    env={**os.environ,"CODEX_HOME":str(home),"CODEX_THREAD_ID":"same-thread"}
+    result=subprocess.run([sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),"bootstrap","--artifact-domain","implementation","--expected-control","ledger"],text=True,capture_output=True,env=env,check=False)
+    assert result.returncode==3 and "count=" in json.loads(result.stderr)["error"]
+    assert not (repo/".claude/state/slice_session_events.jsonl").exists()
+
+
+def test_bootstrap_rejects_explicit_root_mismatch_and_subagent(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"actual"))+"\n")
+    base=[sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),"bootstrap","--artifact-domain","implementation","--expected-control","ledger","--transcript",str(transcript)]
+    mismatch=subprocess.run([*base,"--session-id","wrong"],text=True,capture_output=True,check=False)
+    sub=root_meta(repo,"actual","child",thread_source="subagent",source={"subagent":{"thread_spawn":{"parent_thread_id":"p","depth":1}}},parent_thread_id="p")
+    transcript.write_text(json.dumps(sub)+"\n")
+    rejected=subprocess.run(base,text=True,capture_output=True,check=False)
+    assert mismatch.returncode==3 and rejected.returncode==4 and not (repo/".claude/state/slice_session_events.jsonl").exists()
+
+
+def test_concurrent_duplicate_root_bootstrap_has_one_append(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"session","thread"))+"\n")
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        codes=list(pool.map(_bootstrap_call,[(str(repo),str(transcript))]*2))
+    registry=repo/".claude/state/slice_session_events.jsonl"; before=registry.read_bytes()
+    assert sorted(codes)==[0,3] and len(before.splitlines())==1
+    assert _bootstrap_call((str(repo),str(transcript)))==3 and registry.read_bytes()==before
+
+
+@pytest.mark.parametrize("hostile_component", ["state", "runs", "run"])
+def test_bootstrap_rejects_hostile_state_symlink_without_outside_write(tmp_path, hostile_component):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"session","thread"))+"\n")
+    outside=tmp_path/"outside"; outside.mkdir()
+    claude=repo/".claude"; claude.mkdir()
+    if hostile_component == "state": (claude/"state").symlink_to(outside, target_is_directory=True)
+    else:
+        state=claude/"state"; state.mkdir()
+        if hostile_component == "runs": (state/"runs").symlink_to(outside, target_is_directory=True)
+        else:
+            runs=state/"runs"; runs.mkdir()
+            # UUID is generated internally, so replace mkdir with an attacker-like hook
+            # by rejecting every pre-existing link through a deterministic UUID.
+            import slice_calibration as calibration_cli
+            fixed="11111111-1111-4111-8111-111111111111"
+            (runs/H(fixed)).symlink_to(outside, target_is_directory=True)
+            original=calibration_cli.uuid.uuid4; calibration_cli.uuid.uuid4=lambda: __import__("uuid").UUID(fixed)
+            try:
+                args=type("Args",(),{"transcript":str(transcript),"session_id":"session","artifact_domain":"code","expected_control":["ledger"]})()
+                with pytest.raises(Exception): calibration_cli._bootstrap(repo,args)
+            finally: calibration_cli.uuid.uuid4=original
+            assert list(outside.iterdir()) == [] and not (state/"slice_session_events.jsonl").exists()
+            return
+    result=subprocess.run([sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),"bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger"],text=True,capture_output=True,check=False)
+    assert result.returncode != 0 and list(outside.iterdir()) == []
+    assert not (outside/"slice_session_events.jsonl").exists()
+
+
+@pytest.mark.parametrize("mutation", ["mode", "hardlink", "symlink"])
+def test_protected_binding_metadata_is_enforced_on_read(tmp_path, mutation):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"session","thread"))+"\n")
+    call=lambda *args: subprocess.run([sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+    assert call("window-create").returncode == 0
+    boot=call("bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger")
+    assert boot.returncode == 0
+    payload=json.loads(boot.stdout)["result"]; binding=repo/payload["binding_path"]
+    if mutation == "mode": binding.chmod(0o644)
+    elif mutation == "hardlink": os.link(binding, tmp_path/"binding-hardlink.json")
+    else:
+        saved=tmp_path/"saved-binding.json"; binding.replace(saved); binding.symlink_to(saved)
+    result=call("window-status")
+    assert result.returncode == 4
+
+
+@pytest.mark.parametrize("mode", [0o770, 0o777])
+def test_bootstrap_rejects_group_or_world_writable_managed_directory(tmp_path, mode):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    state=repo/".claude/state"; state.mkdir(parents=True); runs=state/"runs"; runs.mkdir(); runs.chmod(mode)
+    transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"session","thread"))+"\n")
+    result=subprocess.run([sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),"bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger"],text=True,capture_output=True,check=False)
+    assert result.returncode != 0 and not (state/"slice_session_events.jsonl").exists()
+
+
+def test_bootstrap_rejects_hardlinked_registry_before_binding_or_outside_mutation(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    state=repo/".claude/state"; state.mkdir(parents=True)
+    outside=tmp_path/"outside-registry"; outside.write_bytes(b""); outside.chmod(0o600)
+    os.link(outside,state/"slice_session_events.jsonl"); before=outside.read_bytes()
+    transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"session","thread"))+"\n")
+    result=subprocess.run([sys.executable,str(SCRIPTS/"slice_calibration.py"),"--cwd",str(repo),"bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger"],text=True,capture_output=True,check=False)
+    assert result.returncode == 4 and outside.read_bytes() == before
+    assert not (state/"runs").exists()
+
+
+def test_record_rejects_hardlinked_label_log_before_receipt_write(tmp_path, monkeypatch):
+    root=tmp_path/"repo"; state_dir=root/".claude/state"; state_dir.mkdir(parents=True)
+    outside=tmp_path/"outside-labels"; outside.write_bytes(b""); outside.chmod(0o600)
+    os.link(outside,state_dir/"slice_calibration_labels.jsonl"); before=outside.read_bytes()
+    run_id="run"; run_dir=state_dir/"runs"/H(run_id); run_dir.mkdir(parents=True)
+    labels_file=tmp_path/"labels.json"; labels_file.write_text(json.dumps({"schema_version":1,"path_reviews":[],"docs_only_dirty":"none"}))
+    ledger={"run_id":run_id,"last_event_hash":"a"*64}
+    monkeypatch.setattr(calibration_cli,"_binding",lambda *_:(ledger,[],{},tmp_path/"telemetry","b"*64))
+    monkeypatch.setattr(calibration_cli,"_machine_facts",lambda *_:({"paths":[]},{},{}))
+    args=type("Args",(),{"run_id":run_id,"session_id":"session","labels_file":str(labels_file)})()
+    with pytest.raises(CalibrationError) as raised: calibration_cli._record(root,args)
+    assert raised.value.code == 4
+    assert outside.read_bytes() == before and not (run_dir/"slice_calibration.json").exists()
+
+
+def test_bound_transcript_allows_append_but_rejects_leading_mutation(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    transcript=tmp_path/"root.jsonl"; meta=root_meta(repo,"session","thread"); transcript.write_text(json.dumps(meta)+"\n")
+    cli=SCRIPTS/"slice_calibration.py"
+    def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+    assert call("window-create").returncode==0 and call("bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger").returncode==0
+    with transcript.open("a") as stream: stream.write(json.dumps({"timestamp":"2026-01-01T00:00:01Z","type":"event_msg","payload":{}})+"\n")
+    assert call("window-status").returncode==0
+    meta["timestamp"]="2026-01-01T00:00:00.1Z"; transcript.write_text(json.dumps(meta)+"\n")
+    assert call("window-status").returncode==4
+
+
+@pytest.mark.parametrize("mutation",["replacement","symlink"])
+def test_bound_transcript_rejects_path_replacement_or_symlink(tmp_path,mutation):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    transcript=tmp_path/"root.jsonl"; content=json.dumps(root_meta(repo,"session","thread"))+"\n"; transcript.write_text(content)
+    cli=SCRIPTS/"slice_calibration.py"
+    def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+    assert call("window-create").returncode==0 and call("bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger").returncode==0
+    original=tmp_path/"original"; transcript.replace(original)
+    if mutation=="replacement": transcript.write_text(content)
+    else: transcript.symlink_to(original)
+    assert call("window-status").returncode==4
+
+
+def test_window_create_is_prospective_unique_and_legacy_activation_excluded(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    cli=SCRIPTS/"slice_calibration.py"
+    transcript=tmp_path/"legacy.jsonl"; transcript.write_text(json.dumps(root_meta(repo,"legacy"))+"\n")
+    def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+    assert call("session-start","--run-id","legacy-run","--session-id","legacy","--provider","codex_rollout_v1","--artifact-domain","code","--expected-control","ledger","--transcript",str(transcript)).returncode==0
+    created=call("window-create"); duplicate=call("window-create"); status=call("window-status")
+    assert created.returncode==0 and duplicate.returncode==3
+    assert json.loads(status.stdout)["result"]["counter"]=="0/10" and json.loads(status.stdout)["result"]["activated"]==0
+    assert call("window-close").returncode==0
+    sealed=call("window-status"); evaluated=call("evaluate")
+    assert json.loads(sealed.stdout)["result"]["counter"]=="0/10"
+    assert evaluated.returncode==0 and json.loads(evaluated.stdout)["result"]["decision"]["verdict"]=="INSUFFICIENT_SAMPLE"
+
+
+def test_external_window_is_diagnostic_only_and_rejected_with_canonical(tmp_path):
+    repo=tmp_path/"repo"; repo.mkdir(); subprocess.run(["git","init","-q",str(repo)],check=True)
+    cli=SCRIPTS/"slice_calibration.py"; window=tmp_path/"window.json"; window.write_text(json.dumps(WINDOW))
+    def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
+    legacy=call("evaluate","--window-file",str(window)); decision=json.loads(legacy.stdout)["result"]["decision"]
+    assert legacy.returncode==0 and decision["verdict"]=="LEGACY_NON_PROMOTABLE" and decision["authority"]=="legacy_non_promotable"
+    assert call("window-create").returncode==0 and call("evaluate","--window-file",str(window)).returncode==3
+
+
+def test_labels_template_is_exhaustive_unknown_and_refuses_overwrite(tmp_path,monkeypatch):
+    root=tmp_path/"repo"; (root/".claude/state").mkdir(parents=True)
+    machine={"paths":[{"path":"a.py","classification":"candidate-owned"},{"path":"docs/x.md","classification":"foreign"}]}
+    monkeypatch.setattr(calibration_cli,"_binding",lambda *_: ({},[],{},Path("telemetry"),"a"*64))
+    monkeypatch.setattr(calibration_cli,"_machine_facts",lambda *_: (machine,{},{}))
+    output=tmp_path/"labels.json"; args=type("Args",(),{"run_id":"r","session_id":"s","output":str(output)})()
+    result=calibration_cli._labels_template(root,args)
+    assert result["human_edit_required"] is True and [item["truth"] for item in result["labels"]["path_reviews"]]==["unknown","unknown"]
+    with pytest.raises(CalibrationError): calibration_cli._labels_template(root,args)
+
+
+def test_open_window_count_increments_for_bound_eligible_receipt(tmp_path,monkeypatch):
+    root=tmp_path/"repo"; root.mkdir(); subprocess.run(["git","init","-q",str(root)],check=True)
+    cli=SCRIPTS/"slice_calibration.py"; transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(root,"session","thread"))+"\n")
+    def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(root),*args],text=True,capture_output=True,check=False)
+    assert call("window-create").returncode==0
+    boot=call("bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger")
+    result=json.loads(boot.stdout)["result"]; identity={"run_id_hash":H(result["run_id"]),"session_id_hash":H("session")}
+    monkeypatch.setattr(calibration_cli,"_verified_rows",lambda *_:[identity])
+    state=calibration_cli._read_window_state(root); members,eligible=calibration_cli._window_population(root,state)
+    assert members==[identity] and eligible==1
+
+
+def test_closed_window_zero_label_tail_blocks_post_close_receipt(tmp_path,monkeypatch):
+    root=tmp_path/"repo"; root.mkdir(); subprocess.run(["git","init","-q",str(root)],check=True)
+    cli=SCRIPTS/"slice_calibration.py"; transcript=tmp_path/"root.jsonl"; transcript.write_text(json.dumps(root_meta(root,"session","thread"))+"\n")
+    def call(*args): return subprocess.run([sys.executable,str(cli),"--cwd",str(root),*args],text=True,capture_output=True,check=False)
+    assert call("window-create").returncode==0
+    boot=call("bootstrap","--transcript",str(transcript),"--session-id","session","--artifact-domain","code","--expected-control","ledger")
+    result=json.loads(boot.stdout)["result"]; identity={"run_id_hash":H(result["run_id"]),"session_id_hash":H("session")}
+    assert call("window-close").returncode==0
+    monkeypatch.setattr(calibration_cli,"_verified_rows",lambda *_:[identity])
+    state=calibration_cli._read_window_state(root); members,eligible=calibration_cli._window_population(root,state,closed=True)
+    assert members==[identity] and eligible==0
+
+
+def test_sealed_window_excludes_typed_blocked_legacy(tmp_path,monkeypatch):
+    root=tmp_path/"repo"; state_dir=root/".claude/state"; state_dir.mkdir(parents=True)
+    events=registry(0,exclude=True)
+    registry_path=state_dir/"slice_session_events.jsonl"
+    registry_path.write_bytes(b"".join(canonical(item)+b"\n" for item in events)); registry_path.chmod(0o600)
+    state={"schema_version":1,"window_id":"w","status":"closed","started_at":"2026-01-01T00:00:00Z","ended_at":"2026-02-01T00:00:00Z","created_at":"2026-01-01T00:00:00Z","registry_tail_hash":events[-1]["hash"],"label_log_tail_hash":"0"*64,"members":[]}
+    monkeypatch.setattr(calibration_cli,"_verified_rows",lambda *_:[])
+    members,eligible=calibration_cli._window_population(root,state,closed=True)
+    assert members==[] and eligible==0
 
 def _ledger_call(repo, *args):
     return subprocess.run([sys.executable,str(SCRIPTS/"slice_ledger.py"),"--cwd",str(repo),*args],text=True,capture_output=True,check=False)
