@@ -72,6 +72,10 @@ outside this boundary. The current session is not eligible and must not be
 inserted retrospectively. Phase 1 and Phase 2 remain gated and have not
 started; none of their enforcement or orchestration claims is active.
 
+Latest checkpoint: `reports/handover_2026-07-20_102052.md` records the same
+binding-only readiness boundary, closed old specimen, and the human collection
+requirement; it does not change this status or any KPI.
+
 ### Exact next-session procedure
 
 1. Start a genuinely new top-level Codex session. The installed bootstrap must
