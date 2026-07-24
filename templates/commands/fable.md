@@ -57,6 +57,12 @@ specific question.
      Do not construct a raw `claude` command. In particular, never put a
      positional prompt after variadic `--tools <tools...>`: the option can
      consume the prompt and fail before contacting Fable.
+     The wrapper may run past the first shell-tool yield. If `exec_command`
+     returns a `session_id`, poll that shell session with `write_stdin` until
+     the real exit code and stdout/stderr arrive. Do not substitute
+     `functions.wait` on the surrounding JavaScript `exec` cell: that waits for
+     the cell, not the child PTY, and can lose the completed Fable response.
+     Missing `exit_code` or an empty pending output is not a completed consult.
    - Interpret wrapper exits `64` (empty input), `69` (missing local dependency),
      `70` (local wrapper/output-contract failure), and `74` (stdin read failure)
      as local failures. Report wrapper stderr accurately. Other nonzero exits

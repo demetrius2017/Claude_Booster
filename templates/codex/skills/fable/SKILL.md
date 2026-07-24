@@ -16,6 +16,14 @@ For the actual model call, pass the completed prompt through stdin to
 `--tools` is variadic and can swallow a following positional prompt. A local
 input/argument failure is not evidence that the Fable channel is unavailable.
 
+The consult may outlive the first shell-tool yield. If `exec_command` returns a
+`session_id`, poll that shell session with `write_stdin` until it returns the
+real exit code and stdout. Do not treat `functions.wait` on a yielded JavaScript
+`exec` cell as shell-output capture: the cell can resume with the original
+pending result (`exit_code` absent and empty output) while the child PTY output
+remains unread. A Fable consult is complete only when the shell session itself
+has terminated and its stdout/stderr has been captured.
+
 After the Fable call completes, invoke
 `python3 ~/.claude/scripts/fable_usage.py refresh-display` and include its two
 spend estimate lines if it prints anything. This refreshes the current UTC
