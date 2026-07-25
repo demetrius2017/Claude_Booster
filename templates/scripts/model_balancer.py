@@ -120,6 +120,7 @@ _HEALTH_LOOKBACK_HOURS: int = 24
 
 # Hardcoded intelligence scores for Anthropic models (not in openai_models.json)
 _QUALITY_SCORES_ANTHROPIC: dict[str, int] = {
+    "claude-opus-5": 20,
     "claude-opus-4-7": 20,
     "claude-opus-4-8": 20,
     "claude-sonnet-4-6": 17,
@@ -136,15 +137,21 @@ _QUALITY_SCORES_ZAI: dict[str, int] = {
 }
 
 _QUALITY_SCORES_GROK: dict[str, int] = {
-    "grok-build": 18,
-    "grok-composer-2.5-fast": 16,
+    # grok.com login exposes only grok-4.5 (verified `grok models` 2026-07-23);
+    # grok-build / grok-composer-2.5-fast return "unknown model id".
+    "grok-4.5": 17,
 }
 
 # Pinned categories — their routing is NEVER overwritten by active logic.
-# coding/hard pinned to Codex by user decision (2026-06-10): standalone Codex
-# sessions are not captured in model_metrics, so the active scorer only sees
-# Anthropic samples and would flip these back daily. Unpin once Codex
-# telemetry capture (retry/re-spawn metrics) lands.
+# lead/coding/hard pinned to Anthropic claude-opus-5 by user decision
+# (2026-07-25): Opus 5 is judged clearly stronger than Codex Sol and on par with
+# Fable, so the Lead and all heavy work move back to Claude. This deliberately
+# also bypasses the weekly-budget penalty branch of the scorer — the decision
+# was taken WITHOUT an automatic fallback; weekly spend is watched by hand via
+# the `=== LIMITS ===` block at /start.
+# recon/medium stay on Codex: standalone Codex sessions are not captured in
+# model_metrics, so the active scorer only sees Anthropic samples and would
+# flip them back daily. Unpin once Codex telemetry capture lands.
 _PINNED_CATEGORIES: frozenset[str] = frozenset(
     {"lead", "high_blast_radius", "coding", "hard", "recon", "medium"}
 )
@@ -169,15 +176,15 @@ DEFAULTS: dict = {
         "trivial":        {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-luna", "reasoning_effort": "low"},
         "recon":          {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-luna", "reasoning_effort": "low"},
         "medium":         {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-terra", "reasoning_effort": "medium"},
-        "coding":         {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-terra", "reasoning_effort": "medium"},
-        "hard":           {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-sol", "reasoning_effort": "medium"},
+        "coding":         {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
+        "hard":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "consilium_bio":  {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-sol", "reasoning_effort": "medium"},
         "audit_external": {"provider": PROVIDER_PAL,       "model": "gpt-5.5"},
         "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.2[1m]"},
-        "audit_tertiary": {"provider": PROVIDER_GROK,      "model": "grok-composer-2.5-fast"},
+        "audit_tertiary": {"provider": PROVIDER_GROK,      "model": "grok-4.5"},
         "hackathon_external": {"provider": PROVIDER_ZAI,   "model": "glm-5.2[1m]"},
-        "hackathon_coder": {"provider": PROVIDER_GROK,     "model": "grok-build"},
-        "lead":           {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-sol", "reasoning_effort": "medium"},
+        "hackathon_coder": {"provider": PROVIDER_GROK,     "model": "grok-4.5"},
+        "lead":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "high_blast_radius": {
             "provider": PROVIDER_ANTHROPIC,
             "model": "claude-sonnet-4-6",
@@ -189,13 +196,30 @@ DEFAULTS: dict = {
     },
 }
 
-_LEGACY_BOOTSTRAP_ROUTES: dict[str, dict[str, str]] = {
-    "trivial": {"provider": PROVIDER_ANTHROPIC, "model": "claude-haiku-4-5"},
-    "recon": {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
-    "medium": {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
-    "coding": {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
-    "hard": {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
-    "lead": {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
+# Retired routes, per category, that an already-installed model_balancer.json may
+# still carry. A route matching ANY entry here is upgraded to the current DEFAULTS
+# value; anything else is treated as a deliberate local override and preserved.
+#
+# This MUST list every generation a live install could be sitting on, not just the
+# oldest one. Editing DEFAULTS alone is a silent no-op on existing installs: the
+# migration in _with_default_routes() only fires on an exact match against this
+# map, so a stale entry here means the old route survives forever.
+_LEGACY_BOOTSTRAP_ROUTES: dict[str, list[dict[str, str]]] = {
+    "trivial": [{"provider": PROVIDER_ANTHROPIC, "model": "claude-haiku-4-5"}],
+    "recon": [{"provider": PROVIDER_CODEX, "model": "gpt-5.5"}],
+    "medium": [{"provider": PROVIDER_CODEX, "model": "gpt-5.5"}],
+    "coding": [
+        {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
+        {"provider": PROVIDER_CODEX, "model": "gpt-5.6-terra"},
+    ],
+    "hard": [
+        {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
+        {"provider": PROVIDER_CODEX, "model": "gpt-5.6-sol"},
+    ],
+    "lead": [
+        {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
+        {"provider": PROVIDER_CODEX, "model": "gpt-5.6-sol"},
+    ],
 }
 
 _CODEX_REASONING_EFFORT_BY_MODEL = {
@@ -210,11 +234,11 @@ _KNOWN_CATEGORIES = set(DEFAULTS["routing"].keys())
 _HEALTH_FALLBACK_ROUTES: dict[str, dict[str, str]] = {
     "audit_secondary": {
         "provider": PROVIDER_GROK,
-        "model": "grok-composer-2.5-fast",
+        "model": "grok-4.5",
     },
     "hackathon_external": {
         "provider": PROVIDER_GROK,
-        "model": "grok-composer-2.5-fast",
+        "model": "grok-4.5",
     },
 }
 
@@ -316,12 +340,19 @@ def _build_bootstrap() -> dict:
 
 
 def _normalise_route(route: dict) -> dict:
-    """Attach the canonical effort to a recognized GPT-5.6 Codex route."""
+    """Attach the canonical effort to a recognized GPT-5.6 Codex route.
+
+    `reasoning_effort` is a Codex-only concept, so it is stripped from any
+    non-Codex route. Without this, a category migrated off Codex would keep the
+    old provider's effort field and hand a meaningless knob to its consumers.
+    """
     normalized = copy.deepcopy(route)
     if normalized.get("provider") == PROVIDER_CODEX:
         effort = _CODEX_REASONING_EFFORT_BY_MODEL.get(normalized.get("model"))
         if effort is not None:
             normalized["reasoning_effort"] = effort
+    else:
+        normalized.pop("reasoning_effort", None)
     return normalized
 
 
@@ -331,18 +362,18 @@ def _with_default_routes(data: dict) -> dict:
     routing = merged.setdefault("routing", {})
     for category, default_route in DEFAULTS["routing"].items():
         current = routing.get(category)
-        legacy = _LEGACY_BOOTSTRAP_ROUTES.get(category)
+        legacy = _LEGACY_BOOTSTRAP_ROUTES.get(category, [])
+        is_retired = isinstance(current, dict) and any(
+            current.get("provider") == entry["provider"]
+            and current.get("model") == entry["model"]
+            for entry in legacy
+        )
         if current is None:
             routing[category] = copy.deepcopy(default_route)
-        elif (
-            legacy is not None
-            and isinstance(current, dict)
-            and current.get("provider") == legacy["provider"]
-            and current.get("model") == legacy["model"]
-        ):
+        elif is_retired:
             upgraded = copy.deepcopy(current)
             upgraded.update(copy.deepcopy(default_route))
-            routing[category] = upgraded
+            routing[category] = _normalise_route(upgraded)
         elif isinstance(current, dict):
             routing[category] = _normalise_route(current)
     return merged

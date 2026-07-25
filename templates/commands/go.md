@@ -588,8 +588,8 @@ A model verifying its own output shares its own blind spots — same-provider ve
 
 | Worker provider `WP` | Verifier provider `VP` | Verifier model |
 |----------------------|------------------------|----------------|
-| `codex-cli` (today's pinned state) | `anthropic` | `opus` |
-| `anthropic` | `codex-cli` | `gpt-5.6-terra` at medium effort |
+| `codex-cli` | `anthropic` | `opus` |
+| `anthropic` (today's pinned state — `coding` is Opus 5) | `codex-cli` | `gpt-5.6-terra` at medium effort |
 | `zai-cli` | `anthropic` or `codex-cli` | `opus` preferred, else Terra at medium effort |
 | `grok-cli` | `anthropic` or `codex-cli` | `opus` preferred, else Terra at medium effort |
 
@@ -610,8 +610,8 @@ The Agent tool spawns Claude models only; Codex spawns via the sandbox worker, w
 
 **Preserve parallelism — spawn the anthropic side as a background Agent FIRST, then run the codex side foreground** (the Agent runs concurrently in the background while Codex executes in its worktree). Because `VP` is forced to differ from `WP`, exactly one side is anthropic and one is codex-cli — never two foreground Bash calls, never two Agents.
 
-- **Today (`WP=codex-cli`):** (1) spawn the **Verifier** as a background Opus Agent (`model: "opus"`, `run_in_background: true`); (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/codex_sandbox_worker.sh "$WM" < worker_prompt.txt` (the `coding` prefix tags this Codex call's telemetry as the `coding` tier — debt #1), capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier's test path when it returns.
-- **If `WP=anthropic`:** spawn the Worker as a background Agent, then run the Verifier via `CODEX_REASONING_EFFORT=medium codex_sandbox_worker.sh gpt-5.6-terra < verifier_prompt.txt`.
+- **If `WP=codex-cli`:** (1) spawn the **Verifier** as a background Opus Agent (`model: "opus"`, `run_in_background: true`); (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/codex_sandbox_worker.sh "$WM" < worker_prompt.txt` (the `coding` prefix tags this Codex call's telemetry as the `coding` tier — debt #1), capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier's test path when it returns.
+- **Today (`WP=anthropic` — `coding` is pinned to Opus 5):** spawn the Worker as a background Opus Agent (`model: "opus"`, `run_in_background: true`), then run the Verifier via `CODEX_REASONING_EFFORT=medium codex_sandbox_worker.sh gpt-5.6-terra < verifier_prompt.txt`.
 - **If `WP=grok-cli`:** (1) spawn the **Verifier** as a background Opus Agent when available, else Codex; (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/grok_sandbox_worker.sh "$WM" < worker_prompt.txt`, capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier result.
 
 The Worker and Verifier **prompts are identical regardless of provider** — only the spawn channel differs. Use the prompt blocks below verbatim.

@@ -144,6 +144,39 @@ A typical `/go` task runs Flow Designer and Challenge first, then a Prototype Ga
 
 ---
 
+## What's new in v1.19 — Opus 5 takes the Lead and the heavy lanes
+
+Claude Opus 5 is judged clearly stronger than Codex Sol and on par with Fable, so
+the three heavy routing lanes move back to Claude:
+
+| Lane | Route | Notes |
+|---|---|---|
+| `lead` | `anthropic:claude-opus-5` | The orchestrator itself |
+| `coding` | `anthropic:claude-opus-5` | Worker agents writing code |
+| `hard` | `anthropic:claude-opus-5` | Architecture, Flow Designer, deep debugging |
+| `trivial` / `recon` / `medium` | Codex Luna / Terra | Unchanged — cheap work stays flat-fee |
+| `high_blast_radius` | `claude-sonnet-4-6` | Unchanged — PreToolUse guards must keep firing |
+
+**No automatic budget fallback, by explicit decision.** These three lanes are in
+`_PINNED_CATEGORIES`, which means the active scorer never recomputes them — and
+that includes the branch that penalizes Anthropic as weekly Max quota drains.
+Weekly spend is watched by hand via the `=== LIMITS ===` block at `/start`;
+demoting `coding`/`hard` back to Terra/Sol is a manual call.
+
+**Cross-provider `/go` still holds, with the roles swapped.** The Worker is now
+the Anthropic side and the checkers (Challenge, Verifier, Diff-review) run on
+Codex. The invariant was always provider *inequality*, not "Opus reviews Codex",
+so the pipeline needed no structural change — only its "today" annotations.
+
+One migration trap was fixed along the way: `_with_default_routes()` upgrades an
+installed route only on an exact match against `_LEGACY_BOOTSTRAP_ROUTES`, so
+that map now holds a **list** of retired generations per category rather than a
+single one. Editing `DEFAULTS` alone would have been a silent no-op on every
+existing install. `reasoning_effort` is also now stripped from non-Codex routes,
+so a category migrating off Codex cannot carry a meaningless effort knob with it.
+
+---
+
 ## What's new in v1.18 — GPT-5.6 routing and effort discipline
 
 Claude Booster now treats the GPT-5.6 family as three production lanes instead of routing every Codex task through one model:
