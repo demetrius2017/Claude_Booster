@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
 Stop hook: physically block Claude from ending a turn with a forbidden
-"Apply? / Proceed? / Want me to?" question after a research agent returned.
+"Apply? / Proceed? / Want me to?" question or an unfulfilled immediate-action
+commitment after a research agent returned.
 
 Purpose:
   pipeline.md and core.md say "don't ask Apply patch?" — soft rules get
   ignored. This hook inspects the transcript's last assistant message
   at Stop time, regex-matches against a forbidden-question vocabulary,
   and exits 2 to REFUSE the stop, forcing Claude to continue with an
-  Agent or /supervise spawn.
+  Agent or /supervise spawn. Stop payloads can contain only assistant text,
+  so the hook enforces the textual contract ("I am doing X now" cannot be the
+  end of the turn); it does not claim to prove whether a tool ran earlier.
 
 Contract:
   stdin  — Stop event JSON {session_id, transcript_path, stop_hook_active,
@@ -32,6 +35,8 @@ Forbidden patterns (last assistant message's final ~600 chars only):
   - Multi-option asks: A) / B) / C) or 1) / 2) / 3) + ?
   - "Which option" / "which do you want"
   - Russian: "применить?", "делать?", "запушить?"
+  - Immediate first-person action commitments at message end:
+    "Запускаю.", "Сейчас проверю.", "I'll run it now."
 
 Bypass (LEAD ONLY — sub-agents cannot self-disable):
   env  CLAUDE_BOOSTER_SKIP_ASK_GATE=1
@@ -176,6 +181,40 @@ def _last_assistant_text(transcript_path: Path) -> str:
 _FENCE_RE = re.compile(r"```.*?```", re.DOTALL)  # triple-backtick fenced block
 _BACKTICK_RE = re.compile(r"`[^`\n]*`")          # single-backtick inline span
 _JSON_BLOCK_RE = re.compile(r"\{[^{}]*\"verified\"[^{}]*\}", re.DOTALL)  # handover evidence
+_BLOCKQUOTE_RE = re.compile(r"(?m)^\s*>\s?.*$")
+_QUOTED_SPAN_RE = re.compile(r"«[^»\n]*»|“[^”\n]*”|\"[^\"\n]*\"")
+
+# These patterns are deliberately narrower than a general future-tense
+# classifier. They require a first-person action commitment, immediacy, and
+# proximity to the end of the message. Completed-action status prose therefore
+# remains allowed.
+IMMEDIATE_COMMITMENT_REGEXES = [
+    re.compile(
+        r"(?:^|[.!?\n]\s*)"
+        r"(?:(?:дальше|сначала|следующим\s+(?:шагом|кругом))\s+)?"
+        r"(?:я\s+)?(?:сейчас\s+)?"
+        r"(?:запускаю|проверяю|измеряю|тестирую|применяю|исправляю)"
+        r"(?:\s+[^.!?\n]{0,240})?[.!]?\s*$",
+        re.I,
+    ),
+    re.compile(
+        r"(?:^|[.!?\n]\s*)"
+        r"(?:"
+        r"(?:я\s+)?сейчас\s+|"
+        r"(?:дальше|сначала|следующим\s+(?:шагом|кругом))\s+(?:я\s+)?"
+        r")"
+        r"(?:запущу|проверю|измерю|протестирую|применю|исправлю)"
+        r"(?:\s+[^.!?\n]{0,240})?[.!]?\s*$",
+        re.I,
+    ),
+    re.compile(
+        r"(?:^|[.!?\n]\s*)"
+        r"i(?:['’]ll|\s+will)\s+"
+        r"(?:run|check|measure|test|verify|start|apply|fix|implement)"
+        r"(?:\s+[^.!?\n]{0,80})?\s+(?:now|right\s+now)[.!]?\s*$",
+        re.I,
+    ),
+]
 
 
 def _strip_quoted_content(text: str) -> str:
@@ -185,6 +224,8 @@ def _strip_quoted_content(text: str) -> str:
     text = _JSON_BLOCK_RE.sub(" ", text)
     text = _FENCE_RE.sub(" ", text)
     text = _BACKTICK_RE.sub(" ", text)
+    text = _BLOCKQUOTE_RE.sub(" ", text)
+    text = _QUOTED_SPAN_RE.sub(" ", text)
     return text
 
 
@@ -195,6 +236,10 @@ def _matches_forbidden(text: str) -> Tuple[bool, str]:
         m = pat.search(tail)
         if m:
             return True, m.group(0)[:120]
+    for pat in IMMEDIATE_COMMITMENT_REGEXES:
+        m = pat.search(tail)
+        if m:
+            return True, m.group(0).strip()[:120]
     return False, ""
 
 
@@ -387,10 +432,10 @@ def main() -> int:
         return 0
 
     sys.stderr.write(
-        f"ask_gate: your last message ended with a forbidden question pattern "
+        f"ask_gate: your last message ended with a forbidden stop pattern "
         f"({sample!r}).\n"
         f"The user pre-approved the full research → apply → verify → commit chain. "
-        f"Do NOT ask 'Apply?' / 'Proceed?' / 'Which option?'.\n"
+        f"Do NOT stop after asking for permission or promising immediate action.\n"
         f"Spawn an Agent (Explore/Plan/general-purpose) or /supervise to continue."
     )
     # Block path: keep excerpt for post-mortem analysis but redact FIRST

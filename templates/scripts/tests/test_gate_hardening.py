@@ -228,6 +228,109 @@ class AskGateTests(unittest.TestCase):
             self.assertEqual(rows[0]["decision"], "block")
             self.assertTrue(rows[0]["matched_pattern"])
 
+    def test_ask_gate_blocks_russian_immediate_action_commitment(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = pathlib.Path(td)
+            proj = _mk_project(td_path)
+            env = _mk_env(td_path)
+            payload = {
+                "cwd": str(proj),
+                "messages": [{
+                    "role": "assistant",
+                    "content": "Справедливо — сказал «запускаю» и не запустил. Запускаю.",
+                }],
+            }
+            res = _run(ASK_GATE, payload, env)
+            self.assertEqual(res.returncode, 2, msg=res.stderr)
+            self.assertIn("Запускаю", res.stderr)
+
+    def test_ask_gate_blocks_english_immediate_action_commitment(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = pathlib.Path(td)
+            proj = _mk_project(td_path)
+            env = _mk_env(td_path)
+            payload = {
+                "cwd": str(proj),
+                "messages": [{
+                    "role": "assistant",
+                    "content": "You're right. I'll run the prototype gate now.",
+                }],
+            }
+            res = _run(ASK_GATE, payload, env)
+            self.assertEqual(res.returncode, 2, msg=res.stderr)
+            self.assertIn("I'll run", res.stderr)
+
+    def test_ask_gate_blocks_exact_russian_recap_handoff(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = pathlib.Path(td)
+            proj = _mk_project(td_path)
+            env = _mk_env(td_path)
+            payload = {
+                "cwd": str(proj),
+                "messages": [{
+                    "role": "assistant",
+                    "content": (
+                        "Дальше запускаю прототип-ворота: измерю, на скольких из "
+                        "1099 спорных регионов приор корпуса меняет топ-1 и не "
+                        "уводит ли он от золота."
+                    ),
+                }],
+            }
+            res = _run(ASK_GATE, payload, env)
+            self.assertEqual(res.returncode, 2, msg=res.stderr)
+            self.assertIn("Дальше запускаю", res.stderr)
+
+    def test_ask_gate_allows_ordinary_future_plan(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = pathlib.Path(td)
+            proj = _mk_project(td_path)
+            env = _mk_env(td_path)
+            payload = {
+                "cwd": str(proj),
+                "messages": [{
+                    "role": "assistant",
+                    "content": (
+                        "В дорожной карте на следующий релиз команда проверит "
+                        "влияние приора на спорные регионы."
+                    ),
+                }],
+            }
+            res = _run(ASK_GATE, payload, env)
+            self.assertEqual(res.returncode, 0, msg=res.stderr)
+
+    def test_ask_gate_allows_quoted_immediate_action_examples(self):
+        examples = (
+            'Антипаттерн: «Запускаю.»\n'
+            'English example: "I\'ll run it now."\n'
+            "> Сейчас проверю.\n"
+            "`Запускаю.`"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            td_path = pathlib.Path(td)
+            proj = _mk_project(td_path)
+            env = _mk_env(td_path)
+            payload = {
+                "cwd": str(proj),
+                "messages": [{"role": "assistant", "content": examples}],
+            }
+            res = _run(ASK_GATE, payload, env)
+            self.assertEqual(res.returncode, 0, msg=res.stderr)
+
+    def test_ask_gate_allows_completed_action_status(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = pathlib.Path(td)
+            proj = _mk_project(td_path)
+            env = _mk_env(td_path)
+            payload = {
+                "cwd": str(proj),
+                "messages": [{
+                    "role": "assistant",
+                    "content": "Запустил прототип-ворота и проверил 1099 регионов: тест завершён.",
+                }],
+            }
+            res = _run(ASK_GATE, payload, env)
+            self.assertEqual(res.returncode, 0, msg=res.stderr)
+
     def test_ask_gate_bypass_honoured_for_lead(self):
         with tempfile.TemporaryDirectory() as td:
             td_path = pathlib.Path(td)
