@@ -818,10 +818,12 @@ def install_codex_bridge(dry_run: bool, force: bool) -> int:
     _SKILLS_SRC = _ROOT / "templates" / "codex" / "skills"
     _PROMPTS_SRC = _ROOT / "templates" / "codex" / "prompts"
     _COMMANDS_SRC = _ROOT / "templates" / "commands"
+    _CODEX_ASK_ADAPTER_SRC = _ROOT / "templates" / "scripts" / "codex_ask_gate.py"
 
     _SKILLS_DST = _HOME / ".agents" / "skills"
     _PROMPTS_DST = _HOME / ".codex" / "prompts"
     _COMMANDS_DST = _SKILLS_DST / "booster-command" / "references" / "commands"
+    _CODEX_ASK_ADAPTER_DST = _HOME / ".claude" / "scripts" / "codex_ask_gate.py"
     _MANIFEST_PATH = _HOME / ".codex" / "claude-booster-bridge-manifest.json"
     _BACKUP_ROOT = _HOME / ".codex" / "backups"
 
@@ -859,6 +861,8 @@ def install_codex_bridge(dry_run: bool, force: bool) -> int:
                 return True
             except ValueError:
                 continue
+        if rp == _CODEX_ASK_ADAPTER_DST.resolve():
+            return True
         return False
 
     def _read_text(path: Path) -> str:
@@ -1046,9 +1050,12 @@ def install_codex_bridge(dry_run: bool, force: bool) -> int:
     # ── dry-run: compute plan and print counts, write nothing ──────────────
 
     _validate_sources()
+    if not _CODEX_ASK_ADAPTER_SRC.is_file():
+        _bridge_fail(f"missing Codex ask-gate adapter: {_CODEX_ASK_ADAPTER_SRC}")
 
     planned = _collect_tree(_SKILLS_SRC, _SKILLS_DST)
     planned.update(_collect_tree(_PROMPTS_SRC, _PROMPTS_DST))
+    planned[_CODEX_ASK_ADAPTER_DST] = _CODEX_ASK_ADAPTER_SRC
     for _src in sorted(_COMMANDS_SRC.glob("*.md")):
         planned[_COMMANDS_DST / _src.name] = _src
 
@@ -1160,6 +1167,27 @@ def install_codex_bridge(dry_run: bool, force: bool) -> int:
 
         # Write bridge manifest LAST (after all hashes verify)
         _bridge_write_manifest(planned)
+
+        # Codex may import Claude's hook groups into its own hooks.json.  Two
+        # Claude Stop conventions are not interchangeable with Codex: legacy
+        # presentation hooks may print prose, and ask_gate signals a block via
+        # stderr + exit 2. Repair only Codex's Stop group after the adapter has
+        # been installed into ~/.claude/scripts; never mutate Claude settings.
+        codex_hooks = _HOME / ".codex" / "hooks.json"
+        repair_script = _ROOT / "scripts" / "repair_codex_stop_hooks.py"
+        if codex_hooks.is_file():
+            repair_result = subprocess.run(
+                [sys.executable, str(repair_script), "--hooks", str(codex_hooks)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if repair_result.returncode != 0:
+                _bridge_fail(
+                    "Codex Stop-hook repair failed: "
+                    + (repair_result.stderr.strip() or repair_result.stdout.strip())
+                )
+            json.loads(repair_result.stdout)
 
     except Exception:
         # Rollback: restore backups, unlink created files, re-raise

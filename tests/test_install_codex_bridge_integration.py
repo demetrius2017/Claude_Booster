@@ -151,7 +151,12 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         expected_commands = list((ROOT / "templates" / "commands").glob("*.md"))
         expected_sources = {
             str(path.relative_to(ROOT))
-            for path in (*expected_skills, *expected_prompts, *expected_commands)
+            for path in (
+                *expected_skills,
+                *expected_prompts,
+                *expected_commands,
+                ROOT / "templates" / "scripts" / "codex_ask_gate.py",
+            )
         }
         manifest_sources = {
             entry.get("source") for entry in data.get("files", [])
