@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from install_codex_bridge_test_support import IDENTITY, INSTALL_PY, ROOT, WRAPPER, _cleanup, _fail, _fresh_home, _ok, _run
+from install import merge_settings
 
 def test_t6_wrapper_dry_run() -> None:
     label = "T6: scripts/install_codex_bridge.sh --dry-run exits 0 and prints bridge plan"; home = _fresh_home()
@@ -58,3 +59,36 @@ def test_t10_no_module_level_home_paths() -> None:
             if (Path(home)/name).exists(): errors.append(f"--dry-run wrote {name} into sandbox HOME")
         _fail(label,"\n       ".join(errors)) if errors else _ok(label)
     finally: _cleanup(home)
+
+
+def test_t11_settings_merge_removes_legacy_untagged_booster_hooks() -> None:
+    """Clients may discard our source tag; a changed Python path must not duplicate."""
+    booster = {
+        "_booster": {"version": "test"},
+        "hooks": {
+            "UserPromptSubmit": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": "/opt/homebrew/bin/python3 /Users/test/.claude/scripts/phase_prompt_inject.py",
+                    "source": "booster@test",
+                }]
+            }]
+        }
+    }
+    user = {
+        "hooks": {
+            "UserPromptSubmit": [
+                {"hooks": [{"type": "command", "command": "python3 /Users/test/.claude/scripts/phase_prompt_inject.py"}]},
+                {"hooks": [{"type": "command", "command": "/Users/test/bin/user_prompt_hook"}]},
+            ]
+        }
+    }
+
+    merged = merge_settings(user, booster)
+    commands = [
+        hook["command"]
+        for entry in merged["hooks"]["UserPromptSubmit"]
+        for hook in entry["hooks"]
+    ]
+    assert sum(command.endswith("phase_prompt_inject.py") for command in commands) == 1
+    assert "/Users/test/bin/user_prompt_hook" in commands

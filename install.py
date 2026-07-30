@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import shlex
 import difflib
 import hashlib
 import json
@@ -467,13 +468,42 @@ def restore_backup(tarball: Path) -> None:
 BOOSTER_SOURCE = f"booster@{BOOSTER_VERSION}"
 
 
-def _strip_booster_entries(hooks: dict) -> dict:
+def _hook_command_identity(command: object) -> tuple[str, ...] | None:
+    """Return a stable identity for an installed Booster script hook.
+
+    Claude/Codex may discard the non-standard ``source`` field when they
+    rewrite hook configuration.  Comparing the interpreter path therefore
+    is not sufficient: it also changes across Python/Homebrew upgrades.
+    """
+    if not isinstance(command, str):
+        return None
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return None
+    for index, part in enumerate(parts):
+        normalized = part.replace("\\", "/")
+        if "/.claude/scripts/" in normalized:
+            return (normalized.rsplit("/", 1)[-1], *parts[index + 1 :])
+    return None
+
+
+def _strip_booster_entries(
+    hooks: dict, booster_identities: set[tuple[str, ...]] | None = None
+) -> dict:
+    """Remove tagged and legacy-untagged copies of current Booster hooks."""
+    identities = booster_identities or set()
     out = {}
     for hook_type, entries in hooks.items():
         new_entries = []
         for entry in entries:
             hs = entry.get("hooks", [])
-            filtered = [h for h in hs if not str(h.get("source", "")).startswith("booster@")]
+            filtered = [
+                h
+                for h in hs
+                if not str(h.get("source", "")).startswith("booster@")
+                and _hook_command_identity(h.get("command")) not in identities
+            ]
             if filtered:
                 new_entry = dict(entry)
                 new_entry["hooks"] = filtered
@@ -532,7 +562,14 @@ def merge_settings(user: dict, booster: dict) -> dict:
 
     # hooks: strip then extend
     user_hooks = result.get("hooks", {})
-    cleaned = _strip_booster_entries(user_hooks)
+    booster_identities = {
+        identity
+        for entries in booster.get("hooks", {}).values()
+        for entry in entries
+        for hook in entry.get("hooks", [])
+        if (identity := _hook_command_identity(hook.get("command"))) is not None
+    }
+    cleaned = _strip_booster_entries(user_hooks, booster_identities)
     for hook_type, entries in booster.get("hooks", {}).items():
         cleaned.setdefault(hook_type, []).extend(entries)
     if cleaned:

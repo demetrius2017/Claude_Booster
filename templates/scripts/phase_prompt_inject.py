@@ -5,7 +5,7 @@ Non-blocking — always exit 0. Stdout is added to Claude's context.
 
 Contract:
   stdin  — UserPromptSubmit JSON (cwd, prompt, ...)
-  stdout — "[phase: X] <rule>" one line
+  stdout — UserPromptSubmit hook JSON with ``additionalContext``
   exit   — 0 always
 """
 from __future__ import annotations
@@ -73,7 +73,16 @@ def main() -> int:
 
     rule = HINT.get(phase, "unknown phase")
     cue = LEAD_CUE.get(phase, LEAD_CUE["RECON"])
-    print(f"[phase: {phase}] {rule} {cue} — advance: `python3 ~/.claude/scripts/phase.py set <NAME>`")
+    context = (
+        f"[phase: {phase}] {rule} {cue} — advance: "
+        "`python3 ~/.claude/scripts/phase.py set <NAME>`"
+    )
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": context,
+        }
+    }))
     return 0
 
 

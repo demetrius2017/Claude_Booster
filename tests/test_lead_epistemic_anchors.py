@@ -134,7 +134,7 @@ def test_phase(tmp: Path, env: dict[str, str], scripts: Path) -> None:
     for phase, words in semantic.items():
         (phase_dir / ".phase").write_text(phase)
         cp = run(hook, json.dumps({"cwd": str(repo)}), env)
-        line = cp.stdout.strip()
+        line = output_context(cp)
         outputs[phase] = line
         low = line.lower()
         check(f"phase {phase} emits exactly one line/rc0", cp.returncode == 0 and len(line.splitlines()) == 1)
@@ -173,8 +173,8 @@ def test_compact(tmp: Path, env: dict[str, str], scripts: Path) -> None:
     low = ctx.lower()
     check("compact valid marker emits valid advisory once", first.returncode == 0 and bool(ctx) and second.stdout == "")
     check("compact preserves advisory and adds short epistemic re-anchor", "/compact" in ctx and all(w in low for w in ("verified", "assum", "fals", "integration")))
-    check("compact and phase hooks preserve independent output contracts",
-          first.stdout.lstrip().startswith("{") and not run(scripts / "phase_prompt_inject.py", "{}", env).stdout.lstrip().startswith("{"))
+    check("compact and phase hooks both preserve current JSON output contract",
+          first.stdout.lstrip().startswith("{") and run(scripts / "phase_prompt_inject.py", "{}", env).stdout.lstrip().startswith("{"))
 
     cases = (("empty", ""), ("malformed-json", "{"), ("non-object", "[]"),
              ("missing-session", "{}"), ("invalid-session", '{"session_id":"../x"}'))
