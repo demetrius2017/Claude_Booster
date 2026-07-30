@@ -42,8 +42,8 @@ import time
 from pathlib import Path
 
 
-DEFAULT_MODEL = "grok-composer-2.5-fast"
-DEFAULT_CODER_MODEL = "grok-build"
+DEFAULT_MODEL = "grok-4.5"
+DEFAULT_CODER_MODEL = "grok-4.5"
 PROVIDER = "grok-cli"
 DEFAULT_DB_PATH = Path.home() / ".claude" / "rolling_memory.db"
 DEFAULT_GROK_BIN = Path.home() / ".grok" / "bin" / "grok"

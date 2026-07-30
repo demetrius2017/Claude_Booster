@@ -238,11 +238,11 @@ def test_model_balancer_demotes_unhealthy_zai_external_routes(monkeypatch, tmp_p
 
     assert decision["routing"]["audit_secondary"] == {
         "provider": "grok-cli",
-        "model": "grok-composer-2.5-fast",
+        "model": "grok-4.5",
     }
     assert decision["routing"]["hackathon_external"] == {
         "provider": "grok-cli",
-        "model": "grok-composer-2.5-fast",
+        "model": "grok-4.5",
     }
     health = decision["provider_health"]["zai-cli:glm-5.2[1m]"]
     assert health["status"] == "degraded"

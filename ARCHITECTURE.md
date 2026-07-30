@@ -96,7 +96,7 @@ C4Container
     Rel(balancer, balancer_json, "writes", "decide() atomic; pinned categories preserved")
     Rel(balancer, pal_mcp, "routes", "audit_external → gpt-5.5")
     Rel(balancer, zai_api, "routes", "audit_secondary / hackathon_external → glm-5.2[1m] via zai_cli.py")
-    Rel(balancer, grok_cli, "routes", "audit_tertiary → grok-composer-2.5-fast; hackathon_coder → grok-build")
+    Rel(balancer, grok_cli, "routes", "audit_tertiary / hackathon_coder → grok-4.5")
     Rel(balancer, codex_cli, "routes", "coding/hard → codex-cli gpt-5.5 (pinned)")
 
     Rel(supervisor, sqlite_db, "reads/writes", "supervisor_decisions + supervisor_quota")

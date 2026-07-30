@@ -53,17 +53,23 @@ Execute the command behavior, not the literal Claude Code tool names.
   attempt failed for lack of reasoning depth; never select `xhigh` automatically.
 - Claude model names (`haiku`, `sonnet`, `opus`) are guidance only. Use Codex's
   available subagent defaults unless a model can be pinned safely.
-- PAL/GPT external review: use PAL if the MCP tools exist. If not, use the
-  Z.ai third-model runner when `ZAI_API_KEY` is present:
+- PAL/GPT external review: PAL is runtime-available only when its tool call
+  returns a usable opinion. Tool registration alone is insufficient. Treat
+  `429 insufficient_quota`, `401`, `403`, any `5xx`, timeout,
+  connection-closed, empty/error-only output, or tool exception as runtime
+  unavailable; preserve sanitized evidence and continue **Z.ai → Grok → Codex
+  native second opinion**. A successful PAL response remains primary.
+  Use the Z.ai third-model runner when `ZAI_API_KEY` is present:
   `printf '%s\n' '<review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`.
-  Label it exactly as "GLM-5.2 via Z.ai". If Z.ai is unavailable but Grok CLI
-  is authenticated, use:
-  `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --budget-turns 3`.
+  Label it exactly as "GLM-5.2 via Z.ai". A missing credential, non-zero exit,
+  timeout, tool exception, or unusable response advances to Grok:
+  `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --model grok-4.5 --budget-turns 3`.
   Label it exactly as "Grok via xAI". If PAL, Z.ai, and Grok are unavailable,
   spawn a separate Codex review subagent when subagents are available and label
-  it clearly as "Codex second opinion", not as PAL/GPT or Z.ai. If none are
-  available, mark the external-review step as unavailable with the missing tool
-  evidence.
+  it clearly as "Codex second opinion", not as PAL/GPT or Z.ai, and mark it
+  `degraded_external_independence` because it is same-provider. If none are
+  available, mark the external-review step as unavailable with sanitized
+  missing-tool/runtime evidence; never treat an error payload as an opinion.
 - Claude session JSONL paths under `~/.claude/projects/...` become the newest
   relevant Codex session JSONL under `~/.codex/sessions/...` when preparing a
   Codex handover. If a Claude session is relevant, mention both.

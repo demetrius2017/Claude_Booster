@@ -43,7 +43,7 @@ def test_grok_cli_builds_read_only_command(monkeypatch) -> None:
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-composer-2.5-fast",
+        model="grok-4.5",
         budget_turns=3,
         read_only=True,
         task_category="audit_tertiary",
@@ -52,7 +52,7 @@ def test_grok_cli_builds_read_only_command(monkeypatch) -> None:
     assert rc == 0
     cmd = captured["cmd"]
     assert cmd[:2] == ["/usr/bin/grok", "-p"]
-    assert "grok-composer-2.5-fast" in cmd
+    assert "grok-4.5" in cmd
     assert "--permission-mode" in cmd
     assert "dontAsk" in cmd
     assert "--disallowed-tools" in cmd
@@ -87,7 +87,7 @@ def test_grok_cli_records_model_metrics(monkeypatch, tmp_path) -> None:
     grok_cli = _import_script("grok_cli")
 
     grok_cli._record_metric(
-        model="grok-composer-2.5-fast",
+        model="grok-4.5",
         task_category="audit_tertiary",
         duration_ms=4321,
         success=True,
@@ -104,7 +104,7 @@ def test_grok_cli_records_model_metrics(monkeypatch, tmp_path) -> None:
 
     assert row == (
         "grok-cli",
-        "grok-composer-2.5-fast",
+        "grok-4.5",
         "audit_tertiary",
         4321,
         4321,
@@ -123,10 +123,10 @@ def test_model_balancer_exposes_grok_routes(monkeypatch, tmp_path) -> None:
 
     assert routing["audit_tertiary"] == {
         "provider": "grok-cli",
-        "model": "grok-composer-2.5-fast",
+        "model": "grok-4.5",
     }
     assert routing["hackathon_coder"] == {
         "provider": "grok-cli",
-        "model": "grok-build",
+        "model": "grok-4.5",
     }
-    assert model_balancer._get_intelligence_score("grok-cli", "grok-build") == 18
+    assert model_balancer._get_intelligence_score("grok-cli", "grok-4.5") == 17
