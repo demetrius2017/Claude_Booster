@@ -8,12 +8,17 @@
 set -u
 
 claude_bin="${CLAUDE_BIN:-claude}"
+identity_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fable_identity_preamble.txt"
 prompt_file="$(mktemp "${TMPDIR:-/tmp}/fable-consult.XXXXXX")" || exit 70
-result_file="$(mktemp "${TMPDIR:-/tmp}/fable-result.XXXXXX")" || {
+combined_prompt_file="$(mktemp "${TMPDIR:-/tmp}/fable-prompt.XXXXXX")" || {
     rm -f "$prompt_file"
     exit 70
 }
-trap 'rm -f "$prompt_file" "$result_file"' EXIT HUP INT TERM
+result_file="$(mktemp "${TMPDIR:-/tmp}/fable-result.XXXXXX")" || {
+    rm -f "$prompt_file" "$combined_prompt_file"
+    exit 70
+}
+trap 'rm -f "$prompt_file" "$combined_prompt_file" "$result_file"' EXIT HUP INT TERM
 
 if ! cat >"$prompt_file"; then
     printf '%s\n' 'fable_consult: failed to read prompt from stdin' >&2
@@ -23,6 +28,19 @@ fi
 if ! LC_ALL=C grep -q '[^[:space:]]' "$prompt_file"; then
     printf '%s\n' 'fable_consult: nonblank prompt required on stdin (local contract failure)' >&2
     exit 64
+fi
+
+if [[ ! -f "$identity_file" ]]; then
+    printf 'fable_consult: identity preamble missing: %s (local environment failure)\n' "$identity_file" >&2
+    exit 69
+fi
+if ! {
+    cat "$identity_file"
+    printf '\n\n'
+    cat "$prompt_file"
+} >"$combined_prompt_file"; then
+    printf '%s\n' 'fable_consult: failed to assemble identity preamble and prompt' >&2
+    exit 70
 fi
 
 if ! command -v "$claude_bin" >/dev/null 2>&1; then
@@ -36,7 +54,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 "$claude_bin" --model fable --print --tools "" --output-format json \
-    <"$prompt_file" >"$result_file"
+    <"$combined_prompt_file" >"$result_file"
 status=$?
 if [[ $status -ne 0 ]]; then
     exit "$status"

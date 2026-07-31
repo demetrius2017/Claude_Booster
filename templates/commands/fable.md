@@ -51,12 +51,16 @@ specific question.
 3. Ask exactly one Fable 5 read-only worker/subagent using the strongest Fable
    channel available in the current runtime:
    - In Claude Code: spawn one read-only Agent with explicit Fable model if the
-     runtime supports it. Disallow edit/write/deploy tools in the prompt.
+     runtime supports it. Load `fable-identity` and put its exact identity block
+     first, followed by one blank line and then the task. Disallow
+     edit/write/deploy tools in the prompt.
    - In Codex: pipe the complete prompt to the deterministic wrapper:
      `printf '%s\n' "$prompt" | ~/.claude/scripts/fable_consult.sh`.
      Do not construct a raw `claude` command. In particular, never put a
      positional prompt after variadic `--tools <tools...>`: the option can
      consume the prompt and fail before contacting Fable.
+     The wrapper injects the canonical Fable identity block; callers must not
+     inject a second copy.
      The wrapper may run past the first shell-tool yield. If `exec_command`
      returns a `session_id`, poll that shell session with `write_stdin` until
      the real exit code and stdout/stderr arrive. Do not substitute

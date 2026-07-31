@@ -53,6 +53,14 @@
       "critical": false,
       "notes": "Mirrors Booster commands into Codex CLI as skills/prompts + booster-command compatibility skill (cross-provider adapter). Exit-50 isolation: bridge failure does NOT roll back committed Claude install. Guards: symlink rejection (_validate_sources), frontmatter validation, _within_managed_roots path-traversal guard for stale removal, separate bridge manifest with SHA-256 records."
     },
+    "fable_identity_injection": {
+      "file": "templates/scripts/fable_consult.sh + templates/scripts/fable_identity_preamble.txt",
+      "reads_from": ["external:stdin task prompt", "external:canonical identity preamble"],
+      "writes_to": ["external:Claude CLI stdin"],
+      "called_by": ["command:fable", "command:go fable", "command:autopilot", "command:code-review fable"],
+      "critical": true,
+      "notes": "Prepends the exact Fable 5 Mythos-class identity block and one blank line before every canonical wrapper task. Direct Agent/Workflow spawns use the mirrored fable-identity helper skill."
+    },
     "rolling_memory_init_db": {
       "file": "templates/scripts/rolling_memory.py::init_db",
       "reads_from": ["db:PRAGMA user_version"],
@@ -554,6 +562,12 @@
       "formula": "all log writes go through _gate_common.append_jsonl() (open mode 'a')",
       "enforced_in": "templates/scripts/_gate_common.py::append_jsonl (no mutator code paths exist)",
       "on_violation": "N/A - enforced by absence of UPDATE/DELETE on log files"
+    },
+    "INV-23": {
+      "description": "Canonical Fable wrapper calls begin with the exact shared identity preamble exactly once",
+      "formula": "claude_stdin = fable_identity_preamble + '\\n\\n' + caller_task",
+      "enforced_in": "templates/scripts/fable_consult.sh + tests/test_fable_consult.sh",
+      "on_violation": "Contract test fails; do not install or ship divergent Fable identity"
     }
   },
 

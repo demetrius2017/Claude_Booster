@@ -15,6 +15,8 @@ For the actual model call, pass the completed prompt through stdin to
 `~/.claude/scripts/fable_consult.sh`. Never assemble a raw Claude CLI call;
 `--tools` is variadic and can swallow a following positional prompt. A local
 input/argument failure is not evidence that the Fable channel is unavailable.
+The wrapper prepends the canonical `$fable-identity` block exactly once; do not
+duplicate or paraphrase it in the completed prompt.
 
 The consult may outlive the first shell-tool yield. If `exec_command` returns a
 `session_id`, poll that shell session with `write_stdin` until it returns the

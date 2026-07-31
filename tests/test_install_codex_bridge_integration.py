@@ -146,13 +146,19 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         # Derive the contract from the managed source trees. Adding a command
         # such as autopilot must expand both installation and manifest without
         # requiring another unrelated magic-number edit here.
-        expected_skills = list((ROOT / "templates" / "codex" / "skills").rglob("SKILL.md"))
+        expected_skill_files = [
+            path for path in (ROOT / "templates" / "codex" / "skills").rglob("*")
+            if path.is_file()
+        ]
+        expected_skills = [
+            path for path in expected_skill_files if path.name == "SKILL.md"
+        ]
         expected_prompts = list((ROOT / "templates" / "codex" / "prompts").glob("*.md"))
         expected_commands = list((ROOT / "templates" / "commands").glob("*.md"))
         expected_sources = {
             str(path.relative_to(ROOT))
             for path in (
-                *expected_skills,
+                *expected_skill_files,
                 *expected_prompts,
                 *expected_commands,
                 ROOT / "templates" / "scripts" / "codex_ask_gate.py",
@@ -176,6 +182,12 @@ def test_t3_yes_installs_bridge_manifest() -> None:
                 f"missing={sorted(expected_sources - manifest_sources)}, "
                 f"extra={sorted(manifest_sources - expected_sources)}"
             )
+        identity_skill = agents_dir / "skills" / "fable-identity" / "SKILL.md"
+        identity_metadata = agents_dir / "skills" / "fable-identity" / "agents" / "openai.yaml"
+        if not identity_skill.is_file() or not identity_metadata.is_file():
+            errors.append("fable-identity helper skill or UI metadata missing")
+        if (commands_dir / "fable-identity.md").exists():
+            errors.append("fable-identity must remain a helper skill, not a command alias")
 
         # Delivery contract: the installed bridge must carry the exact canonical
         # autopilot goal lifecycle, not merely the right artifact counts. This

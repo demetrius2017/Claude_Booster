@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fable Identity"
+  short_description: "Inject canonical Fable 5 model identity"
+  default_prompt: "Use $fable-identity when launching a Fable subagent."

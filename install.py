@@ -944,7 +944,8 @@ def install_codex_bridge(dry_run: bool, force: bool) -> int:
 
         commands = {path.stem for path in _COMMANDS_SRC.glob("*.md")}
         skill_aliases = {path.parent.name for path in _SKILLS_SRC.glob("*/SKILL.md")}
-        skill_aliases.discard("booster-command")
+        helper_skills = {"booster-command", "fable-identity"}
+        skill_aliases.difference_update(helper_skills)
         prompt_aliases = {path.stem for path in _PROMPTS_SRC.glob("*.md")}
         missing = sorted((skill_aliases | prompt_aliases) - commands)
         if missing:

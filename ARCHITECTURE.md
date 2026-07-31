@@ -55,7 +55,7 @@ C4Container
     }
 
     System_Boundary(codex_home, "Codex Bridge Targets") {
-        Container(codex_skills, "~/.agents/skills/ + ~/.codex/prompts/", "Files", "Mirrored Booster commands as Codex skills/prompts + booster-command compatibility skill")
+        Container(codex_skills, "~/.agents/skills/ + ~/.codex/prompts/", "Files", "Mirrored Booster commands plus helper skills, including fable-identity")
         Container(bridge_manifest, "~/.codex/claude-booster-bridge-manifest.json", "JSON", "Bridge install record + SHA-256 (separate from main manifest)")
     }
 
@@ -114,6 +114,7 @@ C4Container
 | `install.py::write_settings()` / `merge_settings()` | settings.json.template, existing settings.json | settings.json | install.py::main() | All hook dispatch — wrong wiring = silent hook failures |
 | `install.py::atomic_write()` | n/a | Any target file via tmp+fsync+os.replace | write_all(), write_settings(), write_manifest(), bridge writes | Data integrity — partial writes corrupt hooks/rules |
 | `install.py::install_codex_bridge()` | templates/codex/{skills,prompts}, templates/commands/*.md, ~/.codex/...bridge-manifest.json | ~/.agents/skills/*, ~/.codex/prompts/*, booster-command/references/commands/*, bridge manifest | install.py::main() | Codex CLI loses Booster commands. **Exit-50 isolated: failure does NOT roll back Claude install.** Path-traversal guard (`_within_managed_roots`) protects stale removal |
+| `fable_consult.sh` + `fable_identity_preamble.txt` | caller task prompt, canonical identity text | Claude CLI stdin = identity + one blank line + task | /fable, /go fable, Fable autopilot, Fable code-review | Fable subagent may guess a stale model name or callers may drift to different identity wording |
 | `rolling_memory.py::memorize()` | db:agent_memory (dedup via content_hash) | db:agent_memory, db:agent_memory_fts (trigger) | memory_session_end, index_reports, consolidate(), memorize_with_merge, CLI | Memory ingestion — broken = no cross-session learning |
 | `rolling_memory.py::recall()` / `search()` | db:agent_memory, db:agent_memory_fts | db:agent_memory (touch access_count) on recall | consolidate(), build_context(), build_start_context(), CLI | Retrieval — broken = empty /start context / no FTS knowledge base |
 | `rolling_memory.py::consolidate()` | db:agent_memory, Anthropic API (Haiku) | db:agent_memory (insert synthesized, deactivate originals) | CLI | Memory compaction — broken = unbounded growth. scope='all' forbidden; preserve=1 immune |
@@ -335,6 +336,7 @@ flowchart TD
 | INV-20 | model_balancer pinned categories {lead, recon, medium, coding, hard, high_blast_radius} never overwritten by active scorer | decide() _PINNED_CATEGORIES guard | Pin upgrade requires editing runtime JSON too (silent no-op otherwise) |
 | INV-21 | Codex bridge failure is isolated (exit 50) — never rolls back the committed Claude install | install.py::main() exit-50 mapping | Bridge logs error; Claude artifacts remain |
 | INV-22 | JSONL logs are append-only — never UPDATE/DELETE | append_jsonl() write path (no mutators in code) | N/A — enforced by absence of mutators |
+| INV-23 | Canonical Fable wrapper calls begin with the exact shared identity preamble exactly once | byte contract in `tests/test_fable_consult.sh`; helper skill mirrors the same block | Fable self-identification diverges across Agent/Workflow/wrapper paths |
 
 ---
 
@@ -381,3 +383,4 @@ Claude Booster has **no DB-enforced append-only table**. The append-only contrac
 | 2026-05-05 | generated | Initial architecture document from /architecture command | generated |
 | 2026-05-09 | pending | delegate_gate: phase-aware exemption (RECON/PLAN bypass budget) + fixed ^ anchor in RECON_BASH_PATTERNS | session |
 | 2026-06-13 | pending | **Major /architecture --update**: added /go six-stage pipeline + go_gate + .go_active marker; model_balancer (decide/get_routing) + model_metric_capture + claude_max_tracker + model_metrics/claude_max_usage tables (schema v6→v8); kpi_rework (record/report) + kpi_rework.jsonl; Codex bridge (install_codex_bridge, exit-50 isolation, booster-command skill); supervisor reframed behind /lead; ask_gate + model_tag_enforcer hooks; PAL MCP + Codex CLI providers; append-only re-scoped to JSONL logs; INV-18..22 added; delegate_gate corrected to advisory (INV-16). | Architect (/architecture) |
+| 2026-07-31 | pending | Added `fable-identity` helper skill and deterministic identity injection in the canonical Fable wrapper; bridge now distinguishes helper skills from command aliases; INV-23 added. | session |
