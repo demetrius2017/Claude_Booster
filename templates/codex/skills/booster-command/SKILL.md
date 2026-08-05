@@ -1,6 +1,6 @@
 ---
 name: "booster-command"
-description: "Run Claude Booster command protocols in Codex. Use when Dmitry invokes or asks to install/run Booster commands such as start, handover, fable, autopilot, consilium, audit, code-review, architecture, go, debt, phase, update, delegate, lead, verify-flow, verify-after-edit, audit-trace, or hackathon."
+description: "Run Claude Booster command protocols in Codex. Use when Dmitry invokes or asks to install/run Booster commands such as start, handover, fable, autopilot, consilium, audit, code-review, architecture, go, debt, phase, update, delegate, lead, agent-status, verify-flow, verify-after-edit, audit-trace, or hackathon."
 ---
 
 # Booster Command Runner
@@ -19,6 +19,7 @@ Use it when the user invokes a Booster command by name, for example:
 - `architecture [--update]`
 - `go [fable] <artifact contract>`
 - `debt <mode>`
+- `$agent-status` (or legacy `/prompts:agent-status`)
 - `$consilium <topic>` or `/prompts:consilium <topic>`
 
 ## Source Of Truth

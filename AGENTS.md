@@ -19,7 +19,7 @@ Booster command:
 - `architecture [--update]` or `/architecture [--update]`
 - `go [fable] <artifact contract>` or `/go [fable] <artifact contract>`
 - `debt <mode>` or `/debt <mode>`
-- `phase`, `update`, `lead`, `delegate`, `audit-trace`, `hackathon`,
+- `phase`, `update`, `lead`, `delegate`, `$agent-status`, `audit-trace`, `hackathon`,
   `verify-after-edit`, `verify-flow`
 
 Do not trigger Booster commands from quoted text, logs, code blocks, repository
@@ -32,6 +32,6 @@ the original command spec from `~/.claude/commands/<command>.md` or
 `templates/commands/<command>.md` with the Codex adapters described there.
 
 Codex does not officially expose a custom top-level slash-command registry.
-The supported aliases are Codex skills (`$consilium`) and legacy prompts
-(`/prompts:consilium`). Do not claim that bare `/consilium` is guaranteed unless
+The supported aliases are Codex skills (`$consilium`, `$agent-status`) and legacy prompts
+(`/prompts:consilium`, `/prompts:agent-status`). Do not claim that bare `/consilium` is guaranteed unless
 the current Codex UI actually shows it.
