@@ -65,6 +65,7 @@ That's it. Booster installs a set of rules, hooks, and slash commands into `~/.c
 | `/verify-after-edit` | Post-edit UI verification (drives the real flow, not just tests) | "It compiles" ≠ "it works" |
 | `/verify-flow` | Verifies a full UI flow end-to-end | Individual fixes pass while the flow they live in is broken |
 | `/audit-trace` | Data-continuity audit — traces one concept through every computation path; divergence = defect | Silent data corruption where two code paths compute the "same" value differently |
+| `/gantt` | Compact fact-bound Gantt snapshot of current task lanes, without polling or invented progress | Work status turns into a vague narrative instead of an explicit current-state view |
 
 **Systemic thinking & infra — understand blast radius before you edit**
 
@@ -1017,7 +1018,7 @@ Under `~/.claude/`:
 | `rules/*.md` | 12 rule files — anti-loop, tool strategy, pipeline phases, deploy procedures, frontend debug pipeline, institutional knowledge, error taxonomy, canary for rule-load detection, communication-style ("professor" tone), quality/Three-Nos, paired-verification (with session context injection protocol) |
 | `scripts/*.py` | 25+ Python hook scripts — memory engine + session hooks (`rolling_memory.py`, `memory_session_start.py`/`_end.py`/`_post_tool.py`), тройка enforcement (`go_gate.py`, `delegate_gate.py`), evidence gates (`verify_gate.py`, `require_evidence.py`), phase machine (`phase.py`, `phase_gate.py`, `phase_prompt_inject.py`, `preserve_plan_context.py`), plan-first enforcer (`require_task.py`), model routing (`model_balancer.py`, `model_metric_capture.py`, `model_tag_enforcer.py`), observability (`telemetry_agent_health.py`, `check_rules_loaded.py`, `check_review_ages.py`, `compact_advisor.py`), session context extractor (`session_context.py`), systemic thinking guards (`financial_dml_guard.py`, `dep_guard.py`, `arch_freshness.py`), infra (`index_reports.py`, `backup_rolling_memory.py`, `add_frontmatter.py`, `codex_worker.sh`, `codex_sandbox_worker.sh`) |
 | `scripts/supervisor/` | v1.2.0 Supervisor Agent — 8 modules (`supervisor.py` CLI + orchestration, `policy.py` Tier 0/1/2 engine, `quota.py` admission + circuit-breaker, `detector.py` adaptive-silence FSM, `stream_json_adapter.py` Path A runtime, `persistence.py` sqlite writers, `runtime.py` transport Protocol, `schema.sql`) + `prompts/supervisor_v1.md` Haiku escalation contract |
-| `commands/*.md` | 14 slash commands: `/go`, `/start`, `/handover`, `/consilium`, `/audit`, `/code-review`, `/lead`, `/update`, `/phase`, `/delegate`, `/verify-after-edit`, `/verify-flow`, `/architecture`, `/debt` |
+| `commands/*.md` | Slash-command specifications, including `/go`, `/start`, `/handover`, `/consilium`, `/audit`, `/code-review`, `/lead`, `/update`, `/phase`, `/delegate`, `/verify-after-edit`, `/verify-flow`, `/architecture`, `/debt`, and `/gantt` |
 | `agents/*.md`, `*.json` | Agent team protocols — lifecycle, ownership schema, worktree safety, readiness gates, roadmap convention |
 | `settings.json` | Hooks wired to Claude Code, **merged** into any existing config |
 | `.booster-manifest.json` | Installer metadata — SHA-256 per file, version, for idempotency and selective rollback |
@@ -1044,6 +1045,7 @@ All commands are on-demand — their instructions load only when you invoke them
 | `/verify-flow` | End-to-end UI flow verification. |
 | `/architecture` | Generates `ARCHITECTURE.md` + `dep_manifest.json` from codebase analysis. Map-Reduce: 4 Haiku explorers map each layer (DB, API, business logic, integrations), 1 Sonnet architect reduces into a connected system map. Supports `--update` for incremental refresh. |
 | `/debt` | Tracks session debts (unfinished work items). `/debt list` shows inventory, `/debt work` picks highest priority and starts implementing, `/debt review` formats for handover inclusion. |
+| `/gantt` | Compact fact-bound Russian Gantt snapshot of current task lanes; it uses current task state and one agent snapshot at most, never polling or inventing progress. |
 
 ### Speed & model routing
 
@@ -1175,7 +1177,7 @@ claude-booster/
 ├── templates/
 │   ├── rules/                # 12 .md files
 │   ├── scripts/              # 25+ .py/.sh files
-│   ├── commands/             # 13 slash commands
+│   ├── commands/             # 20 slash commands
 │   ├── agents/               # 5 protocol files + 2 JSON schemas
 │   └── settings.json.template
 ├── docs/

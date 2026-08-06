@@ -27,3 +27,8 @@ wait after `No agents completed yet`, and never claim that native Codex
 
 On every state change, report one concise line such as
 `[agents: active 2 · done 1]`; use `$agent-status` for a complete snapshot.
+
+Emit `$gantt` after a worker launch, reassignment or `followup_task`, and a
+completion, failure, or blocker event—not after every tool call. Direct worker
+messages through `send_message` remain nonblocking; they do not replace this
+snapshot or require waiting for a reply.
