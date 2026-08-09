@@ -58,3 +58,17 @@ Next / State` и слотов. Она использует только сост
 127 assertions в 7 model-balancer suites, Z.ai resilience 15/15, audit smoke
 12/12, `git diff --check` clean. Операционные долги остаются внешними:
 пополнить Z.ai balance/package и дождаться восстановления PAL quota.
+
+## Завершено в сессии 2026-08-09 — Balanced Codex delegated model routes
+
+Закрыт `4e04cab fix(codex): enforce balanced delegated model routes`, уже
+отправленный в `origin/main` и `public/main`. Новый
+`templates/scripts/codex_routed_worker.py` получает exact category route,
+типизированно валидирует provider/model/reasoning effort, запрещает caller
+`-m`/`--model` и config override, fail-closed обрабатывает не-Codex routes и
+использует пятисекундный lookup с unpinned degraded fallback. Проверки: exact
+route и GPT-5.6 routing PASS, installer/capability suite `23 passed`, live
+smoke вернул `START_ROUTED_OK` через `gpt-5.6-luna` c `low` effort и
+`source=balancer`; override отвергнут с exit 2 до HTTP-запроса. Этот трек не
+меняет статус отдельного wait-history patch выше: он всё ещё version-pinned к
+`rust-v0.145.0-alpha.13` и требует rebase перед следующим использованием.
