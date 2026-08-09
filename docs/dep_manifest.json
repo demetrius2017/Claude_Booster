@@ -169,9 +169,17 @@
       "file": "templates/scripts/model_balancer.py::get_routing",
       "reads_from": ["external:~/.claude/model_balancer.json"],
       "writes_to": [],
-      "called_by": ["memory_session_start", "supervisor runtime", "cli:model_balancer.py get", "delegating Lead"],
+      "called_by": ["memory_session_start", "supervisor runtime", "cli:model_balancer.py get", "delegating Lead", "codex_routed_worker"],
       "critical": true,
       "notes": "Returns {provider, model, [applies_to]} for a category. Cached on first call (_cached_decision). Providers: anthropic | codex-cli | pal | zai-cli | grok-cli."
+    },
+    "codex_routed_worker": {
+      "file": "templates/scripts/codex_routed_worker.py::main",
+      "reads_from": ["external:stdin prompt", "cli:model_balancer.py get <category>", "env:CODEX_BIN", "env:CLAUDE_BOOSTER_ROUTED_*"],
+      "writes_to": ["external:stdout", "external:stderr", "process:codex_worker.py or CODEX_BIN exec"],
+      "called_by": ["templates/codex/skills/booster-command/SKILL.md local Codex delegation"],
+      "critical": true,
+      "notes": "Executable exact-route boundary. Validates category and typed non-empty provider/model/reasoning_effort, forbids caller model/config pins, forwards only codex-cli routes with exact child env, refuses other providers, and uses an unpinned fallback only when lookup is unavailable, timed out, or malformed."
     },
     "zai_cli": {
       "file": "templates/scripts/zai_cli.py::main",
@@ -342,12 +350,12 @@
       "notes": "Spawns headless claude CLI in stream-json mode. Signal ladder for cancel: SIGINT->SIGTERM->SIGKILL."
     },
     "codex_worker": {
-      "file": "templates/scripts/codex_worker.sh",
+      "file": "templates/scripts/codex_worker.py::main",
       "reads_from": ["external:stdin (task prompt)", "external:CODEX_BIN (default /opt/homebrew/bin/codex)"],
       "writes_to": ["external:stdout (text analysis)"],
       "called_by": ["Lead via Bash (consilium_bio, audit_external, recon, medium read-only)"],
       "critical": false,
-      "notes": "codex exec --skip-git-repo-check -m <MODEL> -. Read-only analysis / second opinions. Replaces PAL second_opinion/codereview as default external review. Exit 127 if binary missing."
+      "notes": "Capability-aware Python worker that runs codex exec --skip-git-repo-check -m <MODEL> -. Read-only analysis / second opinions. Replaces PAL second_opinion/codereview as default external review. Exit 127 if binary missing."
     },
     "codex_sandbox_worker": {
       "file": "templates/scripts/codex_sandbox_worker.sh",

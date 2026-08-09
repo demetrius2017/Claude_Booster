@@ -53,6 +53,25 @@ Execute the command behavior, not the literal Claude Code tool names.
 - Pass the selected route's `reasoning_effort` explicitly: Luna uses `low`;
   Terra and Sol use `medium` by default. `high` requires evidence that a medium
   attempt failed for lack of reasoning depth; never select `xhigh` automatically.
+- **Exact local Codex route invariant.** For every local Codex CLI delegation,
+  invoke the routed worker below. It obtains `model_balancer.py get CATEGORY`,
+  validates non-empty string `provider`, `model`, and `reasoning_effort`,
+  rejects caller `-m` / `--model` and config model overrides, and forwards the
+  exact returned `model` and `reasoning_effort` only when the provider is
+  `codex-cli`. It sets `CLAUDE_BOOSTER_ROUTE_SOURCE=balancer`,
+  `CLAUDE_BOOSTER_TASK_CATEGORY=CATEGORY`, and `CODEX_REASONING_EFFORT` for the
+  child. Do not invent, normalize, shorten, or substitute model identifiers:
+  in particular, `gpt-5.6` is a family alias, never a model pin. Preserve the
+  command's required read-only sandbox for read-only delegation.
+
+  ```sh
+  ~/.claude/scripts/codex_routed_worker.py CATEGORY --ephemeral --sandbox read-only < "$PROMPT_FILE"
+  ```
+
+  If lookup is unavailable, malformed, or nonzero, the worker emits one
+  sanitized `degraded routing` diagnostic and invokes `CODEX_BIN exec` with no
+  explicit model pin; it never guesses a model. A valid non-Codex provider route
+  fails loud without launching local Codex.
 - Claude model names (`haiku`, `sonnet`, `opus`) are guidance only. Use Codex's
   available subagent defaults unless a model can be pinned safely.
 - PAL/GPT external review: PAL is runtime-available only when its tool call
