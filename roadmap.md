@@ -46,3 +46,15 @@ Next / State` и слотов. Она использует только сост
 не более одного снимка агентов; не создаёт scheduler и не poll'ит runtime. Lead
 публикует snapshot после запуска, reassignment или terminal-события worker.
 В Codex используйте `$gantt` или `/prompts:gantt`; bare `/gantt` зависит от UI.
+
+## Завершено в сессии 2026-08-09 — External model runtime health
+
+Закрыт runtime-fix для GLM-5.2/Grok routing: retired Z.ai alias
+`glm-5.2[1m]` больше не маскируется пустым выводом, валидный `glm-5.2` с
+`HTTP 429 insufficient_balance` переводится в degraded provider health, а
+`audit_secondary` и hackathon external routing могут честно уходить на
+`grok-cli:grok-4.5`. Commit `a76e7c3` установлен локально через
+`python3 install.py --yes` без `--force`; focused verification прошла:
+127 assertions в 7 model-balancer suites, Z.ai resilience 15/15, audit smoke
+12/12, `git diff --check` clean. Операционные долги остаются внешними:
+пополнить Z.ai balance/package и дождаться восстановления PAL quota.
