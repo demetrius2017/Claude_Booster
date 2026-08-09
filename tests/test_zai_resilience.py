@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Acceptance test for zai_cli.py empty-response resilience.
+"""Acceptance test for zai_cli.py provider-failure resilience.
 
 OFFLINE, deterministic Verifier test. Written from the Artifact Contract only —
 the Worker's implementation was NOT seen. Tests observable behavior:
 
-- EMPTY stdout + exit 0  -> retry exactly once; if still empty, wrapper exits
-  NON-ZERO and records telemetry success=0.
+- EMPTY stdout + exit 0  -> wrapper exits NON-ZERO without retry and records
+  telemetry success=0.
 - Non-empty success      -> stdout re-emitted BYTE-IDENTICAL, exit 0, success=1,
-  NO retry.
+  no retry.
 - Genuine non-zero child  -> NOT retried; child exit code preserved; success=0.
+- Timeout                -> exit 124, success=0, typed failure event recorded.
+- Permanent backend/account failures emit a sanitized typed failure event.
 - stderr stays visible; byte fidelity (CRLF, UTF-8, 2MB) preserved.
 - Missing credential still exits 64.
 
@@ -23,6 +25,7 @@ Exit: 0 iff all cases pass.
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import sqlite3
 import subprocess
@@ -99,6 +102,20 @@ elif scenario == "stderr_sentinel":
     err.write(b"SENTINEL_STDERR")
     err.flush()
     sys.exit(0)
+elif scenario == "invalid_model":
+    err.write(b"API Error 400 invalid model: glm-5.2[1m] secret-token")
+    err.flush()
+    sys.exit(1)
+elif scenario == "insufficient_balance":
+    err.write(b"API Error 429 insufficient balance: credit_balance_exhausted secret-token")
+    err.flush()
+    sys.exit(1)
+elif scenario == "sleep":
+    import time
+    time.sleep(5)
+    out.write(b"LATE_PAYLOAD")
+    out.flush()
+    sys.exit(0)
 elif scenario == "large":
     out.write(b"A" * 2000000)
     out.flush()
@@ -153,8 +170,20 @@ def _last_success(db_path: Path):
     return None if row is None else row[0]
 
 
+def _last_failure_event(tmp: Path):
+    """Return last typed provider failure event, if any."""
+    path = tmp / "provider_failures.jsonl"
+    if not path.exists():
+        return None
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if not lines:
+        return None
+    return json.loads(lines[-1])
+
+
 def _run_wrapper(scenario: str, *, mode: str = "review", credential: str = "dummy-nonempty",
-                 credential_file: str | None = None, prompt: bytes = b"do the review please"):
+                 credential_file: str | None = None, prompt: bytes = b"do the review please",
+                 timeout_s: str = "10"):
     """Run zai_cli.py with the stub on PATH. Returns (proc, counter, db_path, tmp)."""
     tmp = Path(tempfile.mkdtemp(prefix="zai_resil_"))
     bindir = _make_stub_dir(tmp)
@@ -167,7 +196,9 @@ def _run_wrapper(scenario: str, *, mode: str = "review", credential: str = "dumm
     env["STUB_SCENARIO"] = scenario
     env["STUB_COUNTER_FILE"] = str(counter_file)
     env["CLAUDE_BOOSTER_METRICS_DB"] = str(db_path)
-    env["ZAI_EMPTY_RETRY_BACKOFF_S"] = "0"  # env seam to keep suite fast
+    env["CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG"] = str(tmp / "provider_failures.jsonl")
+    env["ZAI_CLI_TIMEOUT_S"] = timeout_s
+    env["ZAI_PREFLIGHT_DISABLE"] = "1"
     env["CLAUDE_SESSION_ID"] = "zai-resilience-test"
     # Credential control
     if credential is None:
@@ -199,7 +230,7 @@ def _cleanup(tmp: Path) -> None:
 def case_always_empty():
     proc, counter, db_path, tmp = _run_wrapper("always_empty", mode="review")
     try:
-        ok = (proc.returncode != 0 and proc.stdout == b"" and counter == 2
+        ok = (proc.returncode != 0 and proc.stdout == b"" and counter == 1
               and _last_success(db_path) == 0)
         _report(ok, "always_empty",
                 f"rc={proc.returncode} stdout={proc.stdout!r} attempts={counter} "
@@ -220,12 +251,12 @@ def case_always_nonempty():
         _cleanup(tmp)
 
 
-def case_empty_then_nonempty():
+def case_no_retry_empty_then_nonempty():
     proc, counter, db_path, tmp = _run_wrapper("empty_then_nonempty", mode="review")
     try:
-        ok = (proc.returncode == 0 and proc.stdout == b"SECOND_CALL_PAYLOAD"
-              and counter == 2 and _last_success(db_path) == 1)
-        _report(ok, "empty_then_nonempty",
+        ok = (proc.returncode != 0 and proc.stdout == b""
+              and counter == 1 and _last_success(db_path) == 0)
+        _report(ok, "no_retry_empty_then_nonempty",
                 f"rc={proc.returncode} stdout={proc.stdout!r} attempts={counter} "
                 f"success={_last_success(db_path)}")
     finally:
@@ -239,6 +270,64 @@ def case_immediate_nonzero():
         _report(ok, "immediate_nonzero",
                 f"rc={proc.returncode} (want 23) attempts={counter} "
                 f"success={_last_success(db_path)}")
+    finally:
+        _cleanup(tmp)
+
+
+def case_invalid_model_failure_event():
+    proc, counter, db_path, tmp = _run_wrapper(
+        "invalid_model", mode="review", credential="secret-token"
+    )
+    try:
+        event = _last_failure_event(tmp)
+        ok = (
+            proc.returncode == 1
+            and counter == 1
+            and _last_success(db_path) == 0
+            and event is not None
+            and event["failure_type"] == "invalid_model"
+            and event["permanent"] is True
+            and "secret-token" not in event["detail"]
+            and b"secret-token" not in proc.stderr
+        )
+        _report(ok, "invalid_model_failure_event", f"event={event!r} stderr={proc.stderr!r}")
+    finally:
+        _cleanup(tmp)
+
+
+def case_insufficient_balance_failure_event():
+    proc, counter, db_path, tmp = _run_wrapper(
+        "insufficient_balance", mode="review", credential="secret-token"
+    )
+    try:
+        event = _last_failure_event(tmp)
+        ok = (
+            proc.returncode == 1
+            and counter == 1
+            and _last_success(db_path) == 0
+            and event is not None
+            and event["failure_type"] == "insufficient_balance"
+            and event["permanent"] is True
+            and "secret-token" not in event["detail"]
+            and b"secret-token" not in proc.stderr
+        )
+        _report(ok, "insufficient_balance_failure_event", f"event={event!r} stderr={proc.stderr!r}")
+    finally:
+        _cleanup(tmp)
+
+
+def case_timeout():
+    proc, counter, db_path, tmp = _run_wrapper("sleep", mode="review", timeout_s="0.05")
+    try:
+        event = _last_failure_event(tmp)
+        ok = (
+            proc.returncode == 124
+            and counter in (0, 1)
+            and _last_success(db_path) == 0
+            and event is not None
+            and event["failure_type"] == "timeout"
+        )
+        _report(ok, "timeout", f"rc={proc.returncode} event={event!r}")
     finally:
         _cleanup(tmp)
 
@@ -345,8 +434,11 @@ def main() -> int:
 
     case_always_empty()
     case_always_nonempty()
-    case_empty_then_nonempty()
+    case_no_retry_empty_then_nonempty()
     case_immediate_nonzero()
+    case_invalid_model_failure_event()
+    case_insufficient_balance_failure_event()
+    case_timeout()
     case_partial_nonzero()
     case_crlf()
     case_nonascii()

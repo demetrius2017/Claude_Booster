@@ -41,12 +41,15 @@ ENV:
     CLAUDE_BALANCER_FORCE_ACTIVE    Re-evaluate even if decision_date == today
     CLAUDE_BALANCER_DISABLE_ACTIVE  Skip active path; behave like day-1
     CLAUDE_BALANCER_MIN_SAMPLES     Override MIN_SAMPLES threshold (default 5)
+    CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG
+                                    Override typed provider failure JSONL path
 
 Files:
     ~/.claude/model_balancer.json           live routing file
     ~/.claude/model_balancer.json.tmp       transient atomic-write temp
     ~/.claude/model_balancer.json.bak.*     rolling backups (max 7)
     ~/.claude/model_balancer.json.preworker-bak  pre-session safety backup
+    ~/.claude/logs/model_provider_failures.jsonl typed provider failures
 """
 
 from __future__ import annotations
@@ -74,6 +77,7 @@ _BALANCER_PATH: Path = Path(
 )
 _DB_PATH: Path = Path.home() / ".claude" / "rolling_memory.db"
 _OAI_MODELS_PATH: Path = Path.home() / ".claude" / "openai_models.json"
+_DEFAULT_FAILURE_LOG_PATH: Path = Path.home() / ".claude" / "logs" / "model_provider_failures.jsonl"
 _MAX_BACKUPS = 7
 
 # Provider name constants — single source of truth, prevents silent typos
@@ -117,6 +121,9 @@ try:
 except (TypeError, ValueError):
     _HEALTH_FAILURE_THRESHOLD = 0.15
 _HEALTH_LOOKBACK_HOURS: int = 24
+_HEALTH_PERMANENT_FAILURE_TYPES: frozenset[str] = frozenset(
+    {"invalid_model", "insufficient_balance", "auth_error", "account_error"}
+)
 
 # Hardcoded intelligence scores for Anthropic models (not in openai_models.json)
 _QUALITY_SCORES_ANTHROPIC: dict[str, int] = {
@@ -131,7 +138,6 @@ _QUALITY_SCORES_ZAI: dict[str, int] = {
     # Artificial Analysis Intelligence Index: GLM-5.2 ≈ 51 vs Opus 4.8 ≈ 61.
     # The internal 0..20 scale intentionally keeps it below Opus and above
     # Sonnet as a cheap but capable external-review model.
-    "glm-5.2[1m]": 18,
     "glm-5.2": 18,
     "glm-5.2-air": 15,
 }
@@ -180,9 +186,9 @@ DEFAULTS: dict = {
         "hard":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "consilium_bio":  {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-sol", "reasoning_effort": "medium"},
         "audit_external": {"provider": PROVIDER_PAL,       "model": "gpt-5.5"},
-        "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.2[1m]"},
+        "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.2"},
         "audit_tertiary": {"provider": PROVIDER_GROK,      "model": "grok-4.5"},
-        "hackathon_external": {"provider": PROVIDER_ZAI,   "model": "glm-5.2[1m]"},
+        "hackathon_external": {"provider": PROVIDER_ZAI,   "model": "glm-5.2"},
         "hackathon_coder": {"provider": PROVIDER_GROK,     "model": "grok-4.5"},
         "lead":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "high_blast_radius": {
@@ -220,6 +226,8 @@ _LEGACY_BOOTSTRAP_ROUTES: dict[str, list[dict[str, str]]] = {
         {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
         {"provider": PROVIDER_CODEX, "model": "gpt-5.6-sol"},
     ],
+    "audit_secondary": [{"provider": PROVIDER_ZAI, "model": "glm-5.2[1m]"}],
+    "hackathon_external": [{"provider": PROVIDER_ZAI, "model": "glm-5.2[1m]"}],
 }
 
 _CODEX_REASONING_EFFORT_BY_MODEL = {
@@ -291,6 +299,12 @@ def _load_file() -> dict | None:
         return json.loads(_BALANCER_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _provider_failure_log_path() -> Path:
+    """Return the typed provider failure JSONL path."""
+    override = os.environ.get("CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG", "").strip()
+    return Path(override).expanduser() if override else _DEFAULT_FAILURE_LOG_PATH
 
 
 def _backup_current(prior_date: str | None) -> None:
@@ -529,6 +543,114 @@ def _query_provider_health(db_path: Path) -> dict[tuple[str, str], dict[str, Any
     return health
 
 
+def _query_provider_failure_events() -> dict[tuple[str, str], dict[str, Any]]:
+    """Return immediate health signals from schema-free provider event JSONL."""
+    path = _provider_failure_log_path()
+    if not path.exists():
+        return {}
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=_HEALTH_LOOKBACK_HOURS)
+    health: dict[tuple[str, str], dict[str, Any]] = {}
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+
+    for line in lines[-1000:]:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        provider = str(event.get("provider", "")).strip()
+        model = str(event.get("model", "")).strip()
+        event_type = str(event.get("event_type", "failure")).strip() or "failure"
+        failure_type = str(event.get("failure_type", "")).strip()
+        ts_raw = str(event.get("ts_utc", "")).strip()
+        if not provider or not model or not ts_raw:
+            continue
+        if event_type == "failure" and not failure_type:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if ts < cutoff:
+            continue
+        key = (provider, model)
+        record = health.setdefault(
+            key,
+            {
+                "provider": provider,
+                "model": model,
+                "sample_count": 0,
+                "success_count": 0,
+                "failure_count": 0,
+                "failure_rate": 0.0,
+                "status": "healthy",
+                "lookback_hours": _HEALTH_LOOKBACK_HOURS,
+                "threshold": _HEALTH_FAILURE_THRESHOLD,
+                "failure_types": {},
+                "permanent_failure_count": 0,
+                "latest_permanent_failure_ts": None,
+                "latest_success_ts": None,
+            },
+        )
+        record["sample_count"] += 1
+        if event_type in {"success", "recovery"}:
+            record["success_count"] += 1
+            prev_success = record.get("latest_success_ts")
+            if prev_success is None or ts > prev_success:
+                record["latest_success_ts"] = ts
+            continue
+
+        record["failure_count"] += 1
+        record["failure_types"][failure_type] = record["failure_types"].get(failure_type, 0) + 1
+        is_permanent = bool(event.get("permanent")) or failure_type in _HEALTH_PERMANENT_FAILURE_TYPES
+        if is_permanent:
+            record["permanent_failure_count"] += 1
+            prev_failure = record.get("latest_permanent_failure_ts")
+            if prev_failure is None or ts > prev_failure:
+                record["latest_permanent_failure_ts"] = ts
+                record["degrade_reason"] = failure_type
+
+    for record in health.values():
+        sample_count = int(record.get("sample_count", 0) or 0)
+        failure_count = int(record.get("failure_count", 0) or 0)
+        record["failure_rate"] = failure_count / sample_count if sample_count else 0.0
+        latest_failure = record.get("latest_permanent_failure_ts")
+        latest_success = record.get("latest_success_ts")
+        if latest_failure is not None and (latest_success is None or latest_failure > latest_success):
+            record["status"] = "degraded"
+        for key in ("latest_permanent_failure_ts", "latest_success_ts"):
+            if isinstance(record.get(key), datetime):
+                record[key] = record[key].strftime("%Y-%m-%dT%H:%M:%SZ")
+    return health
+
+
+def _merge_provider_health(
+    metric_health: dict[tuple[str, str], dict[str, Any]],
+    event_health: dict[tuple[str, str], dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Merge statistical DB health with immediate typed failure events."""
+    merged = copy.deepcopy(metric_health)
+    for key, event_record in event_health.items():
+        current = merged.get(key)
+        if current is None:
+            merged[key] = copy.deepcopy(event_record)
+            continue
+        failure_types = dict(current.get("failure_types", {}))
+        for failure_type, count in event_record.get("failure_types", {}).items():
+            failure_types[failure_type] = failure_types.get(failure_type, 0) + count
+        current["failure_types"] = failure_types
+        current["event_failure_count"] = event_record.get("failure_count", 0)
+        current["permanent_failure_count"] = event_record.get("permanent_failure_count", 0)
+        if event_record.get("status") == "degraded":
+            current["status"] = "degraded"
+            current["degrade_reason"] = event_record.get("degrade_reason", "typed_failure")
+    return merged
+
+
 def _health_key(provider: str, model: str) -> str:
     """Return a stable JSON key for provider-health metadata."""
     return f"{provider}:{model}"
@@ -580,10 +702,76 @@ def _apply_provider_health_fallbacks(
                 "provider health fallback: "
                 f"{_health_key(str(old.get('provider', '')), str(old.get('model', '')))} "
                 f"failure_rate={record.get('failure_rate', 0.0):.2f} "
-                f"n={record.get('sample_count', 0)}"
+                f"n={record.get('sample_count', 0)} "
+                f"reason={record.get('degrade_reason', 'threshold')}"
             ),
         })
         changed += 1
+    return changed
+
+
+def _core_route(route: dict | None) -> dict[str, str | None]:
+    """Return the comparable provider/model core of a route."""
+    route = route or {}
+    return {"provider": route.get("provider"), "model": route.get("model")}
+
+
+def _latest_health_fallback_transition(category: str, transitions: list[dict]) -> dict | None:
+    """Return the latest transition showing this category moved by health fallback."""
+    for transition in reversed(transitions):
+        if transition.get("category") != category:
+            continue
+        note = str(transition.get("note", ""))
+        if note.startswith("provider health fallback:"):
+            return transition
+        return None
+    return None
+
+
+def _refresh_same_day_provider_health(decision: dict) -> bool:
+    """Apply or reverse typed provider health fallbacks on a fresh same-day file."""
+    routing = decision.setdefault("routing", {})
+    transitions = decision.setdefault("transitions", [])
+    event_health = _query_provider_failure_events()
+    changed = False
+
+    for category, fallback in _HEALTH_FALLBACK_ROUTES.items():
+        if category in _PINNED_CATEGORIES:
+            continue
+        route = routing.get(category)
+        if not isinstance(route, dict):
+            continue
+
+        fallback_core = _core_route(fallback)
+        current_core = _core_route(route)
+        latest_fallback = _latest_health_fallback_transition(category, transitions)
+        if current_core == fallback_core and latest_fallback:
+            previous = latest_fallback.get("old", {})
+            previous_route = _normalise_route(previous) if isinstance(previous, dict) else {}
+            if previous_route and not _is_degraded(previous_route, event_health):
+                old = copy.deepcopy(route)
+                restored = dict(route)
+                restored.update(previous_route)
+                routing[category] = _normalise_route(restored)
+                transitions.append({
+                    "category": category,
+                    "old": _core_route(old),
+                    "new": _core_route(routing[category]),
+                    "computed_at": _now_iso8601(),
+                    "n_samples_winner": 0,
+                    "p50_ms_winner": 0,
+                    "note": "provider health fallback reversed: typed provider recovery",
+                })
+                changed = True
+
+    applied = _apply_provider_health_fallbacks(routing, event_health, transitions)
+    changed = changed or applied > 0
+    decision["provider_health"] = {
+        _health_key(provider, model): record
+        for (provider, model), record in event_health.items()
+        if record.get("status") == "degraded"
+    }
+    decision["transitions"] = transitions[-_MAX_TRANSITIONS:]
     return changed
 
 
@@ -707,16 +895,33 @@ def _active_decide(prior: dict) -> dict:
         PROVIDER_GROK: 0.0,
     }
 
-    # Ensure DB exists before attempting reads
     db_path = _DB_PATH
+    event_health = _query_provider_failure_events()
     if not db_path.exists():
-        # No DB at all — fall back to refreshed prior
+        # No DB at all — preserve prior routing, but still honor immediate
+        # typed provider/account/config failure events from wrapper sidecars.
         refreshed = _build_refreshed(prior)
-        refreshed["rationale"] = "active — no samples in last 14d; preserved prior routing"
+        transitions = list(prior.get("transitions", []))
+        health_fallbacks = _apply_provider_health_fallbacks(
+            refreshed.setdefault("routing", {}),
+            event_health,
+            transitions,
+        )
+        refreshed["transitions"] = transitions[-_MAX_TRANSITIONS:]
+        refreshed["provider_health"] = {
+            _health_key(provider, model): record
+            for (provider, model), record in event_health.items()
+            if record.get("status") == "degraded"
+        }
+        refreshed["rationale"] = (
+            "active — no samples in last 14d; preserved prior routing"
+            if health_fallbacks == 0
+            else f"active — no DB samples; health_fallbacks={health_fallbacks}"
+        )
         return refreshed
 
     transitions: list[dict] = list(prior.get("transitions", []))
-    provider_health = _query_provider_health(db_path)
+    provider_health = _merge_provider_health(_query_provider_health(db_path), event_health)
     degraded_health = {
         _health_key(provider, model): record
         for (provider, model), record in provider_health.items()
@@ -930,7 +1135,9 @@ def decide(*, force: bool = False) -> dict:
 
     if prior is not None and prior.get("decision_date") == today and not force_active:
         # Already fresh — but a scheduled change may have become due mid-day
-        if _apply_scheduled_changes(prior) or merged_defaults:
+        scheduled_changed = _apply_scheduled_changes(prior)
+        health_changed = _refresh_same_day_provider_health(prior)
+        if scheduled_changed or health_changed or merged_defaults:
             _write_atomic(prior)
         _cached_decision = prior
         return prior

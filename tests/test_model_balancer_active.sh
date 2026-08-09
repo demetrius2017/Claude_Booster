@@ -13,6 +13,7 @@ BOOSTER_ROOT="/Users/dmitrijnazarov/Projects/Claude_Booster"
 
 BALANCER_BAK="/tmp/balancer.bak.$$.json"
 METRICS_BAK="/tmp/metrics.bak.$$.sql"
+C4_EVENTS="/tmp/model_provider_events.c4.$$.jsonl"
 
 PASS=0
 FAIL=0
@@ -83,7 +84,7 @@ restore() {
   # restore metric table: drop + re-import
   sqlite3 "$DB" "DELETE FROM model_metrics;" 2>/dev/null || true
   sqlite3 "$DB" < "$METRICS_BAK" 2>/dev/null || true
-  rm -f "$BALANCER_BAK" "$METRICS_BAK"
+  rm -f "$BALANCER_BAK" "$METRICS_BAK" "$C4_EVENTS"
 }
 trap restore EXIT
 
@@ -221,19 +222,25 @@ fi
 echo ""
 
 # ──────────────────────────────────────────────────────────────────────────────
-# C4 — Insufficient samples preserve routing
+# C4 — Insufficient samples preserve active-category routing
 # ──────────────────────────────────────────────────────────────────────────────
-echo "C4: Insufficient samples preserve routing"
+echo "C4: Insufficient samples preserve non-pinned active category routing"
 
-clear_cat "coding"
+# Isolate the whole metrics table for this case. _active_decide reads all
+# model_metrics rows in the lookback window, not just rows inserted by this test.
+sqlite3 "$DB" "DELETE FROM model_metrics;" 2>/dev/null || true
 
-# Capture current coding routing (after C3 set it)
-CODING_BEFORE_C4=$(jq -c '.routing.coding' "$LIVE_JSON" 2>/dev/null || echo "MISSING")
+# Capture current non-pinned active-category routing.
+ACTIVE_C4_CATEGORY="trivial"
+ACTIVE_BEFORE_C4=$(jq -c ".routing.${ACTIVE_C4_CATEGORY}" "$LIVE_JSON" 2>/dev/null || echo "MISSING")
 
 # Only 3 rows — below MIN_SAMPLES=5
-seed_n 3 "codex-cli" "gpt-5.5" "coding" 100
+seed_n 3 "codex-cli" "gpt-5.6-luna" "$ACTIVE_C4_CATEGORY" 100
 
-C4_OUT=$(run_decide --force 2>&1); C4_EC=$?
+# Provider-event health is a second balancer input; isolate it too so C4 only
+# measures the three metric rows above.
+: > "$C4_EVENTS"
+C4_OUT=$(CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG="$C4_EVENTS" run_decide --force 2>&1); C4_EC=$?
 
 if [[ $C4_EC -eq 0 ]]; then
   pass_c C4a "decide exits 0"
@@ -241,18 +248,18 @@ else
   fail_c C4a "decide exited $C4_EC — $C4_OUT"
 fi
 
-CODING_AFTER_C4=$(jq -c '.routing.coding' "$LIVE_JSON" 2>/dev/null || echo "CHANGED")
-if [[ "$CODING_BEFORE_C4" == "$CODING_AFTER_C4" ]]; then
-  pass_c C4b "routing.coding unchanged with insufficient samples"
+ACTIVE_AFTER_C4=$(jq -c ".routing.${ACTIVE_C4_CATEGORY}" "$LIVE_JSON" 2>/dev/null || echo "CHANGED")
+if [[ "$ACTIVE_BEFORE_C4" == "$ACTIVE_AFTER_C4" ]]; then
+  pass_c C4b "routing.${ACTIVE_C4_CATEGORY} unchanged with exactly 3 isolated samples"
 else
-  fail_c C4b "routing.coding changed — before='$CODING_BEFORE_C4' after='$CODING_AFTER_C4'"
+  fail_c C4b "routing.${ACTIVE_C4_CATEGORY} changed — before='$ACTIVE_BEFORE_C4' after='$ACTIVE_AFTER_C4'"
 fi
 
 C4_RATIONALE=$(jget '.rationale')
-if echo "$C4_RATIONALE" | grep -qiE "insufficient samples|no samples"; then
-  pass_c C4c "rationale mentions insufficient/no samples"
+if echo "$C4_RATIONALE" | grep -qi "insufficient samples"; then
+  pass_c C4c "rationale mentions insufficient samples for isolated active category"
 else
-  fail_c C4c "rationale='$C4_RATIONALE' — expected 'insufficient samples' or 'no samples'"
+  fail_c C4c "rationale='$C4_RATIONALE' — expected 'insufficient samples'"
 fi
 
 echo ""

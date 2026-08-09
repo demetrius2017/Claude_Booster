@@ -214,7 +214,7 @@ the critical review path.
 
 **In practice:** `/start` shows degraded lanes directly in the
 `=== MODEL BALANCER ===` block, for example
-`degraded=zai-cli:glm-5.2[1m]`. `model_balancer.py status` also prints
+`degraded=zai-cli:glm-5.2`. `model_balancer.py status` also prints
 `degraded_providers` so the Lead can see the operational reason behind a route
 change before planning.
 

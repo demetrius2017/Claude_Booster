@@ -11,7 +11,8 @@ Contract
 --------
 Input  : prompt text on stdin.
 Output : Grok response on stdout; diagnostics on stderr.
-Exit   : child ``grok`` exit code; 65 for empty prompt; 127 if binary missing.
+Exit   : child ``grok`` exit code; 65 for empty prompt; 69 for empty successful
+         output; 124 for timeout; 127 if binary missing.
 
 CLI
 ---
@@ -47,6 +48,17 @@ DEFAULT_CODER_MODEL = "grok-4.5"
 PROVIDER = "grok-cli"
 DEFAULT_DB_PATH = Path.home() / ".claude" / "rolling_memory.db"
 DEFAULT_GROK_BIN = Path.home() / ".grok" / "bin" / "grok"
+try:
+    DEFAULT_TIMEOUT_S = float(os.environ.get("GROK_CLI_TIMEOUT_S", "180"))
+except (TypeError, ValueError):
+    DEFAULT_TIMEOUT_S = 180.0
+READ_ONLY_DENIED_TOOLS = (
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "create_goal",
+    "update_goal",
+)
 INSERT_METRIC_SQL = """
 INSERT INTO model_metrics
     (ts_utc, provider, model, task_category, duration_ms, num_turns,
@@ -165,29 +177,43 @@ def _run_grok(
         "--no-subagents",
     ]
     if read_only:
-        cmd.extend(
-            [
-                "--deny",
-                "Edit",
-                "--deny",
-                "Write",
-                "--deny",
-                "NotebookEdit",
-                "--disallowed-tools",
-                "Edit,Write,NotebookEdit",
-            ]
-        )
+        for tool in READ_ONLY_DENIED_TOOLS:
+            cmd.extend(["--deny", tool])
+        cmd.extend(["--disallowed-tools", ",".join(READ_ONLY_DENIED_TOOLS)])
 
     started = time.monotonic()
-    proc = subprocess.run(cmd, text=True, check=False)
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=DEFAULT_TIMEOUT_S,
+        )
+        raw = proc.stdout
+        stderr = proc.stderr
+        final_returncode = int(proc.returncode)
+    except subprocess.TimeoutExpired as exc:
+        raw = exc.stdout if isinstance(exc.stdout, bytes) else b""
+        stderr = exc.stderr if isinstance(exc.stderr, bytes) else b""
+        final_returncode = 124
     duration_ms = int((time.monotonic() - started) * 1000)
+    if stderr:
+        sys.stderr.buffer.write(stderr)
+        sys.stderr.buffer.flush()
+    is_empty = raw.decode("utf-8", "replace").strip() == ""
+    if final_returncode == 0 and is_empty:
+        print("grok_cli: empty response", file=sys.stderr)
+        final_returncode = 69
+    sys.stdout.buffer.write(raw)
+    sys.stdout.buffer.flush()
     _record_metric(
         model=model,
         task_category=task_category,
         duration_ms=duration_ms,
-        success=proc.returncode == 0,
+        success=final_returncode == 0 and not is_empty,
     )
-    return int(proc.returncode)
+    return final_returncode
 
 
 def main() -> int:
