@@ -5,12 +5,18 @@
 
 set -euo pipefail
 
-QND="/Users/dmitrijnazarov/Projects/Claude_Booster/templates/rules/quality-no-defects.md"
-PV="/Users/dmitrijnazarov/Projects/Claude_Booster/templates/rules/paired-verification.md"
-ST="/Users/dmitrijnazarov/Projects/Claude_Booster/templates/commands/start.md"
-GO="/Users/dmitrijnazarov/Projects/Claude_Booster/templates/commands/go.md"
-CORE="/Users/dmitrijnazarov/Projects/Claude_Booster/templates/rules/core.md"
-BC="/Users/dmitrijnazarov/Projects/Claude_Booster/templates/codex/skills/booster-command/SKILL.md"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+QND="$ROOT/templates/rules/quality-no-defects.md"
+PV="$ROOT/templates/rules/paired-verification.md"
+ST="$ROOT/templates/commands/start.md"
+GO="$ROOT/templates/commands/go.md"
+HACKATHON="$ROOT/templates/commands/hackathon.md"
+CORE="$ROOT/templates/rules/core.md"
+BC="$ROOT/templates/codex/skills/booster-command/SKILL.md"
+FD="$ROOT/templates/rules/flow-designer.md"
+GOSKILL="$ROOT/templates/codex/skills/go/SKILL.md"
+README="$ROOT/README.md"
+README_RU="$ROOT/README.ru.md"
 
 PASS=0
 FAIL=0
@@ -30,7 +36,7 @@ check() {
 
 # ── Preflight: all three files must exist ──────────────────────────────────────
 
-for f in "$QND" "$PV" "$ST" "$GO" "$CORE" "$BC"; do
+for f in "$QND" "$PV" "$ST" "$GO" "$HACKATHON" "$CORE" "$BC" "$FD" "$GOSKILL" "$README" "$README_RU"; do
     if [[ ! -f "$f" ]]; then
         echo "FATAL: required file not found: $f"
         exit 2
@@ -271,11 +277,11 @@ else
     echo "  Expected: 'prototype_plan' and 'role_handoff_contract' in $GO"
 fi
 
-if grep -q "NO INSERT/UPDATE/DELETE" "$GO" && grep -q "notebooks/" "$GO" && grep -q "scripts/probes/" "$GO"; then
-    check 26 "go.md: Prototyper is read-only and writes only notebook/probe artifacts" "ok"
+if grep -q "NO INSERT/UPDATE/DELETE" "$GO" && grep -q "mandatory notebook" "$GO" && grep -q "investigation journal" "$GO" && grep -q "paired probe script merely" "$GO"; then
+    check 26 "go.md: Prototyper is read-only; notebook is mandatory journal, not a paired probe-script requirement" "ok"
 else
-    check 26 "go.md: Prototyper is read-only and writes only notebook/probe artifacts" "fail"
-    echo "  Expected: read-only DML ban plus notebooks/ and scripts/probes/ paths in $GO"
+    check 26 "go.md: Prototyper is read-only; notebook is mandatory journal, not a paired probe-script requirement" "fail"
+    echo "  Expected: read-only DML ban, mandatory journal semantics, and no paired probe-script requirement in $GO"
 fi
 
 if grep -q "broker sync" "$GO" && grep -q "Prototype PASS before Worker" "$GO"; then
@@ -299,6 +305,60 @@ else
     echo "  Expected: 'Prototype Gate:' and 'Prototype Handoff:' in $PV"
 fi
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Evidence-first / final-deploy test-gate checks (32-38)
+# ══════════════════════════════════════════════════════════════════════════════
+
+if grep -q "Evidence Receipt" "$PV" && grep -q "source identity" "$PV" && grep -q "timestamp" "$PV"; then
+    check 32 "paired-verification.md: requires source identity and timestamps in an Evidence Receipt" "ok"
+else
+    check 32 "paired-verification.md: requires source identity and timestamps in an Evidence Receipt" "fail"
+fi
+
+if grep -q "Final deploy gate — frozen durable regression tests only after evidence" "$PV" && grep -q "full existing suite" "$PV"; then
+    check 33 "paired-verification.md: delays durable regression tests until final deploy gate" "ok"
+else
+    check 33 "paired-verification.md: delays durable regression tests until final deploy gate" "fail"
+fi
+
+if grep -q "Do not create or rewrite an acceptance suite, test files, fixtures, mocks, synthetic datasets" "$GO" && grep -q "## Phase 3 — DIRECT-PROBE RUN" "$GO"; then
+    check 34 "go.md: forbids synthetic validation artifacts during iterations and requires direct probes" "ok"
+else
+    check 34 "go.md: forbids synthetic validation artifacts during iterations and requires direct probes" "fail"
+fi
+
+if grep -q "Now, and only now, create or update durable regression tests" "$GO" && grep -q "Direct probes: exit=0. Full existing suite: exit=0." "$GO"; then
+    check 35 "go.md: final deploy gate requires direct evidence before durable tests and full suite" "ok"
+else
+    check 35 "go.md: final deploy gate requires direct evidence before durable tests and full suite" "fail"
+fi
+
+if grep -q "direct-probe requirements" "$FD" && ! grep -q "mock time, inject failure" "$FD"; then
+    check 36 "flow-designer.md: emits direct-probe requirements rather than mock-test instructions" "ok"
+else
+    check 36 "flow-designer.md: emits direct-probe requirements rather than mock-test instructions" "fail"
+fi
+
+if grep -q "synthetic test stand" "$BC" && grep -q "final deploy gate" "$BC" && grep -q "evidence receipt from direct read-only probes" "$GOSKILL"; then
+    check 37 "Codex bridge and go skill preserve evidence-first final-deploy semantics" "ok"
+else
+    check 37 "Codex bridge and go skill preserve evidence-first final-deploy semantics" "fail"
+fi
+
+if ! grep -qiE "write an executable acceptance test|rewrite the test script|same verifier test|same unchanged test" "$PV" "$GO" "$FD" "$BC" "$GOSKILL"; then
+    check 38 "canonical protocol has no pre-final acceptance-test/rewrite mandate" "ok"
+else
+    check 38 "canonical protocol has no pre-final acceptance-test/rewrite mandate" "fail"
+fi
+
+# Evidence-first verification must not regress to synthetic scenario injection or
+# test-exit-code verdicts in the PFD and README explanations.
+if ! grep -qiE "PFD informs testing|which branches to inject in tests|simulate: fire timeout, then inject fill|inject ramping forecast|Workers and Verifiers writing code, tests|Lead runs the test|Executable test shapes|Mock clock / controllable time|Branch injection|standard Verifier testing|generated branch-injection tests|downstream consumer tests|Verifier tests must cover at least one downstream consumer|green test's exit code|EXIT CODE = interim verdict|a green test" "$FD" "$README"; then
+    check 39 "PFD and README contain no synthetic verification-loop residuals" "ok"
+else
+    check 39 "PFD and README contain no synthetic verification-loop residuals" "fail"
+fi
+
 if grep -q "Role handoff standard" "$PV" && grep -q "Prototype FAIL means no Worker spawn" "$PV"; then
     check 30 "paired-verification.md: standardizes no-loss handoff and blocks Worker on failed prototype" "ok"
 else
@@ -311,6 +371,146 @@ if grep -q "Prototype Gate" "$BC" && grep -q "Prototype Handoff" "$BC"; then
 else
     check 31 "booster-command skill: Codex bridge carries Prototype Gate requirement" "fail"
     echo "  Expected: 'Prototype Gate' and 'Prototype Handoff' in $BC"
+fi
+
+# Mandatory investigation-notebook contract: no optional notebook wording may
+# survive in canonical operational text.
+if grep -q "non-trivial behavioral, data, runtime, external-system" "$GO" \
+    && grep -q "ISO timestamp" "$GO" \
+    && grep -q "raw-output reference" "$GO" \
+    && grep -q "pure docs/format/static-config task with no executable data/runtime hypothesis" "$GO" \
+    && grep -q "mandatory investigation notebook" "$BC" \
+    && grep -q "mandatory investigation notebook" "$GOSKILL"; then
+    check 40 "canonical protocol: mandatory notebook records complete read-only investigation evidence" "ok"
+else
+    check 40 "canonical protocol: mandatory notebook records complete read-only investigation evidence" "fail"
+fi
+
+if ! grep -qiE "if a notebook is useful|notebook is useful|notebook path or none|notebook: <path or none>" "$PV" "$GO" "$BC" "$GOSKILL"; then
+    check 41 "canonical protocol: notebook is never optional and never reported as path-or-none" "ok"
+else
+    check 41 "canonical protocol: notebook is never optional and never reported as path-or-none" "fail"
+fi
+
+# Audit-fix hardening: all operational variants must preserve the same
+# candidate-bound, fail-closed evidence contract.
+if grep -q "artifact/tree-diff SHA-256" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "process/build/deployment/version identity" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "newer than the last relevant edit" "$GO" "$PV" "$HACKATHON"; then
+    check 42 "candidate binding: receipts bind exact artifact and runtime identity after the final edit" "ok"
+else
+    check 42 "candidate binding: receipts bind exact artifact and runtime identity after the final edit" "fail"
+fi
+
+if grep -q "HTTP is GET/HEAD only" "$GO" \
+    && grep -q "DB-enforced read-only role" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "COPY PROGRAM" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "operation class" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "allowlist decision" "$GO" "$PV" "$HACKATHON"; then
+    check 43 "read-only policy: HTTP/SQL/CLI/filesystem allowlist fails closed" "ok"
+else
+    check 43 "read-only policy: HTTP/SQL/CLI/filesystem allowlist fails closed" "fail"
+fi
+
+if grep -q "never a temp directory" "$GO" \
+    && grep -q "never a tempdir" "$PV" "$BC" "$GOSKILL" \
+    && grep -q "durable repo-relative artifact" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "SHA-256" "$GO" "$PV" "$HACKATHON"; then
+    check 44 "durable notebook: no ephemeral path and raw-output SHA retained" "ok"
+else
+    check 44 "durable notebook: no ephemeral path and raw-output SHA retained" "fail"
+fi
+
+if grep -q "final regression manifest" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "test-file SHA-256" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "tests cannot" "$GO" "$PV" "$HACKATHON" \
+    && grep -q "separate scoped run" "$GO" "$PV" "$HACKATHON"; then
+    check 45 "final-test immutability: manifest and hashes freeze before suite" "ok"
+else
+    check 45 "final-test immutability: manifest and hashes freeze before suite" "fail"
+fi
+
+if grep -q "prototype_plan:" "$FD" && grep -q "role_handoff_contract:" "$FD" \
+    && ! grep -qiE "property-style (test|тест)" "$PV" \
+    && ! grep -qi "reopens test contract" "$PV"; then
+    check 46 "PFD schema carries prototype and handoff sections; paired verification has no property-test residue" "ok"
+else
+    check 46 "PFD schema carries prototype and handoff sections; paired verification has no property-test residue" "fail"
+fi
+
+if grep -q "candidate-bound" "$README_RU" \
+    && grep -q "Evidence Receipt" "$README_RU" \
+    && ! grep -qiE "independent test|green test" "$README_RU" \
+    && ! grep -qi "created/updated paths or none needed" "$GO" \
+    && ! grep -qiE "edge-test harvest|durable test harvest" "$BC" "$GO"; then
+    check 48 "residue cleanup: Russian evidence wording and frozen-test contract" "ok"
+else
+    check 48 "residue cleanup: Russian evidence wording and frozen-test contract" "fail"
+fi
+
+if ! grep -qiE "same acceptance suite|same test suite|Judge tests all" "$README" "$README_RU" \
+    && grep -q "candidate-bound" "$README" "$README_RU" \
+    && grep -q "not create an acceptance suite" "$HACKATHON" \
+    && grep -q "test harvest/rewrite" "$HACKATHON" \
+    && grep -q "final deploy gate" "$HACKATHON"; then
+    check 47 "README and hackathon avoid pre-winner synthetic-test bypass language" "ok"
+else
+    check 47 "README and hackathon avoid pre-winner synthetic-test bypass language" "fail"
+fi
+
+# Final protocol corrections: each assertion is scoped to the file that owns
+# the contract, so a phrase in another template cannot produce a false pass.
+if sed -n '/\*\*Prototyper prompt:\*\*/,/## Artifact Contract/p' "$GO" | grep -q "DevTools" \
+    && sed -n '/\*\*Prototyper prompt:\*\*/,/## Artifact Contract/p' "$GO" | grep -q "may only inspect console, network, performance, DOM, or storage state" \
+    && sed -n '/\*\*Prototyper prompt:\*\*/,/## Artifact Contract/p' "$GO" | grep -q "click, type, navigation, script injection, storage mutation" \
+    && sed -n '/\*\*Prototyper prompt:\*\*/,/## Artifact Contract/p' "$GO" | grep -q "worker mutation, or any page-state mutation" \
+    && sed -n '/\*\*Prototyper prompt:\*\*/,/## Artifact Contract/p' "$GO" | grep -q "Unknown or unprovable read-only"; then
+    check 49 "go.md: Prototyper embeds fail-closed DevTools read-only allowlist" "ok"
+else
+    check 49 "go.md: Prototyper embeds fail-closed DevTools read-only allowlist" "fail"
+fi
+
+if grep -q "Baseline/source snapshot binding:" "$GO" \
+    && grep -q "query SHA-256; result SHA-256; raw-output SHA-256" "$GO" \
+    && ! sed -n '/\*\*Prototyper prompt:\*\*/,/### Prototype pass\/fail rule/p' "$GO" | grep -q "Candidate binding:"; then
+    check 50 "go.md: Prototype Handoff binds baseline snapshot rather than future candidate" "ok"
+else
+    check 50 "go.md: Prototype Handoff binds baseline snapshot rather than future candidate" "fail"
+fi
+
+if sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "Baseline/source snapshot binding:" \
+    && sed -n '/\*\*Стадия 2/,/\*\*Стадия 3/p' "$PV" | grep -q "baseline/source snapshot binding (exact query SHA-256, result SHA-256, and raw-output SHA-256)" \
+    && ! sed -n '/\*\*Стадия 2/,/\*\*Стадия 3/p' "$PV" | grep -q "candidate binding" \
+    && sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "source/environment identity" \
+    && sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "exact query SHA-256" \
+    && sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "result SHA-256" \
+    && sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "raw-output SHA-256" \
+    && sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "ISO timestamp or observation" \
+    && sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "window, baseline/source snapshot binding" \
+    && sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "MUST NOT fabricate or name a future candidate identity" \
+    && ! sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "Candidate binding: artifact/tree-diff SHA-256" \
+    && ! sed -n '/## Prototype Gate — executable truth before code/,/## Verifier mandate/p' "$PV" | grep -q "process/build/deployment/version identity as applicable"; then
+    check 53 "paired-verification.md: pre-Worker Prototype evidence binds baseline, never a future candidate" "ok"
+else
+    check 53 "paired-verification.md: pre-Worker Prototype evidence binds baseline, never a future candidate" "fail"
+fi
+
+if grep -q "baseline_source_snapshot:" "$FD" \
+    && grep -q "prototype_to_verifier: \"<baseline-derived" "$FD" \
+    && ! sed -n '/prototype_plan:/,/role_handoff_contract:/p' "$FD" | grep -q "candidate_binding:"; then
+    check 51 "flow-designer.md: prototype plan and handoff carry baseline snapshot only" "ok"
+else
+    check 51 "flow-designer.md: prototype plan and handoff carry baseline snapshot only" "fail"
+fi
+
+if grep -q "Canonical re-probe gate — mandatory after winner move/copy" "$HACKATHON" \
+    && grep -q "evidence whose timestamp is newer than the move/copy time" "$HACKATHON" \
+    && grep -q "Do not delete losing artifacts until the canonical re-probe PASS" "$HACKATHON" \
+    && sed -n '/### Canonical re-probe gate/,/### Edge evidence harvest/p' "$HACKATHON" | grep -q "canonical re-probe PASS may the Lead delete losing artifacts and resume" \
+    && sed -n '/### Canonical re-probe gate/,/### Edge evidence harvest/p' "$HACKATHON" | grep -qF '`/go` at Phase 3B diff review'; then
+    check 52 "hackathon.md: canonical winner is re-probed before deletion or /go review" "ok"
+else
+    check 52 "hackathon.md: canonical winner is re-probed before deletion or /go review" "fail"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════

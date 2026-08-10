@@ -1,5 +1,5 @@
 ---
-description: "Execute Семёрка / Семёрка-F when opt-in (Flow Designer → Challenge → Prototype Gate → Worker + Verifier → Test → Diff-review → Verdict) — hardcoded, non-skippable cross-provider pipeline."
+description: "Execute Семёрка / Семёрка-F when opt-in (Flow Designer → Challenge → Prototype Gate → Worker + direct-probe Verifier → evidence review → final deploy regression gate → verdict) — hardcoded, non-skippable cross-provider pipeline."
 argument-hint: "[fable] <Artifact Contract — structured text with Objective, Verified Facts, etc.>"
 ---
 
@@ -7,7 +7,7 @@ argument-hint: "[fable] <Artifact Contract — structured text with Objective, V
 Before each numbered step below, run: `python3 ~/.claude/scripts/phase.py progress "<N>/7 <step_label>"`
 After the final step completes, run: `python3 ~/.claude/scripts/phase.py progress clear`
 
-Steps: `1/7 flow_designer`, `2/7 challenge`, `3/7 prototype_gate`, `4/7 worker_verifier`, `5/7 test_run`, `6/7 diff_review`, `7/7 verdict`
+Steps: `1/7 flow_designer`, `2/7 challenge`, `3/7 prototype_gate`, `4/7 worker_verifier`, `5/7 direct_probe_run`, `6/7 diff_review`, `7/7 final_deploy_verdict`
 
 ---
 
@@ -252,8 +252,8 @@ Produce a PFD with ALL of the following sections (per flow-designer.md §4 schem
 - `temporal_gaps` — between (phases), duration (MUST be quantified), drifting_state, drift_rate, stale_after, mitigation
 - `cascade_chains` — trigger, chain, propagation_time, atomicity, current_gap
 - `worker_directives` — imperative ("MUST..."), rationale (which failure_mode/gap this prevents), enforcement type
-- `prototype_plan` — read-only executable proof plan: data sources, commands/notebook/script path, exact comparisons, invariants to prove before Worker, expected handoff artifact
-- `verifier_assertions` — assertion (what to test), type (temporal/branching/invariant/freshness/cascade), how (concrete test approach), derived_from (failure_mode ID or invariant)
+- `prototype_plan` — read-only executable proof plan: data sources, mandatory investigation-notebook location for every non-trivial behavioral/data/runtime/external-system/incident/critical gate, direct commands/queries, exact comparisons, invariants to prove before Worker, and expected handoff artifact; the only N/A case is an explicitly N/A entire gate for pure docs/format/static-config work with no executable data/runtime hypothesis
+- `verifier_assertions` — direct-probe requirement (what to observe), type (temporal/branching/invariant/freshness/cascade), source identity + concrete command/query shape + expected evidence, derived_from (failure_mode ID or invariant)
 - `role_handoff_contract` — exact payload each downstream role receives from the previous role; include fields, artifact paths, allowed writes, forbidden state changes, and pass/fail criteria
 - `fable_control` — required only when `GO_FABLE=1`; use the schema from
   `/go fable` above, initialized with `enabled: true`, `calls_used: 0`, and
@@ -344,7 +344,7 @@ You are a PFD Challenge agent. A Flow Designer (a DIFFERENT model) produced the 
 2. CONTRACT AMBIGUITY — is any AC field underspecified so that "correct" is undefined (a silent input, an unspecified error shape, an undefined return on an edge)? If yes → A-class signal; name the exact ambiguity.
 3. INTEGRATION MISMATCH — does the task touch existing code? Which existing helper/function/invariant could this duplicate or break? (This is the #1 under-caught rework class — design review usually misses it.)
 4. WEAK INVARIANTS — is any invariant not expressible as a boolean assertion? Any temporal_gap duration vague? Any worker_directive advisory ("should") instead of imperative ("MUST")?
-5. VERIFIER BLIND SPOTS — is there a failure_mode with NO corresponding verifier_assertion? Every CRITICAL/HIGH failure mode must be testable.
+5. VERIFIER BLIND SPOTS — is there a failure_mode with NO corresponding verifier_assertion? Every CRITICAL/HIGH failure mode must have a direct-probe path or an explicit source-access limitation.
 6. PROTOTYPE BLIND SPOTS — for data/external-system tasks, does `prototype_plan` prove the first lossy transform or only restate the implementation idea? It must compare source-of-truth input against current code/DB behavior before Worker writes code.
 
 ## Required output — structured, no prose preamble:
@@ -354,8 +354,8 @@ VERDICT: SOUND | GAPS_FOUND | CONTRACT_AMBIGUOUS
 ADDITIONS (only if GAPS_FOUND):
 - new_failure_modes: [<id, guide_word, trigger, mitigation, category> ...]
 - new_worker_directives: [<imperative "MUST..." + rationale> ...]
-- new_verifier_assertions: [<assertion + how-to-test + derived_from> ...]
-- new_prototype_checks: [<read-only check + command/notebook/script shape + expected comparison> ...]
+- new_verifier_assertions: [<direct observation + source identity + command/query shape + derived_from> ...]
+- new_prototype_checks: [<read-only check + notebook cell/direct command-query shape + expected comparison> ...]
 - invariant_fixes: [<which invariant, how to make it boolean> ...]
 
 CONTRACT_AMBIGUITY (only if CONTRACT_AMBIGUOUS):
@@ -416,7 +416,7 @@ means pause for user clarification.
   rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
   ```
 
-**Why additive reconciliation preserves the exit-code axiom:** the challenge never produces code and never overrides a test verdict — it only enriches the PFD with more failure modes, stricter assertions, and read-only prototype checks. More verifier_assertions = a stricter acceptance test, and more prototype checks = better pre-code facts; neither can make a defective Worker output more likely to wrongly PASS. The "PASS = test exit code only" axiom is untouched.
+**Why additive reconciliation preserves the exit-code axiom:** the challenge never produces code and never overrides a probe verdict — it only enriches the PFD with more failure modes, direct-probe requirements, and read-only prototype checks. More verifier_assertions = stricter source-of-truth evidence, and more prototype checks = better pre-code facts; neither can make a defective Worker output more likely to wrongly PASS. The exit-code axiom is untouched.
 
 ---
 
@@ -437,8 +437,8 @@ Before spawning Worker, Lead classifies the task:
 
 | Task class | Prototype Gate |
 |---|---|
-| Broker/data sync, DB producer, migration/backfill, ledger/NAV/TWR, financial data, external API integration, concurrency/cache, incident-driven fix, or `critical: true` component | **MUST PASS** |
-| Pure local/static transform with no external state, no producer-owned table, no incident context, and no critical component | May be `N/A`, but Lead must print `Prototype Gate: N/A (<specific reason>)` before Phase 2 |
+| Non-trivial behavioral, data, runtime, external-system, incident-driven, or `critical: true` task | **MUST use a notebook and PASS** |
+| Pure docs, format, or static-config task with no executable data/runtime hypothesis | Entire gate may be explicitly `N/A`, but Lead must print `Prototype Gate: N/A (<concrete reason>)` before Phase 2 |
 
 If the gate is mandatory and the PFD lacks `prototype_plan`, pause and return to
 Phase 1B Challenge with `CONTRACT_AMBIGUOUS`: the design is not ready for code.
@@ -447,10 +447,10 @@ Phase 1B Challenge with `CONTRACT_AMBIGUOUS`: the design is not ready for code.
 
 Spawn one Prototyper on the same channel selected for hard/read-only analysis
 (prefer the provider different from the Flow Designer when available). The
-Prototyper may create files only under `notebooks/`, `scripts/probes/`,
-`reports/prototypes/`, or a temp directory named in the Artifact Contract. It
-must not edit production code, migrations, configs, app modules, or producer
-tables.
+Prototyper MUST create the durable investigation notebook under `notebooks/` or
+`reports/prototypes/` (never a temp directory) for
+every gate that is not explicitly N/A. It must not edit production code,
+migrations, configs, app modules, or producer tables.
 
 **Prototyper prompt:**
 
@@ -463,8 +463,25 @@ You are read-only with respect to production state:
 - NO deploy.
 - NO changes to production code paths.
 - NO git clean/reset --hard.
-- If a notebook is useful, create it under notebooks/ AND create a paired runnable
-  .py probe under scripts/probes/ so the proof is reviewable and repeatable.
+- Fail closed under this exact read-only allowlist: HTTP is GET/HEAD only. SQL
+  must use a DB-enforced read-only role/transaction and only SELECT,
+  non-mutating WITH, or EXPLAIN; reject CALL, DDL/DML, mutating CTEs,
+  side-effecting functions, and COPY PROGRAM. CLI must be documented
+  get/list/show/status/describe/logs/diff or an explicitly known read verb;
+  filesystem reads only; no shell redirection or pipe into a mutator. DevTools
+  may only inspect console, network, performance, DOM, or storage state: no
+  click, type, navigation, script injection, storage mutation, cache/service-
+  worker mutation, or any page-state mutation. Unknown or unprovable read-only
+  operations are UNAVAILABLE and must not execute.
+- Create the mandatory notebook as the investigation journal, never as a synthetic
+  test stand. Each evidence-bearing cell MUST record the direct authorized read-only
+  command/query, operation class, allowlist decision, source identity and environment,
+  ISO timestamp or observation window, baseline/source snapshot identity,
+  query/result/raw-output SHA-256 hashes, filters/parameters, counts/samples,
+  expected versus actual, invariant result, and bounded raw output.
+  Include a raw-output reference even when the bounded output is embedded.
+  Store large raw output as a durable repo-relative artifact with SHA-256. Do not create a paired probe script merely to
+  validate the candidate; direct command output is the replayable evidence.
 
 ---
 
@@ -489,9 +506,10 @@ Produce a Prototype Handoff in markdown with these exact sections:
 
 Prototype verdict: PASS | FAIL | N/A
 Artifacts:
-- Notebook: <path or none>
-- Probe script: <path or none>
+- Notebook: <mandatory path; N/A only with the entire Prototype Gate N/A reason>
+- Direct commands/queries: <commands/queries>
 - Output report: <path or inline summary>
+Baseline/source snapshot binding: <source identity; exact query SHA-256; result SHA-256; raw-output SHA-256; ISO timestamp or observation window>
 Source-of-truth inputs:
 - <broker/API/file/table + read-only command used>
 Current-system comparison:
@@ -506,7 +524,7 @@ Worker handoff:
 - Facts Worker MUST treat as true
 - Hypotheses Worker MUST NOT assume
 - Exact files/functions Worker should inspect/change
-- Regression assertions Verifier must include
+- Direct-probe requirements Verifier must execute or specify
 
 If verdict is FAIL, name the missing access/data/error and stop. Do not guess.
 ```
@@ -524,8 +542,9 @@ If verdict is FAIL, name the missing access/data/error and stop. Do not guess.
   No Worker spawned. Fix the probe/input access or revise the Artifact Contract.
   ```
   Then clear progress and remove `.go_active`.
-- **N/A** is allowed only for the low-risk local/static class above. It must be
-  logged in the Phase 4 verdict.
+- **N/A** is allowed only when the entire gate concerns a pure docs, format, or
+  static-config task with no executable data/runtime hypothesis. It must state a
+  concrete reason and be logged in the Phase 4 verdict.
 
 ### Role handoff standard
 
@@ -537,9 +556,9 @@ Every role hands over a concrete artifact, not a prose impression:
 | Flow Designer | Challenge | Full PFD including `prototype_plan` and `role_handoff_contract` | Implementation code |
 | Challenge | Prototyper | Augmented PFD + additive prototype checks | Deleted/overridden PFD requirements |
 | Prototyper | Worker | Prototype Handoff: verdict, artifacts, source/current counts, first divergence, invariants, worker facts | Guesswork, write queries, prod mutations |
-| Prototyper | Verifier | Regression assertions derived from proven facts and invariants | Worker's implementation approach |
-| Worker | Verifier/Test | Artifact path only; Verifier still uses AC/PFD/prototype assertions, not Worker prompt | Worker's prompt/reasoning |
-| Worker/Test | Diff Reviewer | Git diff + AC + PFD + Prototype Handoff + test output | Permission to edit code |
+| Prototyper | Verifier | Baseline-derived direct-probe requirements, source snapshot hashes, and invariants | Worker's implementation approach or a future candidate identity |
+| Worker | Verifier | Artifact path only; Verifier still uses AC/PFD/prototype evidence, not Worker prompt | Worker's prompt/reasoning |
+| Worker/Verifier | Diff Reviewer | Git diff + AC + PFD + Prototype Handoff + evidence receipt | Permission to edit code |
 | Fable Challenge | Fable Diff-review | `fable_control.watchlist` + rework_log persisted in the augmented PFD | Hidden Fable chat memory |
 
 This handoff standard is the anti-loop mechanism: a downstream role may build on
@@ -566,9 +585,9 @@ Before spawning the Worker, decide whether this task warrants COMPETING implemen
 
 **If both → escalate to `/hackathon`** for the implementation stage:
 - Pass the PFD-augmented Artifact Contract and Prototype Handoff as the hackathon Artifact Contract.
-- Seed the Judge Mandate from the PFD `verifier_assertions` + `invariants` and Prototype Handoff regression assertions — the deterministic acceptance the Семёрка already derived.
-- Spawn the 2–3 candidates ACROSS providers (e.g. one Opus Agent + one Codex `codex_sandbox_worker.sh gpt-5.5`). When `ZAI_API_KEY` is present, include GLM-5.2 via `~/.claude/scripts/zai_cli.py review` for design critique, edge harvest, or external diff review. When Grok CLI is authenticated, include Grok via `~/.claude/scripts/grok_sandbox_worker.sh grok-4.5` as a write-capable contestant or via `~/.claude/scripts/grok_cli.py review --model grok-4.5` as a fourth-model reviewer. Z.ai is a third-model review lane by default; Grok may be a code worker only through the sandbox worker; neither should be the deterministic Judge unless the Judge remains an executable test runner with exit-code scoring.
-- The hackathon's deterministic Judge (exit-code score, winner-take-all) REPLACES the single cross-provider Verifier for this run — same no-LLM-judgment axiom, stronger evidence. It includes the SHIP-4 **edge-test harvest** (losers' test coverage unioned into the winner's suite; see `hackathon.md` Phase 4).
+- Seed the Judge Mandate from the PFD `verifier_assertions` + `invariants` and Prototype Handoff direct-probe requirements — the deterministic evidence criteria the Семёрка already derived.
+- Spawn the 2–3 candidates ACROSS providers (e.g. one Opus Agent + one Codex `codex_sandbox_worker.sh gpt-5.5`). When `ZAI_API_KEY` is present, include GLM-5.2 via `~/.claude/scripts/zai_cli.py review` for design critique, edge harvest, or external diff review. When Grok CLI is authenticated, include Grok via `~/.claude/scripts/grok_sandbox_worker.sh grok-4.5` as a write-capable contestant or via `~/.claude/scripts/grok_cli.py review --model grok-4.5` as a fourth-model reviewer. Z.ai is a third-model review lane by default; Grok may be a code worker only through the sandbox worker; neither should be the deterministic Judge unless the Judge remains a deterministic direct-probe runner with exit-code scoring during iteration; durable test execution is reserved for the final deploy gate.
+- The hackathon's deterministic Judge (direct-probe runner with exit-code scoring, winner-take-all) REPLACES the single cross-provider Verifier for this run — use direct evidence during iteration. Any durable regression authoring waits for the final deploy gate.
 - When the hackathon returns a winner, **resume the Семёрка at Phase 3B** (diff-review the winner) → Phase 4 verdict. Skip the standard single-Worker path below.
 - Log it in the verdict: `implementation: /hackathon (N candidates, winner cN, score X/Y)`.
 
@@ -610,13 +629,13 @@ The Agent tool spawns Claude models only; Codex spawns via the sandbox worker, w
 
 **Preserve parallelism — spawn the anthropic side as a background Agent FIRST, then run the codex side foreground** (the Agent runs concurrently in the background while Codex executes in its worktree). Because `VP` is forced to differ from `WP`, exactly one side is anthropic and one is codex-cli — never two foreground Bash calls, never two Agents.
 
-- **If `WP=codex-cli`:** (1) spawn the **Verifier** as a background Opus Agent (`model: "opus"`, `run_in_background: true`); (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/codex_sandbox_worker.sh "$WM" < worker_prompt.txt` (the `coding` prefix tags this Codex call's telemetry as the `coding` tier — debt #1), capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier's test path when it returns.
+- **If `WP=codex-cli`:** (1) spawn the **Verifier** as a background Opus Agent (`model: "opus"`, `run_in_background: true`); (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/codex_sandbox_worker.sh "$WM" < worker_prompt.txt` (the `coding` prefix tags this Codex call's telemetry as the `coding` tier — debt #1), capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier's evidence receipt when it returns.
 - **Today (`WP=anthropic` — `coding` is pinned to Opus 5):** spawn the Worker as a background Opus Agent (`model: "opus"`, `run_in_background: true`), then run the Verifier via `CODEX_REASONING_EFFORT=medium codex_sandbox_worker.sh gpt-5.6-terra < verifier_prompt.txt`.
 - **If `WP=grok-cli`:** (1) spawn the **Verifier** as a background Opus Agent when available, else Codex; (2) run the **Worker** via `CLAUDE_BOOSTER_TASK_CATEGORY=coding ~/.claude/scripts/grok_sandbox_worker.sh "$WM" < worker_prompt.txt`, capture the diff, apply each changed file via Edit/Write; (3) collect the Verifier result.
 
 The Worker and Verifier **prompts are identical regardless of provider** — only the spawn channel differs. Use the prompt blocks below verbatim.
 
-**Degradation (cross-provider is a quality optimization, NOT a safety gate):** if the required other-provider channel is unavailable (e.g. the `codex` binary is missing, Codex auth fails, or `ZAI_API_KEY` is absent), fall back to another available provider or a same-provider Verifier on the Agent tool and **log the degradation** in the Phase 4 verdict line (`cross-provider: DEGRADED — Verifier on same provider as Worker (<reason>)`). Do NOT wedge the pipeline over it — a same-provider test is weaker than cross-provider but still far better than no test.
+**Degradation (cross-provider is a quality optimization, NOT a safety gate):** if the required other-provider channel is unavailable (e.g. the `codex` binary is missing, Codex auth fails, or `ZAI_API_KEY` is absent), fall back to another available provider or a same-provider Verifier on the Agent tool and **log the degradation** in the Phase 4 verdict line (`cross-provider: DEGRADED — Verifier on same provider as Worker (<reason>)`). Do NOT wedge the pipeline over it — a same-provider direct-probe pass is weaker than cross-provider independence but still far better than no evidence.
 
 ---
 
@@ -672,7 +691,10 @@ Implement the task. Write the result to the artifact path specified in the Artif
 If the artifact path is a code file, write the complete implementation.
 If it is a directory, produce all required files within it.
 
-Do not write a test — that is the Verifier's job.
+Do not create or rewrite tests, fixtures, mocks, synthetic datasets, verification
+stands, or harnesses merely to validate this intermediate candidate. Existing
+tests may be run unchanged. Durable regression tests belong only to the final
+deploy gate after direct probes pass.
 ```
 
 ---
@@ -680,7 +702,7 @@ Do not write a test — that is the Verifier's job.
 ### Verifier agent prompt:
 
 ```
-You are a Verifier agent. Write an executable acceptance test for the following task.
+You are a Verifier agent. You may plan concurrently, but execute candidate-verifying direct read-only probes only after the Worker artifact exists; each such probe must be newer than the last relevant edit. Return an evidence receipt.
 
 You are independent. You have NOT seen the Worker's implementation.
 You do NOT know how the Worker chose to implement anything.
@@ -700,14 +722,14 @@ Acceptance emphasis: <INSERT Acceptance emphasis FROM AC>
 
 ## From the PFD: what to test
 
-### Verifier assertions
+### Direct-probe requirements
 <INSERT verifier_assertions SECTION FROM PFD ONLY>
 
 ### Fable watchlist assertions (only when GO_FABLE=1)
 <INSERT fable_control.watchlist items whose target_phase is verifier or whose required_evidence is a test/assertion>
 
-### Prototype regression assertions
-<INSERT regression assertions from Prototype Handoff, if any>
+### Prototype direct-probe requirements
+<INSERT direct-probe requirements from Prototype Handoff, if any>
 
 ### Invariants (must hold after execution)
 <INSERT invariants SECTION FROM PFD ONLY>
@@ -717,33 +739,42 @@ Acceptance emphasis: <INSERT Acceptance emphasis FROM AC>
 
 ---
 
-## Test script requirements
+## Evidence receipt requirements
 
-Write a bash or python test script that:
+Do not create or rewrite an acceptance suite, test files, fixtures, mocks, synthetic datasets,
+verification stands, or harnesses. Do not alter existing tests. Instead execute
+or specify direct read-only probes against the source of truth: curl/HTTP, SQL
+SELECT, authoritative CLI commands, DevTools, counts/samples, and boolean
+invariants as applicable.
 
-1. Tests each verifier_assertion from the PFD — one assertion = one labeled test case
-2. Checks each invariant holds after execution — assert the boolean expression or its observable proxy
-3. Covers at least one non-happy-path branch from branching_scenarios — inject the failure condition and assert correct handling
-4. Includes every Prototype Handoff regression assertion as a labeled test case when Phase 1C returned PASS
-5. Outputs clear PASS/FAIL per test case:
-   ```
-   [PASS] assertion: <description>
-   [FAIL] assertion: <description> — expected <X>, got <Y>
-   ```
-6. Prints a summary at the end:
-   ```
-   Results: <N> passed, <M> failed
-   ```
-7. Exits with code 0 if ALL assertions pass, non-zero if ANY fail
+Return an Evidence Receipt with one labeled row per requirement:
 
-Save the test script to: `<artifact_path_dir>/test_<artifact_name>.sh`
-(or `.py` if Python is more natural for the assertion logic)
+```
+Probe: <id and observed behavior>
+Source identity: <endpoint/table/service/file and environment>
+Timestamp: <UTC timestamp>
+Candidate binding: <artifact/tree-diff SHA-256; process/build/deployment/version identity as applicable>
+Operation class / allowlist decision: <HTTP_GET|HTTP_HEAD|SQL_SELECT|SQL_WITH|SQL_EXPLAIN|CLI_READ|FILESYSTEM_READ|DEVTOOLS_READ> / <ALLOWED|UNAVAILABLE>
+Command/query: <exact read-only command/query or DevTools operation>
+Expected / actual: <expected> / <actual>
+Counts/samples: <counts plus representative sample, or N/A>
+Invariant: <boolean expression and result>
+Raw output: <bounded output or durable repo-relative artifact path + SHA-256>
+Exit: <0 | non-zero | unavailable with reason>
+```
 
-Where `<artifact_path_dir>` = directory containing the artifact path from the AC,
-and `<artifact_name>` = basename of the artifact without extension.
+HTTP is GET/HEAD only. SQL must use a DB-enforced read-only role/transaction and
+only SELECT, non-mutating WITH, or EXPLAIN; reject CALL, DDL/DML, mutating CTEs,
+side-effecting functions, and COPY PROGRAM. CLI must be documented get/list/show/
+status/describe/logs/diff or an explicitly known read verb; filesystem reads only.
+No shell redirection or pipe into a mutator. Unknown or unprovable read-only
+operations are UNAVAILABLE and must not execute.
 
-Do not modify the Worker's artifact. Do not implement any feature logic.
-Test only. Read, run, assert, report.
+The receipt MUST cover each PFD requirement, each observable invariant, at
+least one available non-happy-path observation, and each Prototype Handoff
+requirement. The mandatory notebook cells must carry the same command/query and
+factual evidence. If no lawful read-only probe exists, report it as unavailable;
+do not manufacture a mock.
 ```
 
 ---
@@ -756,7 +787,7 @@ The pipeline has SEVEN stages, so the status bar has seven segments. Emit the ma
 Семёрка ▰▰▱▱▱▱▱ 2/7 · Challenge ✓
 Семёрка ▰▰▰▱▱▱▱ 3/7 · Prototype Gate ✓
 Семёрка ▰▰▰▰▱▱▱ 4/7 · Worker ✓ · Verifier ✓
-Семёрка ▰▰▰▰▰▱▱ 5/7 · Test ✓
+Семёрка ▰▰▰▰▰▱▱ 5/7 · Direct probes ✓
 Семёрка ▰▰▰▰▰▰▱ 6/7 · Diff review ✓
 Семёрка ▰▰▰▰▰▰▰ 7/7 · Verdict ✓
 ```
@@ -766,44 +797,50 @@ Do NOT begin Phase 3 until BOTH Worker and Verifier have returned.
 
 ---
 
-## Phase 3 — TEST RUN
+## Phase 3 — DIRECT-PROBE RUN
 
-Run: `python3 ~/.claude/scripts/phase.py progress "5/7 test_run"`
+Run: `python3 ~/.claude/scripts/phase.py progress "5/7 direct_probe_run"`
 
 After both agents complete:
 
-1. Read the Verifier's test script from the path it wrote (the `test_<artifact_name>.sh` or `.py` file).
-2. Run it:
-   ```bash
-   bash <test_script_path>
-   ```
-   (Use `python3 <test_script_path>` if the file is `.py`)
-3. Capture the full stdout + stderr output and the exit code.
+1. Read the Verifier's Evidence Receipt and inspect every required direct
+   command/query for read-only scope and source identity.
+2. Execute candidate-bound direct probes only after the Worker artifact exists (or record the Verifier's already-executed factual
+   output when its channel had source access). Do not create a probe script or a
+   synthetic test harness to make this step executable. A PASS probe is newer
+   than the last relevant edit and records the artifact/tree-diff SHA-256 plus
+   applicable process/build/deployment/version identity; production observations
+   without a matching deployed build identity are baseline evidence only.
+3. Capture each command/query, timestamp, source identity, filters,
+   stdout/stderr or rows, samples/counts, invariant result, and exit code.
 4. Output:
    ```
-   Test result: exit=<N>
-   <stdout/stderr output>
+   Direct-probe result: exit=<N>
+   <evidence receipt and factual output>
    ```
 
-**Do NOT skip this phase.** "The code looks correct" is not a substitute for an executable test.
+**Do NOT skip this phase.** "The code looks correct" and a synthetic test stand
+are not substitutes for direct source-of-truth evidence.
 
 ---
 
 ## Phase 3B — POST-IMPLEMENTATION DIFF REVIEW (cross-provider, only on PASS)
 
-**Run only if Phase 3 returned exit=0.** If the test failed, skip straight to Phase 4 fail-classification — there is nothing to review yet.
+**Run only if all required Phase 3 direct probes returned exit=0.** If a probe
+failed, skip straight to Phase 4 fail-classification — there is no stable
+candidate to review yet.
 
 Run: `python3 ~/.claude/scripts/phase.py progress "6/7 diff_review"` (or
 `"6/7 diff_review(fable)"` when `GO_FABLE=1`)
 
-The Verifier tested *observable behavior* but never saw the code. This phase gives the **diff itself** a second look by a different-provider reviewer — to catch defects that emerge at implementation time and that a behavioral test does not exercise: integration breakage, reinvented helpers, security holes, dead/over-broad churn. Per consilium 2026-06-13 (SHIP-3): design-time review cannot see these — they live in the written code.
+The Verifier checked *observable behavior* but never saw the code. This phase gives the **diff itself** a second look by a different-provider reviewer — to catch defects that emerge at implementation time and that a direct probe does not observe: integration breakage, reinvented helpers, security holes, dead/over-broad churn. Per consilium 2026-06-13 (SHIP-3): design-time review cannot see these — they live in the written code.
 
 **Skip criteria (log the skip in the verdict):** the diff is trivial — docs/comments only, or < ~15 changed lines with no logic / control-flow / IO. Otherwise the review runs.
 
 **Provider rule:** the reviewer MUST run on a different provider than the Worker (it reads the Worker's code, so it must not be the author's own model). Prefer GLM-5.2 as a third-model reviewer when `ZAI_API_KEY` is present and the Worker is not `zai-cli`; otherwise use the same mapping as the Verifier:
 - **If `GO_FABLE=1` and the budget gate allows it**: run exactly ONE read-only
   Fable Diff-review. The prompt MUST include only the AC, Prototype Handoff,
-  test output, final diff or watchlist-oriented diff slices, and
+  evidence receipt/direct-probe output, final diff or watchlist-oriented diff slices, and
   `fable_control.watchlist`. This consumes the second and final Fable call.
   If Fable is unavailable, weekly usage is `>=80%`, or a Fable call was already
   consumed by a retry/recheck, set `fable_control.degraded=true`, record
@@ -819,7 +856,7 @@ Collect the diff first: `git -C "$(git rev-parse --show-toplevel)" diff -- <chan
 **Reviewer prompt:**
 
 ```
-You are a Post-Implementation Diff Reviewer. The code below already PASSED its acceptance test. Give the DIFF a different-provider second look for defects a behavioral test cannot catch. You do NOT write or rewrite code — you return structured findings only.
+You are a Post-Implementation Diff Reviewer. The code below already PASSED its direct source-of-truth probes. Give the DIFF a different-provider second look for defects the probes may not observe. You do NOT write or rewrite code — you return structured findings only.
 
 ## Artifact Contract
 <INSERT FULL ARTIFACT CONTRACT FROM PHASE 0>
@@ -837,7 +874,7 @@ You are a Post-Implementation Diff Reviewer. The code below already PASSED its a
 1. INTEGRATION — does this break a caller, change a depended-on signature/contract, or REINVENT an existing helper/function? (The #1 emergent defect; design review can't see it.)
 2. MINIMALITY — unnecessary churn, dead code, a broad refactor where a small patch would do, unrelated formatting. Smaller diff = lower regression risk.
 3. SECURITY — injection, secrets in code, unsafe path/SQL/shell construction, missing validation at a boundary, auth/permission gaps.
-4. UNTESTED BEHAVIOR — a code path the acceptance test clearly does not exercise that could fail in production (error branch, edge input, resource cleanup, partial failure).
+4. UNOBSERVED BEHAVIOR — a code path the direct probes clearly do not observe that could fail in production (error branch, edge input, resource cleanup, partial failure).
 
 ## Output — structured, no preamble:
 VERDICT: CLEAN | FINDINGS
@@ -874,7 +911,7 @@ with evidence, or routes a typed rework request to the correct phase.
 
 **Lead reconciliation:**
 - **VERDICT CLEAN, or only MED/LOW findings** → review passes. Log MED/LOW in the Phase 4 verdict line (advisory — surface them, do not silently drop, do not auto-fix). Proceed to Phase 4 PASS.
-- **Any HIGH finding** → **R-failure**: respawn the Worker on the same provider `WP` with the HIGH `fix_directive`s appended to its prompt, plus the failed-attempt session context (`session_context.py --agent "<Worker desc>" --no-thinking`). Then **re-run Phase 3 (the SAME Verifier test — it MUST stay green)** and **re-run this Phase 3B review**. R counts toward the 3-retry cap (shared with V/W). The reviewer never edits code — only the Worker does, and the unchanged test still gates.
+- **Any HIGH finding** → **R-failure**: respawn the Worker on the same provider `WP` with the HIGH `fix_directive`s appended to its prompt, plus the failed-attempt session context (`session_context.py --agent "<Worker desc>" --no-thinking`). Then **re-run Phase 3 direct probes** and **re-run this Phase 3B review**. R counts toward the 3-retry cap (shared with V/W). The reviewer never edits code; no test artifact is created or rewritten during this loop.
 - **FABLE_DIFF_REVIEW_VERDICT: PASS** → mark every closed item in
   `fable_control.watchlist` with `status: CLOSED` and `closure_evidence`. Proceed
   to Phase 4 PASS if the normal review also has no blocking HIGH finding.
@@ -883,9 +920,9 @@ with evidence, or routes a typed rework request to the correct phase.
   - `implementation` / `worker` → R-failure; respawn Worker, re-run Phase 3,
     then re-run diff-review with the **normal reviewer** using the persisted
     watchlist. Do not spend a third Fable call.
-  - `verifier_gap` / `verifier` → V-failure; respawn Verifier to add/repair the
-    missing assertion, then re-run Phase 3. Do not respawn Worker unless the new
-    test fails against the implementation.
+  - `verifier_gap` / `verifier` → V-failure; respawn Verifier to repair the
+    missing direct-probe requirement, then re-run Phase 3. Do not respawn Worker
+    unless the revised probe fails against the implementation.
   - `prototype_gap` / `prototype_gate` → return to Phase 1C Prototype Gate with
     the missing read-only proof added to the prototype plan.
   - `design_gap` / `flow_designer` → return to Phase 1 with a Rework Packet and
@@ -895,7 +932,7 @@ with evidence, or routes a typed rework request to the correct phase.
   - `contract_gap` / `user` → pause for user clarification.
 - **FABLE_DIFF_REVIEW_VERDICT: CONTRACT_AMBIGUOUS** → pause for user clarification.
 
-**Why this preserves the axiom:** the reviewer produces findings, never code, and never overrides the test verdict. A HIGH finding routes to a Worker fix that must still pass the unchanged Verifier test — so PASS stays "exit code of the test", never "the reviewer approved it".
+**Axiom:** implementation-stage PASS is based on required direct read-only probes and Evidence Receipt exit statuses, never reviewer judgment; final deploy PASS additionally requires durable regression tests/full existing suite exit 0.
 
 ---
 
@@ -903,28 +940,46 @@ with evidence, or routes a typed rework request to the correct phase.
 
 Run: `python3 ~/.claude/scripts/phase.py progress "7/7 verdict"`
 
-### If exit=0 (ALL PASS) AND Phase 3B review cleared (CLEAN, or only MED/LOW):
+### Final deploy gate — only if all direct probes passed and Phase 3B review cleared (CLEAN, or only MED/LOW)
 
 Before emitting the verdict, confirm evidence is newer than the last relevant
 edit, obtain an independent check for high-risk claims, state the attempted
 falsifier, and record residual risk plus downstream/integration status. These are
 mandatory provenance checks; they never override the exit-code-only PASS rule.
 
+Now, and only now, create or update durable regression tests that preserve the
+behavior proven by the direct probes. Do not use them to replace the evidence
+receipt. Run the full existing suite, including those durable tests, and capture
+its exit code. If this suite fails, return to the relevant W/V/A/E remediation;
+do not rewrite an intermediate test merely to make a candidate pass.
+
+Before the first full-suite run, derive and freeze a final regression manifest
+from every proven evidence requirement and every required unavailable branch.
+Existing coverage qualifies only with its named test path and SHA-256. An
+unavailable CRITICAL/HIGH observation must map to durable regression coverage or
+deployment is blocked. Freeze every named test-file SHA-256 with the manifest;
+once the suite begins, tests cannot change during this `/go` or `/hackathon` run.
+A test-contract defect blocks and requires a separate scoped run. Code or
+environment fixes may rerun the same frozen tests.
+
 ```
 ✓ PASS — Семёрка ▰▰▰▰▰▰▰ 7/7 complete. Artifact at <artifact_path>.
+Direct probes: exit=0. Full existing suite: exit=0.
 ```
 Append any of these that apply (honest status, not silent drop):
 - `prototype gate: <PASS | N/A (<reason>)>`
 - `diff review: <CLEAN | N MED/LOW advisory findings — list them as follow-ups | SKIPPED (trivial diff)>`
 - `fable control: <off | PASS (N/N watchlist items closed, calls_used X/2) | DEGRADED (<reason>) | REWORK routed to <phase>>`
 - `cross-provider: <OK | DEGRADED (<reason>)>` (if the Verifier or reviewer fell back to same-provider in Phase 2/3B)
+- `evidence receipt: <path or inline digest; source identities and timestamps>`
+- `durable regression tests: <created/updated paths OR named existing coverage paths with SHA-256>; full suite: exit=<N>`
 
 **Record the KPI outcome (SHIP instrumentation — proves the pipeline reduces rework):**
 ```bash
 python3 ~/.claude/scripts/kpi_rework.py record \
   --task "<short Objective>" --outcome pass \
   --worker-spawns <1 + number of W/R Worker re-spawns> \
-  --verifier-fails <number of test-fail cycles that occurred: V + W + R retries> \
+  --verifier-fails <number of direct-probe/final-suite fail cycles that occurred: V + W + R retries> \
   [--category <defect>:<count> for each classified retry]
 ```
 First-pass-clean run → `--worker-spawns 1 --verifier-fails 0` (no `--category`). For each retry that happened, tag the defect category (W/V/A/R → category): A-failure → `contract_ambiguity`; V-failure → `weak_verification`; W-failure → `missed_failure_mode` (or `integration_mismatch` / `capability` if that fits better); R-failure (Phase 3B HIGH) → `integration_mismatch` (or the finding's axis). A CONTRACT_AMBIGUOUS caught at Phase 1B and resolved pre-code is NOT a retry — it is prevented rework, so it does not count toward `verifier-fails`.
@@ -967,25 +1022,25 @@ Done.
 
 ---
 
-### If exit≠0 (FAIL):
+### If any required direct probe or final-suite run exits non-zero (FAIL):
 
-Classify the failure using this decision tree. Read the test output carefully before classifying.
+Classify the failure using this decision tree. Read the direct-probe receipt or final-suite output carefully before classifying.
 
 | Question | If YES → |
 |----------|----------|
-| Does the test assert something NOT stated in the AC or PFD (Verifier overstepped)? | **V-failure** |
-| Does the test assert something IN the AC/PFD, but Worker didn't implement it? | **W-failure** |
+| Does the probe claim something NOT stated in the AC/PFD, or lack a source capable of proving it (Verifier overstepped)? | **V-failure** |
+| Does a direct probe establish an AC/PFD violation by the Worker? | **W-failure** |
 | Is the AC ambiguous — "correct" is undefined or contradictory? | **A-failure** |
 | Is it environment: wrong path, missing dependency, permission error, runtime not available? | **E-failure** |
 
 **V-failure (Verifier overstepped):**
 Respawn Verifier on the **same provider channel `VP`** as Phase 2 (cross-provider invariant holds across retries — the Verifier stays on the opposite provider from the Worker), with the same prompt, plus:
 ```
-CORRECTION: Your previous test was rejected (V-failure) because it asserted:
+CORRECTION: Your previous direct probe was rejected (V-failure) because it asserted:
   <specific assertion that overstepped>
 This is NOT in the Artifact Contract or PFD. Remove it. Test ONLY what is in
 the AC's "Expected observable behavior" and "Acceptance emphasis", and the PFD's
-"verifier_assertions" and "invariants". Rewrite the test script.
+"verifier_assertions" and "invariants". Revise the direct probe plan and evidence receipt; do not write or rewrite a test artifact.
 ```
 
 **W-failure (Worker missed a requirement):**
@@ -995,19 +1050,19 @@ python3 ~/.claude/scripts/session_context.py --agent "<Worker agent description>
 ```
 Respawn Worker on the **same provider channel `WP`** as Phase 2 (Verifier stays on `VP`, the opposite provider), with the same prompt, plus:
 ```
-CORRECTION: Your implementation failed the Verifier's test (W-failure).
+CORRECTION: Your implementation failed a direct source-of-truth probe (W-failure).
 
-Failed test output:
-<paste test stdout/stderr>
+Failed probe evidence:
+<paste command/query, source identity, output/rows, and exit code>
 
-Failed assertions:
-<list the [FAIL] lines from test output>
+Failed invariants:
+<list the failed source-backed invariant rows>
 
 Session context from your previous attempt:
 <INSERT session_context output>
 
-Fix the implementation. The Verifier's test is the ground truth — do not argue with it.
-Implement what it checks.
+Fix the implementation. The source-of-truth probe is the ground truth — do not argue with it.
+Implement what the factual evidence establishes.
 ```
 
 **A-failure (AC ambiguous):**
@@ -1015,7 +1070,7 @@ Stop retry. Output:
 ```
 /go BLOCKED — A-failure: Artifact Contract is ambiguous.
 
-The Verifier's test failed because the AC does not clearly define correct behavior for:
+The Verifier's direct probe could not establish correct behavior because the AC does not clearly define:
   <specific aspect>
 
 Fix the AC to specify:
@@ -1032,7 +1087,7 @@ rm -f "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.claude/.go_active"
 
 **E-failure (environment issue):**
 Fix the environment issue (install missing dep, correct path, fix permissions).
-Then re-run Phase 3 only — do NOT respawn Worker or Verifier.
+Then re-run Phase 3 only — do NOT respawn Worker or Verifier. Do not create a harness to work around the environment.
 
 **Retry cap:**
 Hard cap: 3 retries total across all categories (V + W + R combined; A and E do not count as retries). R-failures (Phase 3B review HIGH findings) share this budget — a task cannot loop forever between Worker fix and diff review.
@@ -1047,7 +1102,7 @@ Attempt history:
   3. <classification> — <what was tried>
 
 Aggregated failure:
-<final test output>
+<final direct-probe or final-suite output>
 
 Recommended next action: <specific concrete next step — not a question>
 ```
@@ -1056,7 +1111,7 @@ Recommended next action: <specific concrete next step — not a question>
 ```bash
 python3 ~/.claude/scripts/kpi_rework.py record \
   --task "<short Objective>" --outcome fail_exhausted \
-  --worker-spawns <total Worker spawns> --verifier-fails <total test-fail cycles> \
+  --worker-spawns <total Worker spawns> --verifier-fails <total direct-probe/final-suite fail cycles> \
   [--category <defect>:<count> for each classified retry]
 ```
 
@@ -1075,8 +1130,8 @@ On retry, always include the failed agent's session context (via `session_contex
 
 1. **ALL FIVE role stages MUST run or explicitly gate: Flow Designer → Challenge → Prototype Gate → Worker + Verifier.** There is no silent "skip" path inside `/go`.
    If the task is trivial enough to skip Flow Designer, do NOT use `/go` — edit directly.
-   Prototype Gate may be `N/A` only for pure local/static tasks with no external state, no producer-owned table, no incident context, and no critical component. Broker/data/DB/financial/migration/external-system tasks require Prototype PASS before Worker.
-   (Under SHIP-4 escalation, the Worker+Verifier stage is REPLACED by a `/hackathon` tournament — competing candidates + a deterministic Judge — but Flow Designer, Challenge, and Prototype Gate still precede it, and a test still gates the result. The roles never collapse; only the implementation stage's shape changes.)
+   The notebook is mandatory for every non-trivial behavioral, data, runtime, external-system, incident-driven, or critical-component gate. Prototype Gate may be `N/A` only when the entire gate is explicitly N/A for a pure docs/format/static-config task with no executable data/runtime hypothesis and a concrete reason. These tasks require Prototype PASS before Worker.
+   (Under SHIP-4 escalation, the Worker+Verifier stage is REPLACED by a `/hackathon` tournament — competing candidates plus an independent Judge — but Flow Designer, Challenge, and Prototype Gate still precede it. During iteration the Judge uses direct evidence; durable tests are only added at the final deploy gate. The roles never collapse; only the implementation stage's shape changes.)
 
 2. **Flow Designer → Challenge → Prototype Gate → Worker + Verifier is a strict order.**
    PFD is an INPUT to the Challenge; the (possibly augmented) PFD is an INPUT to the Prototype Gate; the Prototype Handoff is an INPUT to both Worker and Verifier. Spawning Worker or Verifier before the Challenge reconciles and Prototype Gate passes/N/A logs = protocol violation.
@@ -1090,12 +1145,15 @@ On retry, always include the failed agent's session context (via `session_contex
    **The Verifier MUST run on a different provider than the Worker (SHIP-2).** Same-provider verification shares the Worker's blind spots — that is the correlated-failure mode the mono-provider regression introduced. `WP=codex-cli → Verifier=Opus`; `WP=anthropic → Verifier=codex gpt-5.5`. Exactly one of {Worker, Verifier} is anthropic and one is codex-cli. Cross-provider HARDENS the knowledge boundary (it never relaxes it). If the other-provider channel is unavailable, degrade to same-provider and LOG it — this is a quality optimization, not a safety gate, so it must not wedge the pipeline.
 
 4. **Lead MUST NOT evaluate Worker's code quality subjectively.**
-   Exit code from Verifier's test = the ONLY verdict mechanism.
+   Exit codes from required direct probes, followed at the final deploy gate by the
+   full existing suite, are the ONLY verdict mechanism.
    "The code looks correct to me" is never a reason to mark PASS.
 
-5. **Lead MUST run the Verifier's test (Phase 3).**
-   Do NOT skip Phase 3. Do NOT infer pass/fail from reading the code.
-   The test runs, or the pipeline is incomplete.
+5. **Lead MUST run the Verifier's direct probes (Phase 3).**
+   Do NOT skip Phase 3. Do NOT infer pass/fail from reading the code. During
+   implementation, do not create or rewrite test files, fixtures, mocks,
+   synthetic datasets, verification stands, or harnesses. Only the final deploy
+   gate may create/update durable regression tests, after direct evidence passes.
 
 6. **`/go fable` MUST keep Fable as Quality Chair, not Lead.**
    Fable may challenge the PFD and close the final `fable_watchlist`; it may
@@ -1109,4 +1167,8 @@ On retry, always include the failed agent's session context (via `session_contex
    `fable control: DEGRADED`.
 
 7. **Phase 3B diff review (SHIP-3) runs on PASS, on a different provider than the Worker, and produces findings — never code.**
-   It is conditional (skipped for a trivial diff, logged) and gated (only after the test is green). A HIGH finding routes to a Worker fix that must re-pass the SAME unchanged test (R-failure, counts toward the retry cap). The reviewer never edits code and never overrides the test verdict — PASS stays "test exit code", never "reviewer approved".
+   It is conditional (skipped for a trivial diff, logged) and gated only after
+   the direct probes pass. A HIGH finding routes to a Worker fix that must
+   re-pass the required direct probes (R-failure, counts toward the retry cap).
+   The reviewer never edits code and never overrides the factual evidence — PASS
+   remains an exit-code verdict, never "reviewer approved".

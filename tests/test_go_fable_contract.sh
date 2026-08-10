@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-ROOT="/Users/dmitrijnazarov/Projects/Claude_Booster"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 GO="$ROOT/templates/commands/go.md"
 SKILL="$ROOT/templates/codex/skills/go/SKILL.md"
 PROMPT="$ROOT/templates/codex/prompts/go.md"
@@ -47,7 +47,7 @@ must_contain "$GO" 'FABLE_DIFF_REVIEW_VERDICT:' "Fable diff-review verdict"
 must_contain "$GO" 'PASS | REWORK_REQUIRED | CONTRACT_AMBIGUOUS' "diff-review statuses"
 must_contain "$GO" 'target_phase_if_open: worker | verifier | prototype | flow_designer | user' "typed phase routing"
 must_contain "$GO" 'return to Phase 1C Prototype Gate' "prototype rework route"
-must_contain "$GO" 'PASS stays "exit code of the test"' "exit-code axiom"
+must_contain "$GO" 'implementation-stage PASS is based on required direct read-only probes and Evidence Receipt exit statuses, never reviewer judgment; final deploy PASS additionally requires durable regression tests/full existing suite exit 0.' "exit-code axiom"
 must_contain "$GO" 'fable control:' "verdict fable control line"
 must_contain "$GO" '`/go fable` MUST keep Fable as Quality Chair, not Lead' "non-negotiable role constraint"
 must_contain "$GO" 'Context between Fable calls MUST be carried by `fable_control`' "artifact-mediated context"

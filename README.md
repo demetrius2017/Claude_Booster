@@ -35,7 +35,7 @@ That's it. Booster installs a set of rules, hooks, and slash commands into `~/.c
 | Step | Type this | What happens |
 |------|-----------|--------------|
 | Open a session | `/start` | Claude reads yesterday's handover, the knowledge base, and health telemetry, then proposes a plan. **No more re-explaining your stack every morning.** |
-| Do coding work | `/go <what you want built>` | The task runs through a gated, cross-provider pipeline (design → challenge → build → independent test → diff review). The **exit code** is the verdict — not "looks good to me." |
+| Do coding work | `/go <what you want built>` | The task runs through a gated, cross-provider pipeline (design → challenge → build → independent read-only evidence → diff review → final deploy regression gate). The verdict is an evidence receipt, not "looks good to me." |
 | Close the session | `/handover` | A structured report is saved so tomorrow's `/start` picks up exactly where you left off. |
 
 ### 3. The command catalog — what each does & the problem it solves
@@ -52,11 +52,11 @@ That's it. Booster installs a set of rules, hooks, and slash commands into `~/.c
 
 | Command | What it does | The problem it kills |
 |---------|--------------|----------------------|
-| `/go` | The **семёрка** (7 stages): Flow Designer → Challenge → Prototype Gate → Worker + Verifier → Test → Diff-review → Verdict. Cross-provider, non-skippable, exit-code verdict | Single-agent coding grades its own homework and thinks in flat snapshots (correct at T=0, wrong at T+1) |
+| `/go` | The **семёрка** (7 stages): Flow Designer → Challenge → Prototype Gate → Worker + Verifier → direct evidence → Diff-review → final deploy regression gate. Cross-provider and non-skippable; direct-source evidence is the verdict. | Single-agent coding grades its own homework and thinks in flat snapshots (correct at T=0, wrong at T+1) |
 | `/audit` | Six parallel lens agents (correctness, security, performance, architecture, data-integrity, operational) + external review | One reviewer misses what six specialists catch independently |
 | `/code-review` | Focused post-edit pass for duplication, over-engineering, integration drift, inefficiency | Fast reviews miss the "you already wrote this helper" class of waste |
 | `/consilium` | Multi-agent debate (3–5 role-specific agents + external models), synthesized into a report | High-risk architecture decisions need adversarial perspectives, not one opinion |
-| `/hackathon` | N workers build the same feature in isolation; a Judge tests all with one acceptance suite; highest score wins | For genuinely uncertain solutions, a single attempt is a coin flip |
+| `/hackathon` | N workers build the same feature in isolation; a Judge compares candidates through one candidate-bound notebook and authorized read-only evidence receipts; highest score wins by exit status | For genuinely uncertain solutions, a single attempt is a coin flip |
 
 **Verification — prove it works, don't assume**
 
@@ -83,7 +83,7 @@ That's it. Booster installs a set of rules, hooks, and slash commands into `~/.c
 Three mechanisms, each targeting a distinct way LLM agents fail on multi-session projects:
 
 1. **Temporal-causal memory** — stores *causal chains* (tried → happened → concluded → still-open), not just facts. Kills the "re-discover the same bug every week" loop.
-2. **The семёрка pipeline (`/go`)** — the strong model *thinks* (design critique, independent verification, diff review) while the fast flat-fee model *types*. **No model ever reviews its own code**, and the verdict is a green test's exit code — not a vibe.
+2. **The семёрка pipeline (`/go`)** — the strong model *thinks* (design critique, independent verification, diff review) while the fast flat-fee model *types*. **No model ever reviews its own code**; the verdict is a timestamped receipt from authorized read-only sources. The final deploy gate then runs durable regression tests and the full existing suite.
 3. **Smart model routing** — GPT-5.6 Luna for cheap recon, Terra for implementation, Sol for hard reasoning, plus Claude and external providers for independent verification. Right model, right effort, enough quota to finish the week.
 
 > **New here?** Run `python install.py`, open a session with `/start`, build something with `/go`, and close with `/handover`. Everything else is depth you'll reach for when you need it.
@@ -94,19 +94,19 @@ Three mechanisms, each targeting a distinct way LLM agents fail on multi-session
 
 Claude Booster ships three mechanisms that address the three failure modes of LLM agents working on multi-session projects:
 
-### 1. Семёрка — Flow Designer → Challenge → Prototype Gate → Worker + Verifier → Test → Diff-review → Verdict
+### 1. Семёрка — Flow Designer → Challenge → Prototype Gate → Worker + Verifier → direct evidence → Diff-review → final deploy verdict
 
 When Claude delegates a coding task through `/go`, it runs a **seven-stage gated pipeline**:
 
 1. **Flow Designer** (Opus) maps every failure mode, temporal gap, and state cascade — producing a Process Flow Document (PFD) before any code is written
 2. **Challenge** — a different-provider model attacks the PFD before code, adding missed failure modes and stricter assertions
-3. **Prototype Gate** proves or falsifies the data/process hypothesis with a read-only notebook/probe before Worker touches production code paths
-4. **Worker + Verifier** (parallel) — the Worker implements with PFD-derived directives as hard requirements; the Verifier writes an executable acceptance test **without seeing the Worker's code or prompt**
-5. **Test run** — the Lead runs the Verifier's test; the exit code is the raw verdict
+3. **Prototype Gate** requires an investigation notebook before Worker for every non-trivial behavioral, data, runtime, external-system, incident, or critical-component hypothesis; it records authorized read-only observations rather than serving as a synthetic test stand
+4. **Worker + Verifier** (parallel) — the Worker implements with PFD-derived directives as hard requirements; the independent Verifier runs or specifies direct read-only source-of-truth probes **without seeing the Worker's code or prompt**
+5. **Evidence run** — the Lead captures commands/queries, source identity, timestamps, samples/counts, invariants, and exit codes; synthetic tests do not substitute for those facts
 6. **Diff review** — a different-provider model reads the final diff for integration, minimality, and untested branches
-7. **Verdict** — PASS → record to the rework KPI → commit; FAIL → classify and retry
+7. **Final deploy verdict** — after direct evidence and diff review pass, create/update durable regression tests once, run the full existing suite, then record the exit-code verdict
 
-The exit code is the verdict. No subjective "looks good to me."
+The evidence receipt is the verdict: source identity, timestamp, authorized read-only query, expected versus actual, and an explicit unavailable-evidence record where lawful observation is impossible. No subjective "looks good to me."
 
 **Why this matters:** Single-agent workflows suffer from three biases: self-evaluation (same model writes and reviews), flat-snapshot thinking (no consideration of what happens at T+1, T+2, ...), and plausible-but-unexecuted RECON theories. The Flow Designer forces temporal/branching analysis upfront. The Prototype Gate forces the hypothesis to meet real data in read-only mode before code. The Verifier breaks the self-evaluation loop by testing observable behavior independently.
 
@@ -131,13 +131,13 @@ Claude Booster doesn't run every agent on the same model. The Lead routes each d
 | Tier | Model | When |
 |------|-------|------|
 | Trivial | Haiku 4.5 | Grep, file lookup, path search — instant, lightweight |
-| Coding | Sonnet 4.6 | Workers and Verifiers writing code, tests, configs (≥20 lines) |
+| Coding | Sonnet 4.6 | Workers writing code/configs (≥20 lines); Verifiers collecting direct read-only evidence |
 | Medium | Sonnet 4.6 | Research, single-file review, routine audits |
 | Hard | Opus 4.8 | Architecture, security review, consilium, deep debugging |
 
 The **Lead** (orchestrator) stays on **Opus 4.8** — strongest model for synthesis, routing, and judgment. Optionally, with `/fast` toggle, the Lead runs on **Opus 4.8 fast output** (~2.5x faster tokens). To pin the old Opus 4.6 fast mode: `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1`.
 
-A typical `/go` task runs Flow Designer and Challenge first, then a Prototype Gate when the task touches data producers, broker sync, migrations, ledger/NAV/TWR, external APIs, incidents, or critical components. Only after the gate passes does Worker + Verifier run. Simple local/static tasks may log `Prototype Gate: N/A`, but data-path work must prove the first divergence before code.
+A typical `/go` task runs Flow Designer and Challenge first, then requires an investigation notebook for every non-trivial behavioral, data, runtime, external-system, incident, or critical-component Prototype Gate. Only after the gate passes does Worker + Verifier run. Notebook N/A is allowed only when the entire gate is explicitly N/A for a pure docs, format, or static-config task with no executable data/runtime hypothesis and a concrete reason.
 
 **On Claude Max:** model routing (Haiku/Sonnet/Opus delegation) works out of the box within the subscription. **Fast mode is NOT included in the Max subscription** — it is billed as extra usage at $30/$150 per MTok from the first token, even if you have remaining plan usage. Enable with `/fast` only when speed justifies the cost.
 
@@ -259,15 +259,16 @@ YOUR TASK (Artifact Contract)
         │
   ┌─ 3. Worker ──────── writes the code         ┐ parallel; the Verifier
   │     (Codex gpt-5.5)                          │ never sees the Worker's code
-  └─ 3. Verifier ────── writes an independent    ┘
-        │     (Opus, cross)  acceptance test
+  └─ 3. Verifier ────── collects independent     ┘
+        │     (Opus, cross)  direct evidence
         │
-  4. Test run ───────── Lead runs the Verifier's test. EXIT CODE = verdict.
-        │               Not "looks correct" — a green test.
+  4. Evidence run ───── Lead records authorized read-only probe results in an
+        │               Evidence Receipt: source identity, timestamp, expected versus actual,
+        │               or an explicit unavailable-evidence reason.
         │
   5. Diff review ────── a DIFFERENT model reads the final diff: integration,
-     (Opus, cross)      minimality, security, untested branches.
-        │               HIGH → Worker fixes, test re-greens. MED/LOW → logged.
+     (Opus, cross)      minimality, security, unexamined branches.
+        │               HIGH → Worker fixes, then direct observations are repeated. MED/LOW → logged.
         │
   6. Verdict ────────── PASS → auto-record to the rework KPI → commit.
                         FAIL → classify W/V/A/R, up to 3 retries.
@@ -277,7 +278,7 @@ YOUR TASK (Artifact Contract)
 
 **Cross-provider invariant.** The Worker and every checker (Challenge, Verifier, Diff-review) run on different providers. The mapping is provider-symmetric: on Claude CLI the native model is Claude and "the other" is Codex; on Codex CLI it mirrors. If the other-provider channel is unavailable, the stage degrades to a same-provider second pass and logs `cross-provider: DEGRADED` — it never claims cross-provider when it didn't happen. Quality optimization, not a safety gate: it must not wedge the pipeline.
 
-**SHIP-4 — hard-task escalation.** When a task is BOTH high-blast-radius (auth, DB migration, financial, concurrency, infra) AND has genuine solution uncertainty, the Worker stage escalates to a `/hackathon` tournament (2–3 competing candidates, deterministic Judge by exit-code, winner-take-all) plus the one safe "merge" — cherry-picking the losers' *tests* into the winner's suite, never their code. Default stays a single Worker; escalation is the gated exception (the cost economics only close on genuinely failure-prone task classes).
+**SHIP-4 — hard-task escalation.** When a task is BOTH high-blast-radius (auth, DB migration, financial, concurrency, infra) AND has genuine solution uncertainty, the Worker stage escalates to a `/hackathon` tournament: 2–3 competing candidates and a deterministic Judge using the same candidate-bound read-only evidence notebook. Until one winner is stable at the final deploy gate, no acceptance-suite authoring or test-artifact creation/rewrite, fixture, mock, synthetic dataset, stand, or harness is created. Edge harvest contributes source-backed invariants and direct probes only. Then, once, the final gate derives and freezes a regression manifest and test hashes before running the full existing suite. Default stays a single Worker; escalation is the gated exception.
 
 **Measured, not assumed.** Every `/go` run auto-records its outcome via `kpi_rework.py` — first-pass-clean rate, verifier-fail count, defect categories. `/start` surfaces the 30-day trend. If `contract_ambiguity` + `missed_failure_mode` fall while first-pass-clean rises, the design-time gates are working; if only `capability` moves, they aren't the lever and the design gets revisited.
 
@@ -341,11 +342,11 @@ One command. Three agents. Zero shortcuts.
 That's it. From this single invocation, the system spawns:
 1. **Flow Designer** (Opus) — produces a Process Flow Document mapping every failure mode, temporal gap, and state cascade
 2. **Worker** (Sonnet) — implements the task with PFD-derived directives as hard requirements
-3. **Verifier** (Sonnet) — writes an executable acceptance test *without seeing the Worker's code*
+3. **Verifier** (Sonnet) — returns an independent direct-probe evidence receipt *without seeing the Worker's code*
 
-The Lead runs the test. Exit code = verdict. No subjective "looks good to me." No skipped steps. No human in the loop between spawn and result.
+The Lead records the Verifier's authorized read-only observations as an Evidence Receipt: source identity, timestamp, expected versus actual, and an explicit unavailable-evidence reason when lawful observation cannot be made. Durable regression tests and the full existing suite run only at the final deploy gate. No subjective "looks good to me." No skipped steps. No human in the loop between spawn and result.
 
-**Built-in retry intelligence:** When tests fail, `/go` classifies the failure (Worker missed a requirement? Verifier overstepped? Contract ambiguous? Environment broken?) and respawns the right agent with the failed session's context injected. Up to 3 retries, fully automatic.
+**Built-in retry intelligence:** When direct probes fail, `/go` classifies the failure (Worker missed a requirement? Verifier overstepped? Contract ambiguous? Environment broken?) and respawns the right agent with the failed session's context injected. During this loop it does not rewrite tests or build synthetic validation stands. Up to 3 retries, fully automatic.
 
 ### `go_gate.py` — The Self-Enforcement Hook
 
@@ -425,29 +426,25 @@ A new pipeline role that sits between RECON and PLAN for tasks with temporal com
 | `failure_modes` | One row per scenario: trigger → effect → detection → recovery |
 | `invariants` | Properties that must hold after every scenario |
 | `worker_directives` | Concrete implementation constraints derived from the above |
-| `verifier_assertions` | Executable test shapes for each invariant and branch |
+| `verifier_assertions` | Authorized read-only observation requirements for each invariant and observed branch: source identity, timestamp, expected versus actual, and unavailable-evidence handling |
 
 The HAZOP guide words are the key mechanism. Instead of asking "what could go wrong?" (open-ended, easy to skip), Flow Designer asks seven closed questions: what if this value is completely absent (NO)? what if it's larger than expected (MORE)? what if it arrives out of order (LATE)? This forces coverage of the failure modes that actually cause production incidents, not the ones that are easy to imagine.
 
 ### 3. Temporal & Process Verification (commit `8031804`)
 
-Extension to `paired-verification.md` (~120 additional lines). When an Artifact Contract references a PFD, the Verifier's job expands from "write an acceptance test" to "write tests that cover the PFD's timeline, branches, and invariants."
+The pre-2026-08-10 design described synthetic mock-and-scenario tests here. That historical design is superseded: during implementation verification, the Verifier now performs only authorized read-only observations of real sources. Each observation records source identity, timestamp, expected versus actual, and explicitly states when lawful evidence is unavailable. Durable regression tests, including any legitimate downstream-consumer coverage, are created or updated only at the final deploy gate after direct evidence is collected.
 
-Four new testing patterns added to the Verifier protocol:
-
-| Pattern | What it tests | Mechanism |
+| Observation focus | What it establishes | Evidence receipt requirement |
 |---|---|---|
-| Mock clock / controllable time | Temporal correctness — does the system behave right at T, T+1, T+n? | Inject a fake clock; advance it programmatically |
-| Branch injection | One test case per `branching_scenarios` entry in the PFD | Parametrized test; scenario label becomes test name |
-| Cascade verification | When X changes, does B update? Does stale B get invalidated? Does partial cascade leave a consistent state? | Pre/post state capture; check each dependent field |
-| Invariant assertion | PFD `invariants` checked after every scenario, not just the happy path | Run invariant suite as a fixture teardown |
-
-The distinction from standard Verifier testing: standard tests check that the Worker's implementation does what the spec says. PFD-linked tests check that the implementation handles *time* correctly — the dimension that specs typically leave implicit and implementations typically get wrong.
+| Temporal state | What authoritative sources show at an observed time or window | Source identity, observation timestamp, expected versus actual |
+| Observed branch | Which real outcome occurred and its state transition | Authorized read-only query plus source identity and timestamp |
+| Cascade | Whether observed downstream state changed or was invalidated | Correlated read-only source records, expected versus actual |
+| Invariant | Whether an observed state satisfies the PFD invariant | Source-backed comparison; unavailable evidence stated explicitly when needed |
 
 ### Tests
 
 - **`delegate_gate.py` H2 guards:** 85/85 green across 3 test scripts (`test_delegate_gate.sh`, `test_delegate_gate_codex.sh`, `test_delegate_gate_toctou.sh`). Zero regressions on existing 74 assertions; 11 new assertions cover compound splitting, redirect detection, pipe safety, SSH payload, and command substitution.
-- **Flow Designer + Temporal Verification:** validated against two real tasks in session `8031804` — both produced PFDs; Verifier generated branch-injection tests from `branching_scenarios`; all exit 0.
+- **Flow Designer + Temporal Verification:** session `8031804` is historical pre-2026-08-10 validation: both tasks produced PFDs under the now-superseded synthetic-scenario design. The current protocol requires authorized read-only evidence receipts; durable tests wait for the final deploy gate.
 
 ---
 
@@ -742,7 +739,7 @@ The `/simplify` review on this change caught 6 findings that were fixed before s
 ### Pipeline integration
 
 - **`/start`** now reads `ARCHITECTURE.md` and `dep_manifest.json` as mandatory context. If neither exists, it suggests running `/architecture` before any code edits.
-- **Paired verification** gains an `Affected downstream:` field in the Artifact Contract — Verifier tests must cover at least one downstream consumer of the changed interface.
+- **Paired verification** gains an `Affected downstream:` field in the Artifact Contract — the Evidence Receipt must trace at least one affected downstream consumer through authorized read-only sources, with source identity, timestamp, and expected versus actual.
 - **Post-VERIFY** spawns a background agent that auto-updates architecture docs when interfaces change (new endpoints, renamed functions, schema diffs).
 - **`/handover`** now includes a `## Outstanding Debts` section populated by `/debt review` — the next session sees the open threads before it sees the code.
 
@@ -943,7 +940,7 @@ Escape hatches for legitimate exceptions: `CLAUDE_BOOSTER_SKIP_{TASK,PHASE,EVIDE
 | **`CLAUDE.md` bloated to 500 lines** | Everything loaded on every prompt | 11 scoped rules — `paths:` filtering, description-gated loading, always-on kept minimal |
 | **Claude re-implements existing code** | No recon-before-code rule | `core.md` enforces Grep-first; auto-consilium fires on high-risk edits |
 | **Same bug class hits you 3 times** | Fix → forget → repeat | Error-taxonomy classifier promotes recurring patterns into `institutional.md` as permanent rules |
-| **Agent writes code, Lead says "looks good"** | Self-evaluation bias — Lead authored the brief, naturally sees the result as matching | Тройка: Flow Designer maps failure modes → Worker implements → independent Verifier writes executable test. Exit code = verdict, not Lead's opinion |
+| **Agent writes code, Lead says "looks good"** | Self-evaluation bias — Lead authored the brief, naturally sees the result as matching | Семёрка: Flow Designer maps failure modes → Worker implements → independent Verifier collects timestamped direct source-of-truth evidence. The Evidence Receipt, not Lead opinion, is the verdict. |
 | **Same bug resurfaces every 3 sessions** | No causal memory — each session re-discovers and re-proposes the same fix | Temporal-causal 3D memory: stuck-loop detector hashes topics across handovers, forces reframe (Q1–Q4) when pattern detected |
 | **Every agent runs on Opus, session takes 10 min** | No model routing — all delegates inherit the Lead's expensive model | 4-tier routing: Haiku for lookups, Sonnet for coding, Opus only for architecture. 2-4x faster, 3-5x cheaper per delegation |
 | **Retry agent makes the same mistake** | No knowledge of what predecessor tried or why it failed | `session_context.py` lets retry agents read the failed Worker's raw session — stack traces, attempted edits, error messages — instead of Lead's lossy summary |
@@ -971,7 +968,7 @@ Escape hatches for legitimate exceptions: `CLAUDE_BOOSTER_SKIP_{TASK,PHASE,EVIDE
 | Post-mortem impossible: "what did we try?" | Session transcript unreachable | `## Session reference` links the JSONL transcript; RECON agent can grep it for tried approaches, failure modes, rejected alternatives |
 | Personal install breaks on new machine | Manual copy of `~/.claude/` | `install.py` — one command, atomic, idempotent, safe by default |
 | Worker loops on a failing tool call at 2am, burns quota | No watchdog | v1.2.0 Supervisor Agent — `policy.py` + `detector.py` + `quota.py`, SIGINT-ladder-cancels worker on deny / silence / quota breach |
-| Agent self-evaluates its own work | Same model writes and reviews — bias | Тройка pipeline (`/go`): Flow Designer + Worker + independent Verifier, exit code = verdict, `go_gate.py` enforces the pattern |
+| Agent self-evaluates its own work | Same model writes and reviews — bias | Семёрка pipeline (`/go`): Flow Designer + Worker + independent Verifier direct probes produce the evidence verdict; the final full existing-suite result is a deploy-gate regression check, and `go_gate.py` enforces the pattern |
 | Same problem loops across sessions | No causal chains in memory | Temporal-causal 3D memory + stuck-loop detector, hash-based recurrence detection |
 | Slow agents burn Opus budget | All delegates on Opus 4.8 | 4-tier model routing (Haiku/Sonnet/Opus) + `/fast` mode for coding agents |
 | Retry agent repeats same failed approach | No access to predecessor's session history | `session_context.py --agent "<failed Worker>"` — retry reads the raw JSONL of the failed agent, sees what was tried |
@@ -1031,7 +1028,7 @@ All commands are on-demand — their instructions load only when you invoke them
 
 | Command | What it does |
 |---------|-------------|
-| `/go` | **The Шестёрка+ pipeline in one command.** Validates Artifact Contract → Flow Designer → Challenge → Prototype Gate → Worker + Verifier → executable test → diff review → verdict. Broker/data/DB/financial/external-system work requires Prototype PASS before Worker. Built-in W/V/A/R/E retry classification. `go_gate.py` enforces this for coding during IMPLEMENT. |
+| `/go` | **The Семёрка pipeline in one command.** Validates Artifact Contract → Flow Designer → Challenge → Prototype Gate → Worker + Verifier → direct probes → diff review → final deploy regression gate → verdict. Broker/data/DB/financial/external-system work requires Prototype PASS before Worker. Built-in W/V/A/R/E retry classification. `go_gate.py` enforces this for coding during IMPLEMENT. |
 | `/start` | Initialize a session: read README, last handover, knowledge base (FTS5 cross-project search), telemetry, canary check, stuck-loop detection. Ends with `EnterPlanMode`. |
 | `/handover` | End-of-session report: auto-collects git log, saves structured report with Goal+KPI, Required reading, Session reference, verify-gate evidence block. |
 | `/consilium` | Multi-agent debate: RECON first (code, not reports), spawn 3–5 bio-specific agents + GPT via PAL MCP, synthesize positions, save to `reports/`. |

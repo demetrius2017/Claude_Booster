@@ -1,5 +1,5 @@
 ---
-description: "Paired Worker+Verifier protocol for delegated code work. Loads when planning Agent spawns, code edits, or paired acceptance verification."
+description: "Paired Worker+Verifier protocol for evidence-first delegated code work. Loads when planning Agent spawns, code edits, or paired verification."
 paths:
   - "**/*.py"
   - "**/*.ts"
@@ -14,7 +14,7 @@ paths:
 
 # Paired Verification — Lead spawns Worker AND Verifier as a pair
 
-Dmitry's request (2026-04-30): когда Lead делегирует содержательную работу, второй агент создаёт приёмку **независимо** — параллельно или последовательно, но с собственным контекстом. Lead не оценивает результат своим суждением; он запускает тест, написанный Verifier'ом, и читает exit code.
+Dmitry's protocol change: когда Lead делегирует содержательную работу, второй агент проверяет её **независимо** — параллельно или последовательно, но с собственным контекстом. До финального deploy gate он не строит синтетическую приёмку: он выполняет или задаёт прямые read-only probes против реального source of truth и возвращает evidence receipt. Lead не оценивает результат своим суждением; он читает выход прямых probes и их exit code. Durable regression tests создаются только в final deploy gate после стабильного PASS и не заменяют реальные evidence.
 
 ## Why this rule exists
 
@@ -24,7 +24,7 @@ Dmitry's request (2026-04-30): когда Lead делегирует содерж
 2. **Self-evaluation bias** — Anthropic явно: *"agents tend to confidently praise even mediocre work"*. Lead, оценивающий Worker'а, — это та же модель, которая написала бриф; она склонна видеть результат как соответствующий собственному намерению.
 3. **Lead's context decay during the wait** — пока Worker работает, окно Lead'а смещается, acceptance criteria вытесняются свежими tool-results. К моменту возврата Worker'а у Lead'а уже размыто «что значит done».
 
-Контра-мера, конвергентно рекомендуемая Adzic (Specification by Example), Toyota Jidoka (self-process completion), Anthropic eval guidance (*"separate generator from evaluator"*): **acceptance check — отдельный артефакт, executable, написанный другим агентом, на другом контексте, который Lead запускает машинно**.
+Контра-мера: **evidence receipt — независимый, воспроизводимый набор прямых запросов к source of truth**, заданный другим агентом на другом контексте и запущенный Lead машинно. Примеры: `curl --fail`/HTTP status + body, SQL `SELECT`, CLI query, DevTools network/state inspection, source counts/samples и boolean invariants. Синтетический test artifact не является заменой таких доказательств.
 
 ## When this rule applies
 
@@ -42,7 +42,7 @@ Before writing any Artifact Contract, Lead **MUST** read `ARCHITECTURE.md` and `
 - If the function being changed is listed as `critical: true` in dep_manifest.json, include its `feeds` array in the Artifact Contract
 - If the project has no architecture docs: note it in the handover as a gap; do not block work
 - Populate `Architecture constraints:` in the Artifact Contract from `feeds` arrays of touched components (components whose `file` matches the planned edit target)
-- Populate `Downstream consumers:` from `called_by` arrays of the same components — these are the functions/endpoints the Verifier MUST test
+- Populate `Downstream consumers:` from `called_by` arrays of the same components — these are the functions/endpoints the Verifier MUST probe directly
 - If `critical: true` OR `feeds` array has ≥3 entries for any touched component → mark for conditional Architecture Auditor (see §Architecture-aware verification below)
 - **[CRITICAL] Code-over-docs**: dep_manifest.json reflects state at last update, not necessarily NOW. Before populating `Architecture constraints:` and `Downstream consumers:`, Lead MUST cross-check manifest entries against actual code (grep for function, check if it's still called, verify writer is still active). When manifest says "X writes to Y" but code shows X is disabled → manifest is stale, not code is wrong. Update manifest first, then populate Artifact Contract from corrected manifest. Finding type for divergence: `architecture-docs-stale`.
 
@@ -54,20 +54,20 @@ Before writing any Artifact Contract, Lead **MUST** read `ARCHITECTURE.md` and `
 Lead спавнит Flow Designer agent с Verified Facts Brief из RECON. Flow Designer анализирует задачу и производит Process Flow Document (PFD): temporal topology, branching scenarios, state dependencies, failure modes, worker directives, verifier assertions, `prototype_plan`, and `role_handoff_contract`.
 
 **Стадия 2 — Prototype Gate (sequential, после Flow Designer/Challenge, до Worker):**
-Lead спавнит Prototyper agent для read-only executable proof. Prototyper не пишет production code и не мутирует prod/state-owned данные. Он создаёт notebook/probe только в `notebooks/`, `scripts/probes/`, `reports/prototypes/` или tempdir, запускает read-only сравнение source-of-truth входов с текущим кодом/DB поведением, находит first divergence, counts/samples, and boolean invariants. Для broker sync, DB producers, migrations/backfills, ledger/NAV/TWR, financial data, external APIs, concurrency/cache, incident-driven fixes, and `critical: true` components Prototype Gate MUST PASS before Worker. For pure local/static tasks it may be `N/A` only with a concrete reason.
+Lead спавнит Prototyper agent для read-only executable proof. Prototyper не пишет production code и не мутирует prod/state-owned данные. For every non-trivial behavioral, data, runtime, external-system, incident-driven, or `critical: true` Prototype Gate, it MUST create a durable notebook only in `notebooks/` or `reports/prototypes/` (never a tempdir). Each evidence-bearing cell records the authorized operation class and allowlist decision, direct command/query, source identity and environment, ISO timestamp or observation window, baseline/source snapshot binding (exact query SHA-256, result SHA-256, and raw-output SHA-256), filters/parameters, counts/samples, expected versus actual, invariant result, and bounded raw output. Large raw output is a durable repo-relative artifact referenced by SHA-256. A paired probe script is not required. Prototyper запускает read-only сравнение source-of-truth входов с текущим кодом/DB поведением, находит first divergence, counts/samples, and boolean invariants. Notebook N/A is allowed only when the entire Prototype Gate is explicitly `N/A` for a pure docs, format, or static-config task with no executable data/runtime hypothesis; it MUST state the concrete reason.
 
 **Стадия 3 — Worker + Verifier (parallel, после Prototype Gate):**
 В одном сообщении — два `Agent` tool-call'а:
 1. **Worker agent** получает: goal + Verified Facts Brief + PFD + Prototype Handoff + scope + Artifact Contract (enriched with PFD worker_directives, failure_modes, and proven prototype facts). Делает работу, кладёт артефакт в указанный путь, возвращает ссылку на него.
-2. **Verifier agent** получает: тот же goal + ту же Verified Facts Brief + PFD (verifier_assertions, invariants, branching_scenarios) + Prototype Handoff regression assertions + тот же scope + тот же Artifact Contract. **Не видит prompt'а Worker'а.** Производит ОДИН executable acceptance test.
+2. **Verifier agent** получает: тот же goal + ту же Verified Facts Brief + PFD (direct-probe assertions, invariants, branching_scenarios) + Prototype Handoff probe requirements + тот же scope + тот же Artifact Contract. **Не видит prompt'а Worker'а.** Выполняет или специфицирует прямые read-only probes и производит evidence receipt.
 
-Оба Worker и Verifier бегут конкурентно. Lead дожидается обоих, потом запускает тест.
+Оба Worker и Verifier бегут конкурентно. Lead дожидается обоих, затем запускает согласованные прямые probes.
 
-For critical components (see §Architecture-aware verification): Lead MAY spawn a third parallel agent — the **Architecture Auditor** — in the same message as Worker+Verifier. All three run concurrently. Lead runs both acceptance tests after all agents return.
+For critical components (see §Architecture-aware verification): Lead MAY spawn a third parallel agent — the **Architecture Auditor** — in the same message as Worker+Verifier. All three run concurrently. Lead requires independent direct evidence from both verification lanes before the final deploy gate.
 
 ## Pattern B — последовательная пара
 
-Используется только когда контракт нельзя выразить, не увидев форму артефакта (редко). Worker → Verifier → Lead запускает тест. Verifier всё равно работает в свежем контексте; всё равно не видит prompt'а Worker'а; всё равно производит executable, не суждение.
+Используется только когда контракт нельзя выразить, не увидев форму артефакта (редко). Worker → Verifier → Lead запускает прямые probes. Verifier всё равно работает в свежем контексте и не видит prompt'а Worker'а; он производит evidence receipt, не суждение.
 
 ## Artifact Contract — общий и обязательный
 
@@ -86,10 +86,10 @@ Acceptance emphasis: <что обязательно проверить; что �
 Affected downstream: <functions/APIs/screens that consume this artifact's output — consult dep_manifest.json>
 Architecture map consulted: <yes/no — was ARCHITECTURE.md or dep_manifest.json read before writing this contract?>
 Architecture constraints: <interfaces Worker MUST NOT break — populated from dep_manifest.json `feeds` arrays of touched components; "(no dep_manifest.json)" if manifest absent>
-Downstream consumers: <specific functions/endpoints Verifier MUST include in acceptance test — from dep_manifest.json `called_by` arrays; "(none)" if manifest absent or called_by empty>
+Downstream consumers: <specific functions/endpoints Verifier MUST probe directly — from dep_manifest.json `called_by` arrays; "(none)" if manifest absent or called_by empty>
 Process Flow Document: <path to PFD YAML or inline PFD — MANDATORY for all delegations>
-Prototype Gate: <PASS with Prototype Handoff path | N/A with reason; PASS required for broker/data/DB/financial/migration/external-system/incident/critical-component work>
-Prototype Handoff: <path or inline summary: source-of-truth inputs, current-system comparison, first divergence, counts/samples, invariants proven, Worker facts, Verifier regression assertions>
+Prototype Gate: <PASS with Prototype Handoff path and mandatory notebook | N/A with concrete reason; N/A only for a pure docs/format/static-config task with no executable data/runtime hypothesis>
+Prototype Handoff: <path or inline summary: baseline/source snapshot binding, source-of-truth inputs, current-system comparison, first divergence, counts/samples, invariants proven, Worker facts, Verifier direct-probe requirements>
 Session context: <OPTIONAL — see §Session context injection below>
 ```
 
@@ -122,10 +122,10 @@ the standard interface between roles:
 | Lead | Flow Designer | Artifact Contract + Context Receipt + Verified Facts Brief with code/data evidence | Unchecked memory/report claims |
 | Flow Designer | Challenge | Full PFD including `prototype_plan` and `role_handoff_contract` | Implementation code |
 | Challenge | Prototyper | Additive PFD changes and explicit prototype checks | Deleted/overridden PFD requirements |
-| Prototyper | Worker | Prototype Handoff: verdict, artifacts, source/current counts, first divergence, invariants, Worker facts | Guesswork, write queries, prod mutations |
-| Prototyper | Verifier | Regression assertions derived from proven facts and invariants | Worker's implementation approach |
-| Worker | Verifier | Artifact path only; Verifier still uses AC/PFD/prototype assertions | Worker's prompt, plan, reasoning, or draft code |
-| Worker/Test | Diff Reviewer | Git diff + AC + PFD + Prototype Handoff + test output | Permission to edit code |
+| Prototyper | Worker | Prototype Handoff: verdict, baseline/source snapshot hashes, artifacts, source/current counts, first divergence, invariants, Worker facts | Guesswork, write queries, prod mutations |
+| Prototyper | Verifier | Baseline-derived direct-probe requirements, source snapshot hashes, and invariants | Worker's implementation approach or a future candidate identity |
+| Worker | Verifier | Artifact path only; Verifier still uses AC/PFD/prototype evidence | Worker's prompt, plan, reasoning, or draft code |
+| Worker/Verifier | Diff Reviewer | Git diff + AC + PFD + Prototype Handoff + evidence receipt | Permission to edit code |
 
 If a role cannot produce its required payload, the pipeline pauses before the
 next role. The correct response is to refine the contract/probe, not to let the
@@ -133,28 +133,45 @@ Worker guess.
 
 ## Prototype Gate — executable truth before code
 
-The Prototype Gate is mandatory for any task where the bug may live in a data
-transform rather than in a local branch of code: broker sync, DB producers,
-migrations/backfills, ledger/NAV/TWR, financial data, external APIs,
-concurrency/cache, incident-driven fixes, and `critical: true` components.
-
-The Prototyper may use a notebook for exploration, but the handoff must also
-include a repeatable probe script or command output. Notebook-only proof is too
-weak for review and replay.
+The Prototype Gate requires a durable notebook in `notebooks/` or
+`reports/prototypes/` for every non-trivial behavioral, data, runtime,
+external-system, incident-driven, or `critical: true` task. The notebook is the
+investigation journal, not a synthetic test stand. Each evidence-bearing cell
+records the operation class, allowlist decision, direct authorized read-only
+command/query, source/environment identity, ISO timestamp or observation
+window, baseline/source snapshot binding (exact query SHA-256, result SHA-256,
+and raw-output SHA-256), filters/parameters, counts/samples, expected versus
+actual, invariant result, and bounded raw output. Large raw output must be
+stored as a durable repo-relative artifact and referenced with its SHA-256. The
+handoff must include the underlying direct command output or query result;
+notebook-only claims are too weak for review and replay. Before the Worker
+exists, the notebook MUST NOT fabricate or name a future candidate identity,
+artifact/tree-diff hash, or process/build/deployment/version identity.
+Do **not** require a paired probe script merely to make the journal look
+executable. Notebook N/A is permitted only when the entire Prototype Gate is
+explicitly `N/A` for a pure docs, format, or static-config task with no
+executable data/runtime hypothesis, and the handoff states the concrete reason.
 
 Required Prototype Handoff fields:
 
 ```
 Prototype verdict: PASS | FAIL | N/A
+Notebook:
 Artifacts:
+Baseline/source snapshot binding: source/environment identity; exact query SHA-256; result SHA-256; raw-output SHA-256; ISO timestamp or observation window
 Source-of-truth inputs:
 Current-system comparison:
 First divergence:
 Counts and samples:
 Invariants proven:
 Worker handoff:
-Verifier regression assertions:
+Verifier direct-probe requirements:
 ```
+
+The Prototype Handoff MUST NOT fabricate or name a future candidate identity,
+artifact/tree-diff hash, or process/build/deployment/version identity. Those
+candidate-binding requirements begin only after the Worker artifact exists, in
+the Verifier Evidence Receipt and Lead's candidate-verifying probes.
 
 Prototype PASS means the probe has identified what the source of truth says,
 what the current system does, where they first diverge, and what invariant the
@@ -163,47 +180,89 @@ unproven data hypothesis is a Three Nos violation.
 
 ## Verifier mandate (точная формулировка для prompt'а)
 
-> «Произведи один executable acceptance test, который вернёт exit 0 если артефакт удовлетворяет Artifact Contract, иначе non-zero. Тестируй **наблюдаемое поведение**, не приватные детали реализации. Не реализуй задачу. Не предполагай, как Worker её решит. Если acceptance criteria неоднозначны — **fail closed**: верни отчёт об неоднозначности вместо того чтобы изобретать продуктовые решения. Тест должен печатать осмысленный stdout/stderr при failure.»
+> «Выполни или специфицируй прямые read-only probes против реального source of truth и верни evidence receipt. Используй curl/HTTP, SQL SELECT, CLI commands, DevTools, counts/samples и boolean invariants там, где они соответствуют контракту. Каждый probe должен иметь команду/query, timestamp, source identity, ожидаемый и фактический результат, stdout/stderr или rows, и exit code. Тестируй **наблюдаемое поведение**, не приватные детали реализации. Не реализуй задачу и не создавай/не переписывай test files, fixtures, mocks, synthetic datasets, verification stands или harnesses во время implementation iterations. Если acceptance criteria неоднозначны — **fail closed**: верни отчёт об неоднозначности вместо изобретения продуктовых решений.»
 
-When the Artifact Contract contains a non-empty `Downstream consumers:` field, the Verifier's test MUST include at least one assertion against a listed downstream consumer — verifying that the consumer still receives correct input or produces correct output after the Worker's change. This is the architecture protection layer: dep_guard.py auto-skips for Worker subagents by design (the hook targets Lead only), so downstream integrity is enforced through the Verifier's test, not through the hook.
+When the Artifact Contract contains a non-empty `Downstream consumers:` field, the Verifier MUST directly probe at least one listed downstream consumer — verifying that it still receives correct input or produces correct output after the Worker's change. This is the architecture protection layer: dep_guard.py auto-skips for Worker subagents by design (the hook targets Lead only), so downstream integrity is enforced through direct evidence, not through a synthetic test.
 
-## Test Legitimacy Standard
+## Evidence Receipt Standard
 
-Verifier-тест должен соответствовать всем пунктам:
-- Тестирует **наблюдаемое поведение**, не приватные детали реализации (если деталь не в Artifact Contract явно).
+Evidence receipt должен соответствовать всем пунктам:
+- Проверяет **наблюдаемое поведение** через реальный source of truth, не приватные детали реализации (если деталь не в Artifact Contract явно).
+- Для каждого claim указывает command/query, operation class, allowlist decision, timestamp, source identity, candidate binding (artifact/tree-diff SHA-256 and applicable process/build/deployment/version identity), filters, expected/actual result, samples/counts, invariant result, bounded raw output or durable repo-relative raw-output artifact with SHA-256, где применимо.
 - Минимизирует допущения, которых нет в Objective / Verified Facts Brief / Artifact Contract.
-- **Детерминирован** — два запуска подряд дают одинаковый результат.
-- Печатает осмысленный diagnostic output при failure (assertion, что ожидалось, что получено).
-- Не зависит от network / localhost / hidden state / timing / CWD, если это не явно в scope.
-- Использует tempdir / tempfile где уместно, чистит за собой.
-- Возвращает non-zero на любой failure path.
+- **Детерминирован** или явно описывает изменчивость источника и допустимое окно.
+- Печатает осмысленный diagnostic output при failure и сохраняет exit code каждого executable probe.
+- Read-only: не меняет production state и не создаёт synthetic validation artifacts. Unknown operation or an operation whose read-only status cannot be proved is `UNAVAILABLE`, never PASS.
+
+### Fail-closed authorized read-only operations
+
+- HTTP: `GET` or `HEAD` only.
+- SQL: only through a DB-enforced read-only role or transaction, and only a
+  `SELECT`, non-mutating `WITH`, or `EXPLAIN`; reject `CALL`, DDL/DML, mutating
+  CTEs, side-effecting functions, and `COPY PROGRAM`.
+- CLI: only documented `get`, `list`, `show`, `status`, `describe`, `logs`,
+  `diff`, or an explicitly known equivalent read verb.
+- Filesystem: reads only. Shell redirection or a pipe into a mutator is forbidden.
+
+The notebook and every Evidence Receipt row MUST name the operation class and
+its allowlist decision. If authorization cannot be established, do not execute;
+record the required observation as unavailable.
 
 ### Allowed forms
-- Bash-скрипт с `set -e` и явными `[[ ... ]]` / exit codes.
-- pytest test-file, запускаемый как `pytest <path>`.
-- `curl --fail` против реального endpoint'а + `grep` по телу + assert на HTTP code.
-- `sqlite3` / `psql` запрос с проверкой rowcount или конкретного значения.
-- `grep -q` по файлу с ожидаемой строкой/паттерном.
-- Любая комбинация выше с явным non-zero exit на failure.
-- Один executable artifact МОЖЕТ содержать несколько assertion'ов (positive case + negative case + edge case в одном файле — это нормально и желательно).
+- `curl --fail` against a real endpoint with HTTP status/body evidence.
+- `sqlite3` / `psql` **SELECT** with rowcount, samples, or a concrete value.
+- Read-only CLI commands against the authoritative service or dataset.
+- DevTools network, DOM, state, or performance inspection when the browser is the relevant observer.
+- File/source queries with counts, samples, and explicit invariant evaluation.
+- Existing tests may be run unchanged as supplementary baseline evidence; they
+  do not prove an intermediate candidate unless the observation binds to that
+  exact artifact/tree diff and applicable runtime identity.
 
-### Forbidden forms
-- ❌ Прозаический checklist «проверьте что X, Y, Z».
+### Forbidden forms during implementation iterations
+- ❌ Прозаический checklist «проверьте что X, Y, Z» без commands/queries and evidence.
 - ❌ «Look at the output and decide» — требует LLM-суждения.
 - ❌ Тест, который вызывает Claude/LLM как judge.
 - ❌ `curl -s` без `--fail` / `|| true` (см. verify_gate fake-evidence patterns).
 - ❌ `localhost` / `127.0.0.1` как target в проде-сценарии.
+- ❌ Создание или переписывание test files, fixtures, mocks, synthetic datasets, verification stands, or harnesses merely to validate the candidate.
+- ❌ Изменение existing tests to make an intermediate candidate pass.
 - ❌ Verifier изобретает конкретные продуктовые решения (точные exit codes, sort order, key names) когда Artifact Contract их не специфицирует — это создаёт скрытую спеку, которую Worker не видел.
 
 ## Lead's role after the pair returns
 
 1. Worker возвращает → запомнить путь к артефакту.
-2. Verifier возвращает → запомнить путь к acceptance-тесту.
-3. Lead запускает тест через `Bash`. Записывает exit code и stdout/stderr.
-4. **PASS (exit 0):** идём дальше — commit / next step / TaskUpdate completed.
+2. Verifier возвращает → запомнить evidence receipt и direct-probe commands/queries.
+3. Only after the Worker artifact exists, Lead запускает candidate-verifying direct probes. The probe must be newer than the last relevant edit and record artifact/tree-diff SHA-256 plus applicable process/build/deployment/version identity. Old/current production observations are baseline only unless their deployed build identity matches the candidate. Record command/query, operation class, allowlist decision, timestamp, source identity, samples/counts, invariant result, raw output, and exit code.
+4. **PASS (all required probes exit 0):** идём к diff review и final deploy gate; durable tests ещё не создаются.
 5. **FAIL (exit ≠ 0):** не правим inline. Сначала **классифицируем failure** (см. ниже), потом действуем.
 
-**Lead не читает код Worker'а чтобы вынести вердикт.** Единственный вход для PASS/FAIL — exit code теста + его stdout. stdout читаем для роутинга remediation, не для override'а вердикта.
+**Lead не читает код Worker'а чтобы вынести вердикт.** Единственный вход для iteration PASS/FAIL — exit code прямого probe + его factual output. stdout/rows читаем для роутинга remediation, не для override'а вердикта.
+
+## Final deploy gate — frozen durable regression tests only after evidence
+
+Only after all required direct probes pass, the candidate remains stable through
+diff review, and deployment is the next action, the Lead may create or update
+durable regression tests. These tests encode the already-proven behavior and
+then the Lead runs the full existing suite. They are a regression memory, not a
+replacement for source-of-truth evidence.
+
+- Before this gate, neither Worker nor Verifier creates or rewrites tests,
+  fixtures, mocks, synthetic datasets, verification stands, or harnesses merely
+  to validate a candidate.
+- Derive a final regression manifest from every proven evidence requirement and
+  every required unavailable branch. Existing coverage satisfies an item only
+  with its named test path and SHA-256. Any unavailable CRITICAL/HIGH required
+  observation must map to durable regression coverage or deployment is blocked.
+- Freeze this manifest and every named test-file SHA-256 before the first full
+  suite run. Once the suite begins, tests cannot be edited in this `/go` or
+  `/hackathon` run. A test-contract defect blocks and requires a separate scoped
+  run; code/environment fixes may rerun the same frozen tests.
+- A suite failure may reopen code/environment only with the tests frozen; any
+  test-contract defect blocks and requires a separate scoped run. It never
+  invalidates or silently substitutes the earlier evidence receipt.
+- Final PASS requires both: direct-probe evidence receipt with all required
+  probes passing, and the full existing suite (including durable tests) exiting
+  0. The final verdict records both exit codes.
 
 ## Post-VERIFY architecture update
 
@@ -229,7 +288,7 @@ Architecture protection is **distributed across the pair**, not concentrated in 
 |---|---|---|
 | **RECON** | Lead | Reads dep_manifest.json → populates `Architecture constraints:` and `Downstream consumers:` in Artifact Contract |
 | **During edit** | Worker | Sees `Architecture constraints:` → knows which interfaces to preserve |
-| **During edit** | Verifier | Sees `Downstream consumers:` → MUST test at least one downstream consumer |
+| **During edit** | Verifier | Sees `Downstream consumers:` → MUST directly probe at least one downstream consumer |
 | **Post-VERIFY** | Background Haiku | Updates ARCHITECTURE.md + dep_manifest.json to reflect what changed |
 
 ### Code = ground truth (code-over-docs principle)
@@ -249,7 +308,7 @@ dep_manifest.json and ARCHITECTURE.md are **navigation aids**, not specification
 `dep_guard.py` auto-skips for subagent context (`is_subagent_context()` → allow). This is intentional: the Worker operates within an Artifact Contract that already carries architecture constraints. Blocking the Worker via dep_guard would prevent it from doing its job. The protection flows through:
 1. Lead's RECON (reads dep_manifest.json, populates constraints)
 2. Worker's brief (sees what not to break)
-3. Verifier's test (tests downstream consumers)
+3. Verifier's direct probe (checks downstream consumers)
 4. Post-verify update (updates docs to reflect new reality)
 
 ### Conditional Architecture Auditor (critical components)
@@ -258,13 +317,13 @@ When dep_manifest.json shows `critical: true` **OR** `feeds` array has **≥3 en
 
 1. Lead spawns a **third parallel agent** alongside Worker+Verifier: the **Architecture Auditor**
 2. Architecture Auditor receives: Artifact Contract + full dep_manifest.json + ARCHITECTURE.md (if exists)
-3. Architecture Auditor produces: an executable test that verifies downstream consumers listed in `feeds`/`called_by` still work correctly
-4. Lead runs **both** Verifier's test AND Auditor's test; both must exit 0
-5. Failure classification applies independently to each test (W/V/A/E)
+3. Architecture Auditor produces an independent direct-probe plan/receipt that verifies downstream consumers listed in `feeds`/`called_by` still work correctly
+4. Lead runs **both** Verifier and Auditor direct probes; all required probes must exit 0
+5. Failure classification applies independently to each evidence lane (W/V/A/E)
 
 For non-critical components (the 80–90% case): the enriched pair is sufficient. The conditional Auditor is a safety net for high-connectivity nodes in the dependency graph.
 
-The Architecture Auditor is NOT a Verifier — it does not test the Worker's artifact against the Artifact Contract. It tests that the **surrounding system** still works after the change. The Verifier tests the artifact; the Auditor tests the environment.
+The Architecture Auditor is NOT a Verifier — it does not probe the Worker's artifact against the Artifact Contract. It checks that the **surrounding system** still works after the change. The Verifier probes the artifact; the Auditor probes the environment.
 
 ## Failure classification — обязательно перед реакцией на FAIL
 
@@ -272,12 +331,12 @@ Lead классифицирует non-zero exit ровно в одну из че
 
 | Категория | Признак | Реакция |
 |---|---|---|
-| **W. Artifact wrong** | Artifact существует, ведёт себя не так, как требует Artifact Contract | Спавнить нового Worker'а с narrowed scope, передать failing test + stdout. Verifier-тест НЕ менять. |
-| **V. Test invalid / over-constrained** | Тест проверяет приватную деталь не из Contract; Worker реализовал контракт корректно но иначе | Спавнить нового Verifier'а (свежий контекст), требовать revise теста против оригинального Contract. Worker НЕ менять. Lead не отменяет verification — только перевыпускает тест. |
+| **W. Artifact wrong** | Artifact существует, ведёт себя не так, как требует Artifact Contract | Спавнить нового Worker'а с narrowed scope, передать failed probe + factual output. Existing tests НЕ менять. |
+| **V. Probe invalid / over-constrained** | Probe checks a private detail absent from the Contract, or its source/query cannot establish the stated claim | Спавнить нового Verifier'а (fresh context), require a revised **direct probe plan** against the original Contract. Worker и existing tests НЕ менять. Lead не отменяет verification — only replaces an invalid probe, not a test artifact. |
 | **A. Contract ambiguous** | Verifier явно вернул «ambiguous», или оба (Worker+Verifier) интерпретировали по-разному | Lead уточняет Artifact Contract, обновляет Verified Facts Brief, перезапускает пару (Pattern A). |
-| **E. Environment** | Тест не запустился из-за зависимостей, доступа, версии, network | Чинит окружение / harness, перезапускает тот же тест. |
+| **E. Environment** | Probe cannot run because of dependencies, access, version, or network | Fix environment/access, then rerun the same direct probe. |
 
-**Важно:** ни в одной из четырёх категорий Lead не выносит PASS «по чтению кода». Категория V — единственный путь признать тест невалидным, и он требует **regen теста**, не override.
+**Важно:** ни в одной из четырёх категорий Lead не выносит PASS «по чтению кода». Категория V — единственный путь признать probe невалидным, и она требует **revised direct probe**, не synthetic test rewrite и не override.
 
 Hard cap на retries: 3 (см. pipeline.md §Failure recovery). После 3 неудач — возврат пользователю с aggregated failure + recommended next action.
 
@@ -371,9 +430,9 @@ The `Focus on:` directive is mandatory when including session context — withou
 
 Session context goes to **Worker only**. Verifier tests observable behavior per Artifact Contract; session history is implementation context, not acceptance criteria. If a session decision changes *what* the artifact should do (not *how*), promote that decision into the Artifact Contract's `Objective` or `Expected observable behavior` fields instead.
 
-## Temporal & Process Verification
+## Temporal & Process Evidence
 
-Когда Artifact Contract ссылается на Process Flow Document (PFD), Verifier получает дополнительный источник executable-спецификации. PFD — это YAML-артефакт от Flow Designer, содержащий формализованные сценарии поведения системы во времени. Наличие PFD **расширяет** стандартный Verifier mandate, но не отменяет его: Test Legitimacy Standard и принцип «наблюдаемое поведение, не implementation details» по-прежнему действуют.
+Когда Artifact Contract ссылается на Process Flow Document (PFD), Verifier получает дополнительный источник direct-probe specification. PFD — это YAML-артефакт от Flow Designer, содержащий формализованные сценарии поведения системы во времени. Наличие PFD **расширяет** standard Verifier mandate, но не отменяет его: Evidence Receipt Standard и принцип «наблюдаемое поведение, не implementation details» по-прежнему действуют.
 
 ### Когда применяется
 
@@ -387,52 +446,41 @@ PFD-верификация активна когда Artifact Contract соде�
 
 | PFD-секция | Доступна Verifier'у? | Как используется |
 |---|---|---|
-| `verifier_assertions` | ✅ Да | Прямой источник тест-паттернов — каждый assertion = один или более test case |
-| `invariants` | ✅ Да | Postconditions, которые проверяются ПОСЛЕ каждого сценария |
-| `branching_scenarios` | ✅ Да | Список условий для injection — каждый сценарий = минимум один test case |
+| `verifier_assertions` | ✅ Да | Прямой источник direct-probe requirements — каждый assertion = evidence row |
+| `invariants` | ✅ Да | Postconditions, которые проверяются ПОСЛЕ каждого реального наблюдения |
+| `branching_scenarios` | ✅ Да | Список условий и outcomes для source-of-truth probes; не повод строить mock harness |
 | `timeline` | ✅ Да | Reference для ordering guarantees и expected state transitions |
 | `state_variables` | ✅ Да | Dependency graph для cascade verification |
 | `worker_directives` | ❌ Нет | Implementation guidance для Worker'а; Verifier не должен знать *как* реализовано |
-| `failure_modes` | ✅ Да | Expected graceful degradation — каждый failure mode = negative test case |
+| `failure_modes` | ✅ Да | Expected graceful degradation — каждый failure mode получает direct probe или explicit unavailable evidence |
 
-### Temporal test patterns
+### Temporal evidence patterns
 
-Время — самый частый источник недетерминизма. PFD-тесты обязаны быть deterministic, поэтому:
+Время — самый частый источник недетерминизма. PFD probes должны быть repeatable, поэтому фиксируют timestamp, source identity и допустимое окно freshness:
 
-**Mock clock / controllable time:**
-```python
-# monkeypatch time.time() для предсказуемости
-with unittest.mock.patch('time.time', side_effect=[1000.0, 1000.5, 1001.0]):
-    result = cache.get_or_refresh("key")
-    assert result.fetched_at == 1000.0
-```
+**Freshness / staleness:** query the authoritative source and the consuming
+system at recorded timestamps; capture identifiers, observed timestamps, counts,
+and whether the PFD freshness invariant holds.
 
-**Staleness detection** — если PFD описывает TTL/expiry:
-```bash
-# Inject T₀, advance clock past TTL, verify staleness detected
-set -e
-RESULT_T0=$(python3 -c "from module import get_value; print(get_value(clock=100))")
-RESULT_STALE=$(python3 -c "from module import get_value; print(get_value(clock=100 + TTL + 1))")
-[[ "$RESULT_STALE" == "STALE" || "$RESULT_STALE" == "" ]] || { echo "FAIL: stale value not detected"; exit 1; }
-```
+**Ordering guarantees:** query event/order identifiers from the authoritative
+log or API, then compare the current system's observed order and idempotency
+state. Record the exact filters, representative rows, and boolean result.
 
-**Ordering guarantees** — когда PFD `timeline` задаёт «A before B»:
-- Inject событие B без предшествующего A → assert rejection/queue/error
-- Inject A then B → assert success
-- Inject A, B, A (повтор) → assert idempotency если PFD указывает
+### Branch evidence
 
-### Branch injection testing
+Каждый `branching_scenarios` entry из PFD превращается в direct probe or an
+explicitly recorded unavailable source-of-truth observation:
 
-Каждый `branching_scenarios` entry из PFD превращается в test case:
-
-| Сценарий PFD | Что инжектировать | Что assert'ить |
+| Сценарий PFD | Direct probe | Evidence |
 |---|---|---|
-| Partial success | Mock data source возвращает 2/5 items, затем error | Processed count = 2, error logged, state consistent |
-| Timeout path | Inject timeout (mock sleep / deadline) раньше production значения | Cleanup/rollback выполнен, ресурсы освобождены |
-| Reject/deny path | Auth mock returns 403, validation returns error | Rollback выполнен, side effects откачены, состояние = pre-attempt |
-| Retry exhaustion | Mock возвращает transient error N+1 раз (N = max retries) | Final state = failed gracefully, не зависло |
+| Partial success | Query authoritative partial result and current processed state | Source/current counts, error record, consistency invariant |
+| Timeout path | Inspect real timeout/deadline telemetry or a documented controlled environment | Cleanup/rollback state and timestamped output |
+| Reject/deny path | Use an authorized real rejection response or immutable audit record | No side-effect count and pre/post invariant |
+| Retry exhaustion | Query an actual exhausted retry record or state transition | Final state and non-hanging evidence |
 
-Минимум: **один test case на каждый `branching_scenarios` entry**. Если PFD описывает 4 сценария — в тесте минимум 4 отдельных assertion-блока.
+Do not manufacture mocks, synthetic data, fixtures, or a harness merely to
+cover a branch during implementation. If no lawful read-only observation exists,
+record that limitation and route it to the final deploy test design instead.
 
 ### Cascade verification
 
@@ -445,15 +493,15 @@ state_variables:
   portfolio_pnl: {derived_from: [position_value, cost_basis]}
 ```
 
-Тест обязан проверить **каскад**, не только конечное состояние:
+Verifier обязан проверить **каскад** прямыми pre/post observations, не только конечное состояние:
 
-1. **Propagation:** изменить `price` → assert `position_value` обновился → assert `portfolio_pnl` обновился
-2. **Invalidation:** удалить/обнулить `price` → assert dependents либо (a) выдают ошибку, либо (b) помечены invalid — НЕ возвращают stale значение молча
-3. **Partial cascade:** если PFD допускает async propagation — inject change, wait (mock), verify eventual consistency
+1. **Propagation:** compare a real source update with observed `position_value` and `portfolio_pnl` timestamps/values.
+2. **Invalidation:** inspect an actual missing/invalid source record and whether consumers surface invalid/stale state.
+3. **Partial cascade:** compare authoritative event time to downstream update time within the documented consistency window.
 
-Тест assert'ит **связь** между переменными (cascade прошёл), а не конкретные числа (которые зависят от implementation).
+Evidence receipt records **the relation** between variables (cascade passed), not merely a plausible code-path claim.
 
-### Invariant assertion patterns
+### Invariant evidence patterns
 
 PFD `invariants` — это свойства, которые должны выполняться **всегда**, независимо от пройденного branch:
 
@@ -465,47 +513,30 @@ invariants:
 ```
 
 Правила использования:
-- Каждый invariant → **одна assertion-функция** (helper), вызываемая многократно
-- Эта assertion вызывается **ПОСЛЕ каждого branch scenario** — и positive, и negative
-- Invariant-assertion не зависит от конкретного сценария — она проверяет universal property
+- Каждый invariant → одна named evidence row with query/command, source identity, observed values, and boolean result.
+- Invariant is evaluated after each available observed branch — positive and negative alike.
+- If an invariant cannot be observed read-only, the receipt states why; it is not fabricated through a mock.
 
-```python
-def assert_invariants(state):
-    """PFD invariants — вызывать после КАЖДОГО test case."""
-    assert state.balance >= 0, f"balance={state.balance} < 0"
-    assert abs(sum(state.positions) - state.portfolio.total) < 0.01
-    assert state.updated_at <= time.time()
+### Quality criteria для temporal evidence
 
-# В каждом test case:
-def test_successful_trade():
-    state = execute_trade(...)
-    assert_invariants(state)  # ← обязательно
-
-def test_rejected_trade():
-    state = attempt_and_fail(...)
-    assert_invariants(state)  # ← тоже обязательно
-```
-
-### Quality criteria для temporal tests
-
-- **Deterministic:** никаких `time.sleep()` > 100ms в реальном времени; все temporal-проверки через mock clock или controllable deadline.
-- **Coverage:** минимум один happy-path + один failure-branch из PFD покрыты.
-- **Invariant presence:** минимум один PFD `invariant` assert'ится как postcondition.
-- **No implementation leakage:** тест не проверяет internal state, которого нет в PFD — тот же Test Legitimacy Standard, просто с temporal dimension.
+- **Repeatable:** no invented timing; every temporal observation has timestamp and allowed window.
+- **Coverage:** at least one happy-path and one failure branch are directly observed where source access permits.
+- **Invariant presence:** at least one PFD invariant has a source-backed boolean result.
+- **No implementation leakage:** the receipt does not claim internal state absent from the PFD — the same Evidence Receipt Standard, with a temporal dimension.
 
 ## Anti-patterns (запрещено)
 
 - ❌ Спавнить Worker'а, потом Lead читает код и говорит «выглядит ок» — это и есть self-evaluation bias.
-- ❌ Verifier пишет «тест, который проверит, что вызвав функцию F, она работает» — где определение «работает»? Если требует LLM-суждения — не acceptance.
+- ❌ Verifier сообщает «проверю, что функция F работает», но не указывает source-of-truth command/query, factual output и invariant — где определение «работает»? Если требуется LLM-суждение — это не evidence.
 - ❌ Worker и Verifier живут в одном thread'е (continuation_id, sub-prompt, etc.) — контекст пересекается, независимости нет.
 - ❌ Скип пары «потому что задача маленькая» — именно на маленьких bias кусает сильнее всего, потому что Lead легко убеждает себя что «и так очевидно».
 - ❌ Verifier видит Worker'ов prompt в брифе («чтобы знал что проверять») — нарушение независимости. Verifier строит контракт от Objective, не от прочтения чужого решения.
-- ❌ Verifier изобретает специфику (exact error code, sort order, точное имя файла) когда Artifact Contract её не задаёт — implicit decision conflict; должен возвращать «ambiguous» или писать property-style тест.
-- ❌ Lead override'ит FAIL вердикт по «чтению кода» — даже когда тест over-constrained, корректный путь — regen теста (категория V), не override.
+- ❌ Verifier изобретает специфику (exact error code, sort order, точное имя файла) когда Artifact Contract её не задаёт — implicit decision conflict; должен возвращать «ambiguous» или фиксировать требование недоступного direct probe; test artifact не создаётся.
+- ❌ Lead override'ит FAIL вердикт по «чтению кода» — даже когда probe over-constrained, корректный путь — revised direct probe (категория V), не override.
 
 ## Origin
 
-Adzic «Specification by Example» — спецификация = executable примеры. Toyota Jidoka / Jikotei Kanketsu — каждый узел self-certifies, не передаёт брак вниз. Anthropic engineering on multi-agent: *"separate generator from evaluator"*, *"grade what was produced, not the path"*, *"agents tend to confidently praise even mediocre work"*. Cognition «Don't build multi-agents» — для write-heavy tasks single-agent выигрывает; пара Worker+Verifier — это не multi-agent в их смысле, это single-agent + independent acceptance harness.
+Toyota Jidoka / Jikotei Kanketsu — каждый узел self-certifies, не передаёт брак вниз. Anthropic engineering on multi-agent: *"separate generator from evaluator"*, *"grade what was produced, not the path"*, *"agents tend to confidently praise even mediocre work"*. Пара Worker+Verifier — это implementation plus independent source-of-truth evidence, not a synthetic acceptance harness.
 
 External hardening (PAL/GPT-5.5 second-opinion 2026-04-30, continuation `27613123-a244-49a7-95ba-baeaab0dbf9a`): добавлены §"Verifier may see / may not see", §"Failure classification" (W/V/A/E), §"Test Legitimacy Standard", сужение skip carve-out, §"Artifact Contract" как обязательное предусловие.
 

@@ -142,7 +142,7 @@ Execute the command behavior, not the literal Claude Code tool names.
 ### Cross-provider stages (SHIP-1..4 in `go` and `hackathon`)
 
 The `go` pipeline (Phase 1B Challenge, Phase 1C Prototype Gate, Phase 2 Verifier,
-Phase 3B Diff-review) and the `hackathon` edge-test harvest require each
+Phase 3B Diff-review) and the `hackathon` evidence harvest require each
 verifying/reviewing role to run on a **different provider than the Worker** when
 that provider channel exists. The spec is written from the Claude-CLI viewpoint,
 where the native model is Claude and "the other provider" is Codex
@@ -156,12 +156,20 @@ where the native model is Claude and "the other provider" is Codex
   `WP=codex-cli → Verifier=Opus` / `WP=anthropic → Verifier=codex` tables as
   "Worker on the native model → the other role on the other provider," and vice
   versa.
-- The Prototype Gate is read-only executable proof, not coding. For broker/data
-  sync, DB producers, migrations/backfills, ledger/NAV/TWR, financial data,
-  external APIs, concurrency/cache, incident-driven fixes, or critical
-  components, Codex must run or request a Prototyper pass before spawning Worker.
-  A notebook is allowed only when accompanied by a repeatable probe script or
-  command output; notebook-only proof is not sufficient handoff evidence.
+- The Prototype Gate is evidence-first, read-only executable proof, not coding.
+  Every non-trivial behavioral, data, runtime, external-system, incident-driven,
+  or critical-component gate requires a Prototyper notebook before spawning
+  Worker. The notebook is the investigation journal, not a synthetic test stand:
+  every evidence-bearing cell records the direct authorized read-only command/query,
+  source identity and environment, ISO timestamp or observation window,
+  filters, counts/samples, expected versus actual, invariant result, candidate
+  binding, and a raw-output reference. The notebook is durable only under
+  `notebooks/` or `reports/prototypes/`, never tempdir; large output is a
+  repo-relative artifact with SHA-256. Notebook-only claims are not sufficient handoff evidence,
+  but a paired probe script is not required; direct command output is enough.
+  Notebook N/A is permitted only when the entire Prototype Gate is explicitly
+  N/A for a pure docs/format/static-config task with no executable data/runtime
+  hypothesis and a concrete reason.
 - If `ZAI_API_KEY` is present, GLM-5.2 via `~/.claude/scripts/zai_cli.py` is a
   third-model read-only channel for Challenge, external audit, edge-harvest, and
   diff-review. It does not replace the exit-code Judge/Verifier unless a future
@@ -206,7 +214,18 @@ where the native model is Claude and "the other provider" is Codex
   and check whether all delegates share one unverified premise.
 - Give each role its own contract. A Worker implements the scoped artifact and is
   not called Lead. A Verifier is independent, actively seeks FAIL, and validates
-  primary evidence and integration boundaries rather than confirming the Worker.
+  primary evidence and integration boundaries with direct read-only probes rather
+  than confirming the Worker or creating a synthetic test stand. During
+  implementation iterations it must not create or rewrite acceptance suites, tests, fixtures,
+  mocks, synthetic datasets, verification stands, or harnesses. Once direct
+  probes pass and the candidate is stable, the final deploy gate may create or
+  update durable regression tests and then run the full existing suite; those
+  tests preserve proven behavior and never replace the direct evidence. Evidence
+  Receipt rows bind each PASS to artifact/tree-diff SHA-256 plus applicable
+  process/build/deployment/version identity, classify the operation against the
+  fail-closed read-only allowlist, and retain bounded raw output or a durable
+  repo-relative SHA-256 reference. The final gate freezes the regression manifest
+  and named test-file hashes before its first full-suite run.
 - Always perform RECON against current code/config before reports or opinions.
 - For `consilium`, `audit`, and `architecture`, build a Verified Facts Brief
   before spawning subagents.
@@ -217,10 +236,11 @@ where the native model is Claude and "the other provider" is Codex
   file-scoped preservation analysis and must name edited files, touched surfaces,
   consumers checked, relevant git/incident history, behaviors that must not
   regress, and the verification target. For broker/data/DB/financial/migration/
-  external-system/incident/critical-component work, the `/go` run must also produce a
-  `Prototype Handoff` before Worker: source-of-truth inputs, current-system
+  non-trivial behavioral/data/runtime/external-system/incident/critical-component work, the `/go` run must also produce a
+  `Prototype Handoff` and mandatory investigation notebook before Worker: source-of-truth inputs, current-system
   comparison, first divergence, counts/samples, invariants proven, Worker facts,
-  and Verifier regression assertions.
+  and direct-probe requirements for the Verifier. The final deploy gate alone
+  may add durable regression assertions.
 - Save generated reports to the same repo paths the original command specifies,
   usually `reports/`.
 - Do not invent top-level Codex slash commands. If bare `/consilium` is

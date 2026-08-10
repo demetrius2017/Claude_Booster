@@ -20,13 +20,13 @@ The Flow Designer runs **after RECON** (it needs the Verified Facts Brief — ac
 
 - Maps the **temporal topology** of the problem: what changes, when, what depends on what, what can go wrong at each transition
 - Produces a **Process Flow Document (PFD)** — a structured YAML artifact that forces the pipeline to think in processes, not snapshots
-- Derives **worker directives** (imperative instructions for implementation) and **verifier assertions** (concrete test scenarios) from the analysis
+- Derives **worker directives** (imperative instructions for implementation) and **verifier direct-probe requirements** (concrete source-of-truth observations) from the analysis
 
 ### What it does NOT do
 
 - Does NOT write code (that's the Worker's job)
 - Does NOT decide architecture (that's consilium / Lead's job)
-- Does NOT replace the Verifier (PFD informs testing but doesn't substitute it)
+- Does NOT replace the Verifier (the PFD defines the authorized read-only observations the Verifier must collect, but does not substitute for that evidence)
 
 Its output is a **map of mines** — here's where the temporal traps are, here's what branches exist, here's what goes stale — not a recipe for how to implement the solution.
 
@@ -192,17 +192,19 @@ state_variables:
     cascade_depth: <int>  # how many derivations downstream
     recompute_trigger: "<event that invalidates this value>"
 
-# Section 3: Branching scenarios per operation
+# Section 3: Observed branching scenarios per operation
 branching_scenarios:
   - operation: "<operation name from timeline>"
+    source_identity: "<authoritative read-only source: URL/table/log/topic + environment>"
+    observed_at: "<ISO-8601 timestamp or observation window>"
     outcomes:
       - branch: "happy_path"
-        probability: "<estimate>"
+        expected_vs_actual: "<expected state vs observed state>"
         state_after: "<system state>"
         downstream_effects: []
       - branch: "<failure_mode>"
         guide_word: "NO | MORE | LESS | REVERSE | LATE | EARLY | OTHER | PARTIAL"
-        probability: "<estimate>"
+        expected_vs_actual: "<expected state vs observed state>"
         state_after: "<system state — potentially inconsistent>"
         downstream_effects:
           - affected: "<component or variable>"
@@ -212,6 +214,7 @@ branching_scenarios:
           mechanism: "RETRY | COMPENSATE | MANUAL | NONE"
           exists_in_code: true | false
           gap: "<what's missing if recovery incomplete>"
+    unavailable_evidence: "<why lawful read-only observation is impossible, or null>"
 
 # Section 4: HAZOP-derived failure enumeration
 failure_modes:
@@ -257,14 +260,39 @@ worker_directives:
     rationale: "<which failure_mode or temporal_gap this prevents>"
     enforcement: "input_guard | body_invariant | output_guard | retry_logic | state_refresh | lock"
 
-# Section 9: Concrete test scenarios for Verifier
+# Section 9: Direct source-of-truth probe requirements for Verifier
 verifier_assertions:
-  - assertion: "<what to test>"
+  - assertion: "<observable claim to verify>"
     type: "temporal | branching | invariant | freshness | cascade"
-    how: "<suggested test approach — mock time, inject failure, check state>"
+    source_identity: "<authoritative source and environment>"
+    observed_at: "<ISO-8601 timestamp or observation window>"
+    how: "<authorized read-only command/query>"
+    expected_vs_actual: "<expected evidence compared with actual evidence>"
+    unavailable_evidence: "<why lawful observation is impossible, or null>"
     derived_from: "<failure_mode ID or invariant name>"
 
-# Section 10: Visual branch tree [OPTIONAL but recommended]
+# Section 10: Prototype Gate plan — mandatory unless the whole gate is N/A
+prototype_plan:
+  notebook_path: "<repo-relative notebooks/... or reports/prototypes/...; never tempdir>"
+  applicability: "REQUIRED | N/A"
+  na_reason: "<concrete pure-docs/format/static-config reason, or null>"
+  checks:
+    - source_identity: "<authoritative source and environment>"
+      operation_class: "HTTP_GET | HTTP_HEAD | SQL_SELECT | SQL_WITH | SQL_EXPLAIN | CLI_READ | FILESYSTEM_READ | DEVTOOLS_READ"
+      allowlist_decision: "ALLOWED | UNAVAILABLE"
+      baseline_source_snapshot: "<source identity; exact query SHA-256; result SHA-256; raw-output SHA-256; ISO-8601 timestamp or observation window>"
+      expected_observation: "<what this read-only observation must establish>"
+      unavailable_evidence: "<why the observation cannot be lawfully made, or null>"
+
+# Section 11: Exact role-to-role handoff payloads
+role_handoff_contract:
+  prototype_to_worker: "<notebook path, raw-output references, proven facts, forbidden assumptions>"
+  prototype_to_verifier: "<baseline-derived authorized direct-probe requirements, source snapshot hashes, and unavailable branches>"
+  worker_to_verifier: "<artifact path plus artifact/tree-diff SHA-256 and process/build/deployment/version identity>"
+  verifier_to_final_gate: "<Evidence Receipt, frozen regression manifest, unavailable-branch coverage mapping>"
+  forbidden: ["implementation reasoning", "synthetic test artifacts during iteration", "unbound baseline evidence as PASS"]
+
+# Section 12: Visual branch tree [OPTIONAL but recommended]
 branch_tree:
   mermaid: |
     graph TD
@@ -303,8 +331,8 @@ A PFD is **bad** when:
 |-------------|------------------------|-----|
 | `worker_directives` | Appended to `Acceptance emphasis:` | Worker sees temporal/branching requirements alongside functional ones |
 | `invariants` | New field: `Flow invariants:` | Both Worker and Verifier see what must hold |
-| `verifier_assertions` | Appended to `Expected observable behavior:` | Verifier knows which temporal/branching properties to test |
-| `failure_modes` | New field: `Enumerated failure modes:` | Worker must handle each; Verifier must test at least the CRITICAL/HIGH ones |
+| `verifier_assertions` | Appended to `Expected observable behavior:` | Verifier knows which temporal/branching properties to probe directly |
+| `failure_modes` | New field: `Enumerated failure modes:` | Worker must handle each; Verifier must directly probe at least the CRITICAL/HIGH ones where source access permits |
 | `state_variables` (non-STATIC) | Enriches `Inputs:` | "These inputs are NOT static — implementation must handle temporal drift" |
 | `temporal_gaps` | New field: `Temporal gaps:` | Worker sees where stale-data bugs hide |
 | `branch_tree.mermaid` | New field: `Flow diagram:` | Visual overview for both Worker and Verifier |
@@ -318,10 +346,10 @@ A PFD is **bad** when:
 
 ### Verifier sees
 
-- `verifier_assertions` — concrete test scenarios with suggested approach
+- `verifier_assertions` — concrete direct-probe requirements with source identity, command/query shape, expected evidence, and invariant
 - `invariants` — properties to assert hold after execution
-- `branching_scenarios` — which branches to inject in tests
-- Does NOT see `worker_directives` (maintains independence — Verifier tests observable behavior, not Worker's implementation strategy)
+- `branching_scenarios` — observed branches, their authoritative source, observation time, expected-vs-actual state, and any explicitly unavailable lawful evidence
+- Does NOT see `worker_directives` (maintains independence — Verifier observes observable behavior, not Worker's implementation strategy)
 
 ### Challenger loop (quality assurance on the PFD itself)
 
@@ -444,15 +472,27 @@ worker_directives:
 verifier_assertions:
   - assertion: "After partial fill (50 of 100), position.confirmed_qty reflects only the 50. position.pending_qty shows remaining 50."
     type: "branching"
-    how: "Inject mock partial fill event. Assert confirmed vs. pending split."
+    source_identity: "broker execution API and production position read model"
+    observed_at: "<ISO-8601 observation time>"
+    how: "Authorized read-only query of executions by order_id and current position state."
+    expected_vs_actual: "confirmed and pending quantities agree with the execution records."
+    unavailable_evidence: "null"
     derived_from: "F1"
   - assertion: "After local timeout, if fill arrives for the timed-out order, position updates correctly (not rejected)."
     type: "temporal"
-    how: "Simulate: fire timeout, then inject fill for same order_id. Assert position updated."
+    source_identity: "broker execution event log and order/position read models"
+    observed_at: "<ISO-8601 observation window covering timeout and late fill>"
+    how: "Authorized read-only query correlating the timeout record, late fill for the same order_id, and resulting position state."
+    expected_vs_actual: "a late authoritative fill is accepted and the observed position reflects it rather than rejecting the event."
+    unavailable_evidence: "Record why no lawful read-only source exposes this sequence, if applicable."
     derived_from: "F2"
   - assertion: "NAV calculation never reads position in PENDING state without accounting for uncertainty."
     type: "invariant"
-    how: "Set position to PENDING, trigger NAV recalc. Assert NAV either waits or uses confirmed-only."
+    source_identity: "NAV calculation audit trail and position-state read model"
+    observed_at: "<ISO-8601 observation time>"
+    how: "Authorized read-only query of NAV outputs associated with observed PENDING positions."
+    expected_vs_actual: "the observed NAV waits or uses confirmed-only values whenever the position is PENDING."
+    unavailable_evidence: "Record why the necessary audit trail cannot lawfully be observed, if applicable."
     derived_from: "F1"
 ```
 
@@ -525,13 +565,25 @@ worker_directives:
 verifier_assertions:
   - assertion: "Given current_stock=1000, daily_demand=10, lead_time=60: reorder_point > 600. New code projects the curve, not just static multiply."
     type: "temporal"
-    how: "Unit test with mock data. Compare old formula output vs. new."
+    source_identity: "authoritative inventory/forecast rows and reorder-point output"
+    observed_at: "<ISO-8601 observation time>"
+    how: "Authorized read-only query of input rows and current output under the documented rounding invariant."
+    expected_vs_actual: "the observed reorder point exceeds the flat static calculation when the authoritative curve requires it."
+    unavailable_evidence: "null"
   - assertion: "Given demand forecast that increases 50% mid-lead-time: reorder_point higher than flat-average calculation."
     type: "temporal"
-    how: "Inject ramping forecast. Assert output > flat-average baseline."
+    source_identity: "authoritative forecast history and reorder-point output"
+    observed_at: "<ISO-8601 observation window containing a documented ramp>"
+    how: "Authorized read-only query of a real ramping forecast and its resulting reorder point."
+    expected_vs_actual: "the observed reorder point is higher than the documented flat-average baseline."
+    unavailable_evidence: "Record why no lawful real-source ramp observation is available, if applicable."
   - assertion: "Given snapshot older than 26h: function raises or returns pessimistic fallback."
     type: "freshness"
-    how: "Pass stale timestamp. Assert ValueError or fallback flag."
+    source_identity: "authoritative snapshot metadata and calculation audit trail"
+    observed_at: "<ISO-8601 observation time>"
+    how: "Authorized read-only query for naturally stale snapshots and their recorded handling."
+    expected_vs_actual: "the observed handling raises or records the pessimistic fallback for snapshots older than 26h."
+    unavailable_evidence: "Record why lawful observation of a stale snapshot is unavailable, if applicable."
 ```
 
 ---
@@ -669,7 +721,7 @@ The Flow Designer performs **architecture-level reasoning** — cross-system tem
 ### ROI case
 
 One Flow Designer invocation costs 30-90 seconds of latency.
-One Worker retry (caused by temporal-blind code) costs 60-120 seconds + Verifier re-run.
+One Worker retry (caused by temporal-blind code) costs 60-120 seconds + a new direct-probe pass.
 If the PFD prevents even ONE retry, it pays for itself. Empirically, tasks with temporal complexity trigger 2-3 retries without process thinking.
 
 ---
@@ -690,7 +742,7 @@ Concrete failures that motivated this:
 
 | Rule | Connection |
 |------|-----------|
-| `paired-verification.md` | Worker receives `worker_directives` from PFD in the Artifact Contract. Verifier receives `verifier_assertions`. The PFD enriches the contract that drives the pair. |
+| `paired-verification.md` | Worker receives `worker_directives` from PFD in the Artifact Contract. Verifier receives `verifier_assertions` as authorized read-only observation requirements with source identity, timestamp, expected-vs-actual evidence, and unavailable-evidence handling. Durable regression tests remain at the final deploy gate. |
 | `quality-no-defects.md` | Three Nos at Layer 2 (output guards) are directly informed by PFD `invariants`. "Do not pass on a value that violates the invariant" = output guard derived from PFD. |
 | `core.md` | Pre-Edit Impact Analysis ("what depends on this? what breaks?") is the same question as Lens 3. The PFD answers it systematically before code is written. |
 | `pipeline.md` | Flow Designer is mandatory first stage of every delegation: RECON → Flow Designer → Worker + Verifier. PFD is a planning artifact stored in `state/pfd/`. |
