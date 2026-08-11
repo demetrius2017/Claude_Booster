@@ -154,6 +154,7 @@ Hard stops:
 
   When triggered: run `consilium` (3-5 agents + GPT via PAL) focused on the specific change. Present synthesis to Dmitry BEFORE editing. One-line changes that are obviously safe (typo fix, log message) are exempt.
 - **[CRITICAL] Recon before code:** BEFORE writing a new function/method/utility — Grep/Glob the codebase for existing implementations. Search by keywords, method names, patterns. Duplication = bug. Found an analogue → use/extend it, do NOT rewrite from scratch.
+- **[CRITICAL] Every Lead/orchestrator in Claude Code and Codex — impact-first, coarse-to-fine execution:** Rank work by expected impact on the user's outcome before effort; pursue the largest high-impact, coherent, reversible slice first, then reduce step size as uncertainty falls. Explicitly defer polish and local optimizations that do not unblock the major result. When 2+ materially different plausible solutions exist and the choice is evidence-sensitive, compare variants in a durable notebook under `notebooks/` or `reports/prototypes/` before production code; state the decision metric and falsifier, then implement the winner. No notebook is required for trivial/reversible choices or pure documentation. The existing `/go` Prototype Gate remains stricter where it applies. This rule never weakens Three Nos, verification, safety, or the user's stated scope.
 - System logs ≠ user decisions.
 - File >500 lines — split into modules.
 - Do NOT generate reports unless Dmitry explicitly requests — save tokens.
