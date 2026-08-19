@@ -1,7 +1,7 @@
 # Техническое задание: Development/Release Test Modes
 
 **Дата:** 2026-08-19
-**Статус:** implemented; focused and full-suite verification passed; exact-commit RELEASE gate pending
+**Статус:** completed; focused tests, code review and exact-commit RELEASE gate passed
 **Основание:** reports/consilium_2026-08-19_development_release_test_modes.md
 
 ## Контекст
