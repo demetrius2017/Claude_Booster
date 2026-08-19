@@ -152,18 +152,22 @@ class TestModesContract(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_shipped_registry_has_one_job_per_test_file_and_release_has_no_omissions(self) -> None:
+    def test_shipped_registry_has_aggregate_python_job_and_release_has_no_omissions(self) -> None:
         core = self.repo.module("test_modes_core")
         registry = core.validate_registry(json.loads((CONTRACT / "registry.json").read_text()))
         jobs = registry["jobs"]
-        argv_by_id = {job["id"]: job["argv"] for job in jobs}
+        by_id = {job["id"]: job for job in jobs}
         python_files = sorted(path.relative_to(SOURCE).as_posix() for path in (SOURCE / "tests").glob("test_*.py"))
         shell_files = git(SOURCE, "ls-files", "tests/test_*.sh").splitlines()
-        represented_python = {arg for argv in argv_by_id.values() for arg in argv if arg in python_files}
-        represented_shell = {argv[-1] for argv in argv_by_id.values() if len(argv) == 3 and argv[:2] == ["bash", "tests/run_shell_contracts.sh"]}
-        self.assertEqual(represented_python, set(python_files))
+        self.assertEqual(by_id["py-contracts-all"]["argv"], ["python3", "tests/run_python_contracts.py"])
+        self.assertEqual(by_id["py-contracts-all"]["source_files"], python_files)
+        self.assertFalse(by_id["py-contracts-all"]["critical"])
+        represented_shell = {job["source_files"][0] for job in jobs if job["id"].startswith("sh-")}
         self.assertEqual(represented_shell, set(shell_files))
-        self.assertEqual(len(jobs), len(python_files) + len(shell_files) + 1)
+        self.assertEqual(len(jobs), 44)
+        self.assertEqual(sum(job["id"].startswith("py-") for job in jobs), 1)
+        self.assertEqual(sum(job["id"].startswith("sh-") for job in jobs), 42)
+        self.assertEqual({item["id"] for item in json.loads((CONTRACT / "critical_smoke.json").read_text())["tests"]}, {"script-compile", "sh-codex-sandbox-worker"})
         self.assertTrue(all(job["required"] for job in jobs))
 
     def test_phase_progress_clear_is_compatible_safe_and_keeps_clean_repo_clean(self) -> None:
