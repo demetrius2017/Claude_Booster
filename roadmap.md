@@ -72,3 +72,11 @@ smoke вернул `START_ROUTED_OK` через `gpt-5.6-luna` c `low` effort и
 `source=balancer`; override отвергнут с exit 2 до HTTP-запроса. Этот трек не
 меняет статус отдельного wait-history patch выше: он всё ещё version-pinned к
 `rust-v0.145.0-alpha.13` и требует rebase перед следующим использованием.
+
+## Завершено в сессии 2026-08-19 — Development/Release Test Modes
+
+В `origin/main` доставлен центральный test dispatcher с expiring phase lease,
+детерминированной глобальной 10% DEVELOPMENT-выборкой, exact-tree RELEASE
+receipt, failure ledger и fail-closed pre-push/CI границами. Финальный RELEASE
+gate прошёл 44/44 frozen jobs на commit `e43a7bd`; следующий этап — shadow
+калибровка p50/p90 и omission rate до широкого включения enforcement.
