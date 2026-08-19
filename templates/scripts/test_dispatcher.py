@@ -48,7 +48,8 @@ def cmd_plan(args):
         if str(exc) != "unknown changed path requires release": raise
         item["mode"] = "release"
         ids = selection(args.root, registry, impact, args.base, unresolved, args.epoch, True, trusted, critical)
-    jobs = [x for x in registry["jobs"] if x["id"] in ids]
+    jobs_by_id = {job["id"]: job for job in registry["jobs"]}
+    jobs = [jobs_by_id[test_id] for test_id in ids]
     item.update({"kind": "manifest", "base": args.base, "base_sha": resolve_git_oid(args.root,args.base), "registry_hash": registry["registry_hash"], "registry": registry, "test_ids": ids, "jobs": jobs})
     item["manifest_hash"] = digest({k:v for k,v in item.items() if k != "created_at"})
     return emit(item)
