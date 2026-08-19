@@ -1,0 +1,47 @@
+OBSERVATION UTC: 2026-08-19T13:20:00Z (command output collected in this Codex session)
+OPERATION: read-only project Git inspection; allowlist decision=ALLOW (git rev-parse/status/diff/log/config only).
+
+COMMAND:
+pwd && git rev-parse --show-toplevel --git-common-dir HEAD 'HEAD^{tree}' && git ls-files --stage -z | shasum -a 256 && git status --porcelain=v2 --untracked-files=all --ignored=matching && git diff --name-only && git diff --cached --name-only
+
+RESULT:
+/Users/dmitrijnazarov/Projects/Claude_Booster
+/Users/dmitrijnazarov/Projects/Claude_Booster
+.git
+ee870e62a362dee24b8a20d223adbdae33757886
+b3ccf7fce5a69c1599823d231945d142193080ce
+46300144af9b7516fc9287862082e2e0fc8a69e230e2a9278079da2ad8fc75e6  -
+1 .M N... 100644 100644 100644 60d00f2f0a70a71d5a8757e5328d807a6b982c1d 60d00f2f0a70a71d5a8757e5328d807a6b982c1d templates/commands/gantt.md
+1 .M N... 100644 100644 100644 b57618938b6276d5b8f0a5260d5187792aa6fd34 b57618938b6276d5b8f0a5260d5187792aa6fd34 tests/test_gantt_contract.py
+? docs/codex_wait_patch.md
+? docs/test_modes_session_spec.md
+? patches/codex-wait-history.patch
+? patches/codex-wait-history.pin
+? scripts/codex_wait_patch/activate.sh
+? scripts/codex_wait_patch/build.sh
+? scripts/codex_wait_patch/launcher.sh
+? scripts/codex_wait_patch/lib.sh
+? scripts/codex_wait_patch/prepare.sh
+? scripts/codex_wait_patch/test_launcher.sh
+? scripts/codex_wait_patch/update.sh
+! .DS_Store
+! .cache/
+! .claude/
+! .env
+! .jupyter_ystore.db
+! .pytest_cache/
+! .ruff_cache/
+! __pycache__/
+! scripts/__pycache__/
+! stand/__pycache__/
+! stand_v3/__pycache__/
+! templates/scripts/__pycache__/
+! templates/scripts/supervisor/__pycache__/
+! templates/scripts/supervisor/tests/__pycache__/
+! templates/scripts/tests/__pycache__/
+! tests/__pycache__/
+templates/commands/gantt.md
+tests/test_gantt_contract.py
+
+INTERPRETATION BOUND:
+HEAD/tree/index are stable identifiers of committed/index state only. The tracked .M records and untracked paths prove the worktree candidate is dirty. A receipt claiming this as an exact promotable candidate would omit worktree content; a promotion receipt must reject it unless the candidate is first made clean and re-identified.

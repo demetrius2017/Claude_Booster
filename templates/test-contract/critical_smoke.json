@@ -1,0 +1,1 @@
+{"schema_version":1,"tests":[{"id":"script-compile","owner":"booster-maintainers","rationale":"syntax smoke for installed Python runtime","reviewed_at":"2026-08-19"},{"id":"py-agent-status-contract","owner":"booster-maintainers","rationale":"small CLI compatibility smoke","reviewed_at":"2026-08-19"}]}

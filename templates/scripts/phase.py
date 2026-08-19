@@ -1,11 +1,20 @@
 #!/usr/bin/env python3
-"""
+"""Project-scoped workflow state machine with compatibility phase lease.
+
+Purpose: retain legacy phase stdout while issuing structured expiring leases.
+Contract: get/set/list output and .phase storage remain compatible; a failed
+lease write never updates the legacy marker.
+CLI/Examples: phase.py get; phase.py set IMPLEMENT; phase.py progress "4/7".
+Limitations: lease is local advisory state, not a trusted CI authorization.
+ENV/Files: CLAUDE_SESSION_ID optionally binds a lease; .claude/{.phase,phase_lease.json}.
 phase.py — project-scoped phase state machine for Lead-Orchestrator workflow.
 
 Contract:
   phase.py           → print current phase (alias of get)
   phase.py get       → print current phase; default RECON if unset
-  phase.py set NAME  → set phase, log transition, print prev→new
+  phase.py set NAME  → set phase, issue expiring root/run-bound lease, print prev→new
+  phase.py progress TEXT → append an auditable progress event
+  phase.py progress clear → safely remove progress state
   phase.py list      → list valid phases with short rule
 
 Storage:
@@ -18,6 +27,7 @@ Exit codes: 0 OK, 2 bad usage / invalid phase.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from datetime import datetime
@@ -71,6 +81,14 @@ def set_phase(name: str) -> int:
     f = _phase_file(root)
     f.parent.mkdir(parents=True, exist_ok=True)
     prev = get_phase()
+    # The legacy marker remains for all existing consumers, but is never a
+    # development authorization.  test_dispatcher validates phase_lease.json.
+    try:
+        from test_modes_core import create_lease
+        create_lease(root, name)
+    except Exception as exc:
+        print(f"error: phase marker not promoted to a valid lease: {exc}", file=sys.stderr)
+        return 2
     f.write_text(name + "\n", encoding="utf-8")
     log = f.parent / "phase_transitions.log"
     try:
@@ -79,6 +97,42 @@ def set_phase(name: str) -> int:
     except OSError:
         pass
     print(f"{prev} -> {name}")
+    return 0
+
+
+def progress(message: str) -> int:
+    """Append structured phase progress without altering get/set/list stdout."""
+    if not isinstance(message, str) or not message.strip() or len(message) > 500:
+        print("error: progress message must be 1..500 characters", file=sys.stderr)
+        return 2
+    root = _project_root(); path = root / ".claude" / "phase_progress.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    event = {"timestamp": datetime.utcnow().isoformat() + "Z", "phase": get_phase(), "message": message.strip()}
+    try:
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
+            fh.flush(); os.fsync(fh.fileno())
+    except OSError as exc:
+        print(f"error: cannot write phase progress: {exc}", file=sys.stderr); return 2
+    print(f"{event['phase']}: {event['message']}")
+    return 0
+
+
+def clear_progress() -> int:
+    """Remove only the regular, project-scoped progress file."""
+    path = _project_root() / ".claude" / "phase_progress.jsonl"
+    try:
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            print("error: unsafe phase progress path", file=sys.stderr)
+            return 2
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"error: cannot clear phase progress: {exc}", file=sys.stderr)
+        return 2
+    if path.exists():
+        print("error: phase progress clear invariant failed", file=sys.stderr)
+        return 2
+    print("progress cleared")
     return 0
 
 
@@ -100,7 +154,13 @@ def main(argv: list[str]) -> int:
         return set_phase(argv[2])
     if cmd == "list":
         return list_phases()
-    print("usage: phase.py [get|set <PHASE>|list]", file=sys.stderr)
+    if cmd == "progress":
+        if len(argv) < 3:
+            print("usage: phase.py progress <TEXT>", file=sys.stderr); return 2
+        if len(argv) == 3 and argv[2] == "clear":
+            return clear_progress()
+        return progress(" ".join(argv[2:]))
+    print("usage: phase.py [get|set <PHASE>|list|progress <TEXT>]", file=sys.stderr)
     return 2
 
 

@@ -243,7 +243,7 @@ record the required observation as unavailable.
 Only after all required direct probes pass, the candidate remains stable through
 diff review, and deployment is the next action, the Lead may create or update
 durable regression tests. These tests encode the already-proven behavior and
-then the Lead runs the full existing suite. They are a regression memory, not a
+then the Lead runs the dispatcher’s frozen full existing suite. Development selection is advisory only: final release coverage includes every required registry job/platform for the exact candidate. They are a regression memory, not a
 replacement for source-of-truth evidence.
 
 - Before this gate, neither Worker nor Verifier creates or rewrites tests,

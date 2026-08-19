@@ -5,6 +5,22 @@
   "updated": "2026-06-13",
 
   "components": {
+    "managed_test_dispatcher": {
+      "file": "templates/scripts/test_dispatcher.py::main",
+      "reads_from": ["domain:git_candidate_identity", "external:templates/test-contract/*.json", "external:.claude/phase_lease.json"],
+      "writes_to": ["external:.claude/test-modes/receipts/*", "external:.claude/test-modes/failure-ledger.jsonl"],
+      "called_by": ["command:go", "command:phase", "hook:pre-push"],
+      "critical": true,
+      "notes": "Fail-closed development/release resolver. Local receipts are evidence only; test_ci_adapter is the sole trusted-CI promotion boundary."
+    },
+    "managed_test_modes_core": {
+      "file": "templates/scripts/test_modes_core.py",
+      "reads_from": ["external:Git", "external:versioned contract JSON"],
+      "writes_to": ["external:.claude/phase_lease.json", "external:.claude/test-modes/*"],
+      "called_by": ["managed_test_dispatcher", "phase.py", "test_pre_push", "test_ci_adapter"],
+      "critical": true,
+      "notes": "Canonical JSON, mode-0600 atomic state, candidate identity, leases, deterministic selection, and hash-chained failure ledger."
+    },
     "phase_prompt_inject": {
       "file": "templates/scripts/phase_prompt_inject.py::main",
       "reads_from": ["external:UserPromptSubmit stdin", "external:<project>/.claude/.phase", "external:CLAUDE_BOOSTER_DELEGATE_BUDGET"],

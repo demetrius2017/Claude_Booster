@@ -149,6 +149,10 @@ C4Container
 
 ## Data Flows
 
+## Managed Test Modes
+
+`test_dispatcher.py` is the sole managed test-execution boundary. It captures a stable Git candidate identity (HEAD/tree/index/worktree/untracked), validates the expiring root/run-bound lease written by `phase.py`, and resolves development versus release fail-closed. Development selects conservative impact coverage, critical smoke, unresolved failures, and a deterministic stratified sample. Release freezes the full registry before structured-argv execution and emits only local evidence for an exact clean candidate. `test_pre_push.py` requires that local release receipt for protected destinations; `test_ci_adapter.py` is the separate trusted-host boundary which may issue promotion authorization only for an exact merge-result SHA/tree. The failure ledger is append-only and hash-chained under `.claude/test-modes/`.
+
 ### /go — Six-Stage Pipeline (Flow Designer → Challenge → Worker + Verifier → test → diff-review → verdict)
 
 The `/go` skill writes a `.go_active` marker (Phase 0) so `go_gate.py` permits Worker `Agent` spawns in IMPLEMENT phase; without the marker, a coding-keyword Agent spawn in IMPLEMENT is blocked (exit 2). `kpi_rework.py record` fires at Phase 4 with the outcome and defect categories. The W/V/A/R retry branch (Worker / Verifier / Audit / Re-spawn) is hard-capped at 3 retries.

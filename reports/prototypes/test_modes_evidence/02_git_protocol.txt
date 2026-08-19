@@ -1,0 +1,22 @@
+OBSERVATION UTC: 2026-08-19T13:23:00Z; disposable repositories only under /private/tmp/test-modes-git-probe-6tvs2mu3.
+OPERATION: isolated local Git mutation (git init/commit/push/config only in disposable temp repos); project/external-state decision=ALLOW. No project hook, remote, config, or worktree was modified.
+
+COMMAND (Python stdlib driver): created bare remote and working repos, installed a safe printing pre-push hook in the disposable work repo, pushed main/tag/create/delete/force, then separately tested core.hooksPath unset/relative/absolute and lstat/readlink of a symlink hook without executing it.
+
+RESULT:
+record local_ref=refs/heads/main local_oid=327628d4c76c6bbfa4b3a8ffccc666b7bfc4a4f8 remote_ref=refs/heads/main remote_oid=91ad1a8c4c9c330e9563ca81dd0c71e6725b85f7
+record local_ref=refs/tags/v-probe local_oid=2c67b67be856afa8c408ef17a798c6019b144aa5 remote_ref=refs/tags/v-probe remote_oid=0000000000000000000000000000000000000000
+record local_ref=refs/heads/delete-me local_oid=327628d4c76c6bbfa4b3a8ffccc666b7bfc4a4f8 remote_ref=refs/heads/delete-me remote_oid=0000000000000000000000000000000000000000
+record local_ref=(delete) local_oid=0000000000000000000000000000000000000000 remote_ref=refs/heads/delete-me remote_oid=327628d4c76c6bbfa4b3a8ffccc666b7bfc4a4f8
+record local_ref=refs/heads/main local_oid=a600432cdd868b0615d732fbabfab956aed314c8 remote_ref=refs/heads/main remote_oid=327628d4c76c6bbfa4b3a8ffccc666b7bfc4a4f8
+ + 327628d...a600432 main -> main (forced update)
+hooksPath mode=unset value=<unset>
+hooksPath mode=relative value=custom-hooks
+relative-hook-ran
+hooksPath mode=absolute value=/private/tmp/test-modes-git-probe-6tvs2mu3/absolute-hooks
+absolute-hook-ran
+symlink=os.stat_result(st_mode=41453, st_ino=177997253, st_dev=16777233, st_nlink=1, st_uid=501, st_gid=0, st_size=10, st_atime=1787145859, st_mtime=1787145859, st_ctime=1787145859)
+symlink-target=/bin/false
+
+INTERPRETATION BOUND:
+Pre-push gives local/remote ref+OID records, not an independent protected-branch authorization. New refs have zero remote OID; deletes have zero local OID; force and normal updates share the same record shape, so non-fast-forward must be determined by ancestry or Git's result, not record syntax. A relative hooksPath is interpreted relative to the repository; an absolute hooksPath is executed instead of .git/hooks. Symlink inspection alone observed an unsafe target; no target was executed.

@@ -114,7 +114,7 @@ CONFIG_PATH = CLAUDE_HOME / ".booster-config.json"
 BACKUP_DIR = CLAUDE_HOME / "backups"
 
 # Directories we install into (relative to CLAUDE_HOME)
-MANAGED_DIRS = ("rules", "scripts", "commands", "agents")
+MANAGED_DIRS = ("rules", "scripts", "commands", "agents", "test-contract")
 # Files we never touch under CLAUDE_HOME
 NEVER_TOUCH = {
     ".credentials.json",

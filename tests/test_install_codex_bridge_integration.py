@@ -444,6 +444,32 @@ def test_t5_no_bridge_opt_out() -> None:
         _cleanup(home)
 
 
+def test_t5b_rolling_memory_dependency_is_packaged() -> None:
+    """A clean Claude install must run the runtime's transitive local import."""
+    label = "T5b: clean install packages stuck_loop_key for rolling_memory stats"
+    home = _fresh_home()
+    try:
+        result = _run(
+            [sys.executable, str(INSTALL_PY), "--yes", "--no-codex-bridge"] + IDENTITY,
+            home,
+        )
+        if result.returncode != 0:
+            _fail(label, f"installer exit={result.returncode}\\nstdout={result.stdout[:500]}\\nstderr={result.stderr[:300]}")
+            return
+
+        script = Path(home) / ".claude" / "scripts" / "rolling_memory.py"
+        dependency = Path(home) / ".claude" / "scripts" / "stuck_loop_key.py"
+        runtime = _run([sys.executable, str(script), "stats"], home)
+        if not dependency.is_file():
+            _fail(label, f"missing packaged dependency: {dependency}")
+        elif runtime.returncode != 0:
+            _fail(label, f"stats exit={runtime.returncode}\\nstdout={runtime.stdout[:500]}\\nstderr={runtime.stderr[:500]}")
+        else:
+            _ok(label)
+    finally:
+        _cleanup(home)
+
+
 # ─── main ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -461,6 +487,7 @@ def main() -> int:
     test_t3_yes_installs_bridge_manifest()
     test_t4_idempotent_no_new_backup()
     test_t5_no_bridge_opt_out()
+    test_t5b_rolling_memory_dependency_is_packaged()
     _safety.test_t6_wrapper_dry_run()
     _safety.test_t7_bridge_failure_isolation()
 

@@ -70,6 +70,11 @@ id_ecdsa*
 .claude/sessions/
 .claude/plans/
 .claude/paste-cache/
+.claude/phase_lease.json
+.claude/phase_progress.jsonl
+.claude/test-modes/
+.claude/.phase
+.claude/phase_transitions.log
 
 # NOTE: `reports/` is tracked in this working repo (consilium/audit/handover
 # history for /start retrieval). The PUBLIC distribution repo

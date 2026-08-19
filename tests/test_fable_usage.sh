@@ -95,21 +95,41 @@ CODEX_ROOT="$TMP_ROOT/codex_sessions"
 CODEX_TRANSCRIPT="$CODEX_ROOT/session.jsonl"
 mkdir -p "$CODEX_ROOT"
 
-cat > "$TRANSCRIPT" <<'JSONL'
-{"type":"assistant","timestamp":"2026-06-30T23:59:59Z","message":{"id":"msg_prev_month","model":"claude-fable-5","usage":{"input_tokens":1000000,"output_tokens":1000000,"cache_read_input_tokens":1000000,"cache_creation_input_tokens":1000000}}}
-{"type":"assistant","timestamp":"2026-07-01T00:00:00Z","message":{"id":"msg_current_full","model":"claude-fable-5","usage":{"input_tokens":100000,"output_tokens":10000,"cache_read_input_tokens":200000,"cache_creation":{"ephemeral_5m_input_tokens":100000,"ephemeral_1h_input_tokens":50000}}}}
-{"type":"assistant","timestamp":"2026-07-01T00:00:00Z","message":{"id":"msg_current_full","model":"claude-fable-5","usage":{"input_tokens":100000,"output_tokens":10000,"cache_read_input_tokens":200000,"cache_creation":{"ephemeral_5m_input_tokens":100000,"ephemeral_1h_input_tokens":50000}}}}
-{"type":"assistant","timestamp":"2026-07-02T12:00:00Z","message":{"id":"msg_other_model","model":"claude-opus-4-8","usage":{"input_tokens":999999,"output_tokens":999999,"cache_read_input_tokens":999999}}}
-{"type":"assistant","timestamp":"2026-07-01T00:30:00+03:00","message":{"id":"msg_july_local_but_june_utc","model":"claude-fable-5","usage":{"input_tokens":1000000,"output_tokens":1000000}}}
-{"type":"assistant","timestamp":"2026-07-03T12:00:00Z","message":{"id":"msg_current_last","model":"claude-fable-5","usage":{"input_tokens":50000,"output_tokens":5000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+DATE_FIELDS="$(python3 - <<'PY'
+from datetime import datetime, timedelta, timezone
+
+now = datetime.now(timezone.utc)
+current_first = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+previous_last = current_first - timedelta(seconds=1)
+print(
+    current_first.strftime("%Y-%m"),
+    previous_last.strftime("%Y-%m"),
+    current_first.strftime("%Y-%m-%d"),
+    previous_last.strftime("%Y-%m-%d"),
+)
+PY
+)"
+read -r CURRENT_MONTH PREVIOUS_MONTH CURRENT_MONTH_FIRST PREVIOUS_MONTH_LAST <<< "$DATE_FIELDS"
+
+CURRENT_DAY_2="${CURRENT_MONTH_FIRST%??}02"
+CURRENT_DAY_3="${CURRENT_MONTH_FIRST%??}03"
+CURRENT_DAY_4="${CURRENT_MONTH_FIRST%??}04"
+
+cat > "$TRANSCRIPT" <<JSONL
+{"type":"assistant","timestamp":"${PREVIOUS_MONTH_LAST}T23:59:59Z","message":{"id":"msg_prev_month","model":"claude-fable-5","usage":{"input_tokens":1000000,"output_tokens":1000000,"cache_read_input_tokens":1000000,"cache_creation_input_tokens":1000000}}}
+{"type":"assistant","timestamp":"${CURRENT_MONTH_FIRST}T00:00:00Z","message":{"id":"msg_current_full","model":"claude-fable-5","usage":{"input_tokens":100000,"output_tokens":10000,"cache_read_input_tokens":200000,"cache_creation":{"ephemeral_5m_input_tokens":100000,"ephemeral_1h_input_tokens":50000}}}}
+{"type":"assistant","timestamp":"${CURRENT_MONTH_FIRST}T00:00:00Z","message":{"id":"msg_current_full","model":"claude-fable-5","usage":{"input_tokens":100000,"output_tokens":10000,"cache_read_input_tokens":200000,"cache_creation":{"ephemeral_5m_input_tokens":100000,"ephemeral_1h_input_tokens":50000}}}}
+{"type":"assistant","timestamp":"${CURRENT_DAY_2}T12:00:00Z","message":{"id":"msg_other_model","model":"claude-opus-4-8","usage":{"input_tokens":999999,"output_tokens":999999,"cache_read_input_tokens":999999}}}
+{"type":"assistant","timestamp":"${CURRENT_MONTH_FIRST}T00:30:00+03:00","message":{"id":"msg_current_local_but_previous_utc","model":"claude-fable-5","usage":{"input_tokens":1000000,"output_tokens":1000000}}}
+{"type":"assistant","timestamp":"${CURRENT_DAY_3}T12:00:00Z","message":{"id":"msg_current_last","model":"claude-fable-5","usage":{"input_tokens":50000,"output_tokens":5000,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
 JSONL
 
 cat > "$MALFORMED_TRANSCRIPT" <<'JSONL'
 not-json
 JSONL
 
-cat > "$CODEX_TRANSCRIPT" <<'JSONL'
-{"type":"response_item","timestamp":"2026-07-04T00:00:00Z","payload":{"session_id":"codex-session","cwd":"/tmp/codex-project","message":{"id":"codex_fable_msg","role":"assistant","model":"claude-fable-5","usage":{"input_tokens":1000,"output_tokens":1000}}}}
+cat > "$CODEX_TRANSCRIPT" <<JSONL
+{"type":"response_item","timestamp":"${CURRENT_DAY_4}T00:00:00Z","payload":{"session_id":"codex-session","cwd":"/tmp/codex-project","message":{"id":"codex_fable_msg","role":"assistant","model":"claude-fable-5","usage":{"input_tokens":1000,"output_tokens":1000}}}}
 JSONL
 
 hook_event() {
@@ -216,13 +236,13 @@ MONTH_UTC="$(json_field "$SUMMARY1" "month_utc")"
 REQUEST_COUNT="$(json_field "$SUMMARY1" "mtd.events")"
 LAST_USD="$(json_field "$SUMMARY1" "last_task.cost_usd")"
 MTD_USD="$(json_field "$SUMMARY1" "mtd.cost_usd")"
-CACHE_READ_USD="$(sqlite_value "SELECT printf('%.6f', COALESCE(SUM(cache_read_tokens * 1000), 0) / 1000000000.0) FROM fable_usage_events WHERE month_utc = '2026-07';")"
-CACHE_WRITE_5M_USD="$(sqlite_value "SELECT printf('%.6f', COALESCE(SUM(cache_creation_5m_tokens * 12500), 0) / 1000000000.0) FROM fable_usage_events WHERE month_utc = '2026-07';")"
-CACHE_WRITE_1H_USD="$(sqlite_value "SELECT printf('%.6f', COALESCE(SUM(cache_creation_1h_tokens * 20000), 0) / 1000000000.0) FROM fable_usage_events WHERE month_utc = '2026-07';")"
+CACHE_READ_USD="$(sqlite_value "SELECT printf('%.6f', COALESCE(SUM(cache_read_tokens * 1000), 0) / 1000000000.0) FROM fable_usage_events WHERE month_utc = '$CURRENT_MONTH';")"
+CACHE_WRITE_5M_USD="$(sqlite_value "SELECT printf('%.6f', COALESCE(SUM(cache_creation_5m_tokens * 12500), 0) / 1000000000.0) FROM fable_usage_events WHERE month_utc = '$CURRENT_MONTH';")"
+CACHE_WRITE_1H_USD="$(sqlite_value "SELECT printf('%.6f', COALESCE(SUM(cache_creation_1h_tokens * 20000), 0) / 1000000000.0) FROM fable_usage_events WHERE month_utc = '$CURRENT_MONTH';")"
 LATEST_MSG_ID="$(sqlite_value "SELECT assistant_message_id FROM fable_usage_events ORDER BY ts_utc DESC, id DESC LIMIT 1;")"
 MODEL_ROW_COUNT="$(sqlite_value "SELECT COUNT(*) FROM fable_usage_events WHERE model = 'claude-fable-5';")"
 
-assert_eq "UTC month-to-date bucket is July 2026" "2026-07" "$MONTH_UTC"
+assert_eq "UTC month-to-date bucket is current UTC month" "$CURRENT_MONTH" "$MONTH_UTC"
 assert_eq "dedupe by message.id counts two current-month Fable requests" "2" "$REQUEST_COUNT"
 assert_eq "ledger stores parsed claude-fable-5 rows only once per message.id" "4" "$MODEL_ROW_COUNT"
 assert_eq "last request is newest UTC Fable message" "msg_current_last" "$LATEST_MSG_ID"
@@ -233,17 +253,17 @@ assert_eq "5m cache write is billed at 1.25x Fable input rate" "1.250000" "$CACH
 assert_eq "1h cache write is billed at 2x Fable input rate" "1.000000" "$CACHE_WRITE_1H_USD"
 
 SCAN_DRY="$(env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" \
-    python3 "$FABLE_USAGE" scan-month --month 2026-07 --root "$TMP_ROOT/project" --dry-run --json)"
+    python3 "$FABLE_USAGE" scan-month --month "$CURRENT_MONTH" --root "$TMP_ROOT/project" --dry-run --json)"
 assert_eq "scan-month dry-run finds current UTC month Fable events" "2" "$(json_field "$SCAN_DRY" "events")"
 assert_eq "scan-month dry-run computes current UTC month cost" "4.7000" "$(json_field "$SCAN_DRY" "cost_usd")"
 
 CODEX_SCAN_DRY="$(env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" \
-    python3 "$FABLE_USAGE" scan-month --month 2026-07 --root "$CODEX_ROOT" --dry-run --json)"
+    python3 "$FABLE_USAGE" scan-month --month "$CURRENT_MONTH" --root "$CODEX_ROOT" --dry-run --json)"
 assert_eq "scan-month dry-run parses Codex-like payload.message Fable event" "1" "$(json_field "$CODEX_SCAN_DRY" "events")"
 assert_eq "scan-month dry-run prices Codex-like Fable event" "0.0600" "$(json_field "$CODEX_SCAN_DRY" "cost_usd")"
 
 SCAN_WRITE="$(env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" \
-    python3 "$FABLE_USAGE" scan-month --month 2026-07 --root "$TMP_ROOT/project" --json)"
+    python3 "$FABLE_USAGE" scan-month --month "$CURRENT_MONTH" --root "$TMP_ROOT/project" --json)"
 assert_eq "scan-month write does not duplicate already-ingested events" "0" "$(json_field "$SCAN_WRITE" "inserted")"
 
 OUT2="$TMP_ROOT/hook2.out"
@@ -258,7 +278,7 @@ assert_eq "repeated hook run preserves deduped request count" "$REQUEST_COUNT" "
 
 rm -f "$FAKE_CLAUDE_HOME/fable_usage_summary.json"
 REFRESH_OUT="$(env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" \
-    python3 "$FABLE_USAGE" refresh-display --month 2026-07 --root "$TMP_ROOT/project")"
+    python3 "$FABLE_USAGE" refresh-display --month "$CURRENT_MONTH" --root "$TMP_ROOT/project")"
 assert_contains "refresh-display prints current last request/task estimate" "$REFRESH_OUT" "Fable last request/task estimate"
 assert_contains "refresh-display prints current month-to-date billable credits" "$REFRESH_OUT" "Fable month-to-date billable credits"
 

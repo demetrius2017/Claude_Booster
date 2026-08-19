@@ -940,6 +940,8 @@ with evidence, or routes a typed rework request to the correct phase.
 
 Run: `python3 ~/.claude/scripts/phase.py progress "7/7 verdict"`
 
+Managed tests route through `python3 ~/.claude/scripts/test_dispatcher.py`: development plans are advisory; final evidence requires a frozen release manifest for the exact candidate. “Full suite” means every required registry job and declared platform capability, never only tests runnable on the current host.
+
 ### Final deploy gate — only if all direct probes passed and Phase 3B review cleared (CLEAN, or only MED/LOW)
 
 Before emitting the verdict, confirm evidence is newer than the last relevant
@@ -949,7 +951,7 @@ mandatory provenance checks; they never override the exit-code-only PASS rule.
 
 Now, and only now, create or update durable regression tests that preserve the
 behavior proven by the direct probes. Do not use them to replace the evidence
-receipt. Run the full existing suite, including those durable tests, and capture
+receipt. Run the dispatcher’s frozen full existing suite, including those durable tests, and capture
 its exit code. If this suite fails, return to the relevant W/V/A/E remediation;
 do not rewrite an intermediate test merely to make a candidate pass.
 
