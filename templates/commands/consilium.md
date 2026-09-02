@@ -38,8 +38,16 @@ Steps: `1/6 recon`, `2/6 spawn_agents`, `3/6 analysis`, `4/6 gpt_review`, `5/6 s
    `printf '%s\n' '<consilium prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`
    On PAL runtime failure, attempt reviewers in this exact order until a usable
    external opinion returns: **Z.ai → Grok → Codex native second opinion**.
-   Grok command:
-   `printf '%s\n' '<consilium prompt>' | ~/.claude/scripts/grok_cli.py review --model grok-4.5 --budget-turns 3`
+   Grok is available only when `~/.claude/scripts/grok_cli.py status` exits 0
+   (127 = binary missing, 69 = not authenticated). That probe is the ONLY
+   accepted availability test — never infer availability from env vars such as
+   `XAI_API_KEY`. Grok command:
+   `printf '%s\n' '<consilium prompt>' | ~/.claude/scripts/grok_cli.py review --model grok-4.5 --budget-turns 8`
+   `--budget-turns 8` is the default for diff-only reviews; for repo-reading
+   audits (prompts that ask Grok to read files) use `--budget-turns 24`, and
+   `failure_type=max_turns` in the failure log means the budget was too small,
+   not that Grok is unavailable — retry once with a larger budget before
+   labeling DEGRADED.
    A missing credential/binary, non-zero exit, timeout, empty/error-only output,
    or tool exception means that reviewer is runtime unavailable and advances the
    chain. Label successful routes exactly `GLM-5.2 via Z.ai`, `Grok via xAI`, or
@@ -47,6 +55,12 @@ Steps: `1/6 recon`, `2/6 spawn_agents`, `3/6 analysis`, `4/6 gpt_review`, `5/6 s
    marked `degraded_external_independence`; it is a second pass, not independent
    external verification. If no fallback returns a usable opinion, mark the
    external slot unavailable with sanitized evidence and continue consilium.
+   Degraded evidence MUST name the concrete failure class per channel, e.g.
+   `PAL: 429 credit_balance_exhausted`, `Z.ai: 429 1113 insufficient_balance`,
+   `Grok: grok_cli.py status exit 69 (not authenticated)`.
+
+   **Runner rule.** Categories the balancer routes to a non-Codex provider (`audit_secondary`, `audit_tertiary`, and `hackathon_external` when the route is `grok-cli` or `zai-cli`) MUST be executed with `~/.claude/scripts/grok_cli.py review` or `~/.claude/scripts/zai_cli.py review` — never with `codex_routed_worker.py`. `codex_routed_worker.py` exiting 65 means "wrong runner", NOT "provider unavailable". `codex_routed_worker.py` accepts only balancer categories: `audit` and `code-review` are not categories — use `audit_external`, `audit_secondary`, `audit_tertiary`, or `medium`.
+
    A successful PAL opinion remains the primary PAL/GPT result; fallback does
    not replace or relabel it.
    After all agents and external reviewers return, output: `All <N+M> perspectives collected. Synthesizing...`

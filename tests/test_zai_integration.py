@@ -392,7 +392,11 @@ def test_model_balancer_merges_new_routes_into_existing_file(monkeypatch, tmp_pa
 def test_model_balancer_persists_merged_routes_for_fresh_file(monkeypatch, tmp_path) -> None:
     balancer_path = tmp_path / "balancer.json"
     monkeypatch.setenv("CLAUDE_MODEL_BALANCER_PATH", str(balancer_path))
+    monkeypatch.setenv(
+        "CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG", str(tmp_path / "events.jsonl")
+    )
     model_balancer = _import_script("model_balancer")
+    monkeypatch.setattr(model_balancer, "_DB_PATH", tmp_path / "missing.db")
     today = model_balancer._today_utc()
     balancer_path.write_text(
         (
@@ -439,6 +443,9 @@ def test_model_balancer_demotes_unhealthy_zai_external_routes(monkeypatch, tmp_p
             )
 
     monkeypatch.setenv("CLAUDE_MODEL_BALANCER_PATH", str(tmp_path / "balancer.json"))
+    monkeypatch.setenv(
+        "CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG", str(tmp_path / "events.jsonl")
+    )
     model_balancer = _import_script("model_balancer")
     monkeypatch.setattr(model_balancer, "_DB_PATH", db_path)
 

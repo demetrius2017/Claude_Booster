@@ -15,7 +15,15 @@ SKILL_REF="$HOME/.agents/skills/booster-command/references/commands/audit.md"
 ZAI_SCRIPT="$ROOT/templates/scripts/zai_cli.py"
 GROK_SCRIPT="$ROOT/templates/scripts/grok_cli.py"
 
-TOTAL=12
+# Isolation: the smoke cases below invoke zai_cli.py / grok_cli.py, which append
+# provider-failure events and model metrics. Redirect both sinks into a
+# disposable directory so the developer's ~/.claude state is never touched.
+TMP_ISOLATION="$(mktemp -d "${TMPDIR:-/tmp}/audit_zai_smoke.XXXXXX")"
+trap 'rm -rf "$TMP_ISOLATION"' EXIT
+export CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG="$TMP_ISOLATION/provider_failures.jsonl"
+export CLAUDE_BOOSTER_METRICS_DB="$TMP_ISOLATION/metrics.db"
+
+TOTAL=14
 PASS=0
 FAIL=0
 
@@ -80,16 +88,16 @@ else
     fail "C7 audit command does not invoke zai_cli.py review --budget 5"
 fi
 
-if contains "$TEMPLATE" "grok_cli.py review --budget-turns 3"; then
+if contains "$TEMPLATE" "grok_cli.py review --budget-turns 8"; then
     pass "C8 audit command invokes grok_cli.py review read-only lane"
 else
-    fail "C8 audit command does not invoke grok_cli.py review --budget-turns 3"
+    fail "C8 audit command does not invoke grok_cli.py review --budget-turns 8"
 fi
 
-if contains "$TEMPLATE" "Grok unauthenticated"; then
-    pass "C9 DEGRADED external-review path includes Grok"
+if contains "$TEMPLATE" "grok_cli.py status\` exits 0 (127 = binary missing, 69 = not authenticated)"; then
+    pass "C9 Grok availability is gated on grok_cli.py status exit codes"
 else
-    fail "C9 audit command does not include Grok in DEGRADED path"
+    fail "C9 audit command does not gate Grok on grok_cli.py status exit codes"
 fi
 
 if cmp -s "$TEMPLATE" "$INSTALLED"; then
@@ -98,30 +106,48 @@ else
     fail "C10 installed audit command differs from template"
 fi
 
-if printf 'Reply GLM_OK\n' | env -u ZAI_API_KEY ZAI_API_KEY_FILE=/tmp/claude-booster-missing-zai-key python3 "$ZAI_SCRIPT" smoke >/tmp/audit_zai_smoke.out 2>/tmp/audit_zai_smoke.err; then
+if printf 'Reply GLM_OK\n' | env -u ZAI_API_KEY ZAI_API_KEY_FILE="$TMP_ISOLATION"/claude-booster-missing-zai-key python3 "$ZAI_SCRIPT" smoke >"$TMP_ISOLATION"/audit_zai_smoke.out 2>"$TMP_ISOLATION"/audit_zai_smoke.err; then
     fail "C11 zai_cli.py smoke unexpectedly succeeded without any credential source"
 else
     rc=$?
-    if [[ "$rc" -eq 64 ]] && grep -Fq "missing ZAI_API_KEY" /tmp/audit_zai_smoke.err; then
+    if [[ "$rc" -eq 64 ]] && grep -Fq "missing ZAI_API_KEY" "$TMP_ISOLATION"/audit_zai_smoke.err; then
         pass "C11 missing env and secret file returns deterministic degraded signal"
     else
         fail "C11 expected exit 64 for missing env and secret file, got $rc"
     fi
 fi
 
-if python3 "$GROK_SCRIPT" smoke </dev/null >/tmp/audit_grok_smoke.out 2>/tmp/audit_grok_smoke.err; then
+if python3 "$GROK_SCRIPT" smoke </dev/null >"$TMP_ISOLATION"/audit_grok_smoke.out 2>"$TMP_ISOLATION"/audit_grok_smoke.err; then
     fail "C12 grok_cli.py smoke unexpectedly accepted empty stdin"
 else
     rc=$?
-    if [[ "$rc" -eq 65 ]] && grep -Fq "empty stdin prompt" /tmp/audit_grok_smoke.err; then
+    if [[ "$rc" -eq 65 ]] && grep -Fq "empty stdin prompt" "$TMP_ISOLATION"/audit_grok_smoke.err; then
         pass "C12 empty Grok prompt returns deterministic degraded signal"
     else
         fail "C12 expected exit 65 for empty Grok prompt, got $rc"
     fi
 fi
 
-rm -f /tmp/audit_zai_smoke.out /tmp/audit_zai_smoke.err
-rm -f /tmp/audit_grok_smoke.out /tmp/audit_grok_smoke.err
+if contains "$TEMPLATE" "Grok: grok_cli.py status exit 69 (not authenticated)"; then
+    pass "C13 DEGRADED label names a concrete Grok failure class"
+else
+    fail "C13 DEGRADED label does not name a concrete Grok failure class"
+fi
+
+if GROK_BIN="/nonexistent/claude-booster-missing-grok" GROK_AUTH_FILE="$TMP_ISOLATION"/claude-booster-missing-grok-auth.json \
+        CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG="$TMP_ISOLATION"/audit_grok_status_events.jsonl \
+        GROK_CLI_DISABLE_TELEMETRY=1 \
+        python3 "$GROK_SCRIPT" status >"$TMP_ISOLATION"/audit_grok_status.out 2>"$TMP_ISOLATION"/audit_grok_status.err; then
+    fail "C14 grok_cli.py status unexpectedly reported available without a binary"
+else
+    rc=$?
+    if [[ "$rc" -eq 127 ]] && grep -Fq "status=unavailable reason=binary_missing" "$TMP_ISOLATION"/audit_grok_status.out; then
+        pass "C14 grok_cli.py status returns 127 when the binary is missing"
+    else
+        fail "C14 expected exit 127 and binary_missing status line, got $rc"
+    fi
+fi
+
 
 echo
 echo "  Result: PASS=${PASS} FAIL=${FAIL}"

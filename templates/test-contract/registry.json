@@ -37,6 +37,7 @@
         "tests/test_lead_epistemic_anchors.py",
         "tests/test_memory_debt_hardening.py",
         "tests/test_memory_injection_telemetry.py",
+        "tests/test_provider_failure_log.py",
         "tests/test_slice_calibration.py",
         "tests/test_slice_close.py",
         "tests/test_slice_git.py",

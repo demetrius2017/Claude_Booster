@@ -39,18 +39,23 @@ ENV / Files
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import sqlite3
 import subprocess
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from provider_failure_log import (  # noqa: E402
+    append_provider_event as _shared_append_provider_event,
+)
 
 
 BASE_URL = "https://api.z.ai/api/anthropic"
@@ -60,9 +65,6 @@ DEFAULT_AIR_MODEL = "glm-5.2-air"
 PROVIDER = "zai-cli"
 DEFAULT_DB_PATH = Path.home() / ".claude" / "rolling_memory.db"
 DEFAULT_SECRET_PATH = Path.home() / ".claude" / "secrets" / "zai_api_key"
-DEFAULT_FAILURE_LOG_PATH = Path.home() / ".claude" / "logs" / "model_provider_failures.jsonl"
-DEFAULT_FAILURE_LOG_MAX_BYTES = 256 * 1024
-DEFAULT_FAILURE_LOG_RETAIN_LINES = 1000
 INSERT_METRIC_SQL = """
 INSERT INTO model_metrics
     (ts_utc, provider, model, task_category, duration_ms, num_turns,
@@ -81,7 +83,6 @@ except (TypeError, ValueError):
 PERMANENT_FAILURE_TYPES = frozenset(
     {"invalid_model", "insufficient_balance", "auth_error", "account_error"}
 )
-_PROVIDER_EVENT_THREAD_LOCK = threading.Lock()
 
 
 def _secret_path() -> Path:
@@ -125,12 +126,6 @@ def _metrics_db_path() -> Path:
     """Return the metrics DB path, allowing tests to redirect writes."""
     override = os.environ.get("CLAUDE_BOOSTER_METRICS_DB", "").strip()
     return Path(override).expanduser() if override else DEFAULT_DB_PATH
-
-
-def _failure_log_path() -> Path:
-    """Return the schema-free provider failure log path."""
-    override = os.environ.get("CLAUDE_BOOSTER_PROVIDER_FAILURES_LOG", "").strip()
-    return Path(override).expanduser() if override else DEFAULT_FAILURE_LOG_PATH
 
 
 def _sanitize_excerpt(data: bytes, *, limit: int = 500) -> str:
@@ -178,62 +173,6 @@ def _classify_failure(
     return "nonzero_exit"
 
 
-def _event_bounds() -> tuple[int, int]:
-    """Return provider-event sidecar bounds from env with safe floors."""
-    try:
-        max_bytes = int(os.environ.get("CLAUDE_BOOSTER_PROVIDER_EVENTS_MAX_BYTES", "262144"))
-    except (TypeError, ValueError):
-        max_bytes = DEFAULT_FAILURE_LOG_MAX_BYTES
-    try:
-        retain_lines = int(os.environ.get("CLAUDE_BOOSTER_PROVIDER_EVENTS_RETAIN_LINES", "1000"))
-    except (TypeError, ValueError):
-        retain_lines = DEFAULT_FAILURE_LOG_RETAIN_LINES
-    return max(4096, max_bytes), max(10, retain_lines)
-
-
-def _append_provider_event(event: dict[str, Any]) -> None:
-    """Append one provider event under an exclusive Unix file lock."""
-    path = _failure_log_path()
-    max_bytes, retain_lines = _event_bounds()
-    line = json.dumps(event, ensure_ascii=True, sort_keys=True) + "\n"
-    with _PROVIDER_EVENT_THREAD_LOCK:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-            try:
-                os.fchmod(fd, 0o600)
-                with os.fdopen(fd, "r+", encoding="utf-8") as fh:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-                    try:
-                        fh.seek(0, os.SEEK_END)
-                        if fh.tell() + len(line.encode("utf-8")) > max_bytes:
-                            fh.seek(0)
-                            existing = fh.read().splitlines()
-                            kept = existing[-retain_lines:]
-                            payload = ("\n".join(kept) + ("\n" if kept else "") + line)
-                            payload_lines = payload.splitlines()
-                            while payload_lines and len(("\n".join(payload_lines) + "\n").encode("utf-8")) > max_bytes:
-                                payload_lines.pop(0)
-                            payload = "\n".join(payload_lines) + ("\n" if payload_lines else "")
-                            fh.seek(0)
-                            fh.truncate(0)
-                            fh.write(payload)
-                        else:
-                            fh.write(line)
-                        fh.flush()
-                        os.fsync(fh.fileno())
-                    finally:
-                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-                raise
-        except OSError as exc:
-            print(f"zai_cli: provider-event telemetry skipped: {exc}", file=sys.stderr)
-
-
 def _record_provider_event(
     *,
     event_type: str,
@@ -268,7 +207,7 @@ def _record_provider_event(
         "duration_ms": int(duration_ms),
         "detail": _sanitize_text(detail) if detail else "",
     }
-    _append_provider_event(event)
+    _shared_append_provider_event(event, log_label="zai_cli")
 
 
 def _record_failure_event(**kwargs: Any) -> None:

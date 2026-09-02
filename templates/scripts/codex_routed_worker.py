@@ -9,10 +9,13 @@ Purpose:
 
 Contract (inputs/outputs):
     Input is ``CATEGORY [codex exec args...]`` plus stdin, which is forwarded
-    byte-for-byte to the launched child. A valid ``codex-cli`` route requires
-    non-empty string ``provider``, ``model``, and ``reasoning_effort`` fields.
-    Output and stderr from the selected child are preserved, along with at most
-    one sanitized degraded-routing diagnostic when lookup cannot be trusted.
+    byte-for-byte to the launched child. Every route requires non-empty string
+    ``provider`` and ``model`` fields; ``reasoning_effort`` is required only for
+    a ``codex-cli`` route, so a non-Codex route (grok-cli, zai-cli, anthropic,
+    pal) is recognised and refused by name instead of silently degrading into an
+    unpinned Codex fallback. Output and stderr from the selected child are
+    preserved, along with at most one sanitized degraded-routing diagnostic when
+    lookup cannot be trusted.
 
 CLI:
     codex_routed_worker.py CATEGORY [codex exec args...]
@@ -22,9 +25,11 @@ Examples:
       --ephemeral --sandbox read-only
 
 Limitations:
-    Non-Codex provider routes deliberately fail here: selecting an Anthropic,
-    PAL, Z.ai, or Grok runner is the caller's responsibility. If route lookup
-    fails, the fallback is intentionally unpinned and does not infer a model.
+    Non-Codex provider routes deliberately fail here with exit 65 and name the
+    runner the caller must use instead: selecting an Anthropic, PAL, Z.ai, or
+    Grok runner is the caller's responsibility. If route lookup itself fails
+    (including an unknown category), the fallback is intentionally unpinned and
+    does not infer a model.
 
 ENV/Files:
     CODEX_BIN optionally overrides the Codex executable. The three
@@ -48,6 +53,13 @@ from typing import Any
 _CATEGORY = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 _MODEL_CONFIG = re.compile(r"^model\s*=", re.IGNORECASE)
 _ROUTE_TIMEOUT_SECONDS = 5
+_RUNNER_HINTS = {
+    "grok-cli": "run ~/.claude/scripts/grok_cli.py review instead",
+    "zai-cli": "run ~/.claude/scripts/zai_cli.py review instead",
+    "anthropic": "use the Agent tool / PAL instead",
+    "pal": "use the Agent tool / PAL instead",
+}
+_DEFAULT_RUNNER_HINT = "use that provider's own runner instead"
 
 
 def _regular_path(path: Path, *, executable: bool) -> Path:
@@ -101,6 +113,8 @@ def _route(category: str, balancer: Path | None) -> dict[str, str] | None:
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode != 0:
+        if b"unknown category" in result.stderr.lower():
+            return {"__unknown_category__": category}
         return None
     try:
         payload: Any = json.loads(result.stdout)
@@ -108,15 +122,23 @@ def _route(category: str, balancer: Path | None) -> dict[str, str] | None:
         return None
     if not isinstance(payload, dict):
         return None
-    fields = ("provider", "model", "reasoning_effort")
-    if any(
-        not isinstance(payload.get(field), str)
-        or not payload[field]
-        or payload[field] != payload[field].strip()
-        for field in fields
-    ):
+
+    def _typed(field: str) -> str | None:
+        value = payload.get(field)
+        if not isinstance(value, str) or not value or value != value.strip():
+            return None
+        return value
+
+    provider, model = _typed("provider"), _typed("model")
+    if provider is None or model is None:
         return None
-    return {field: payload[field] for field in fields}
+    route = {"provider": provider, "model": model}
+    if provider == "codex-cli":
+        effort = _typed("reasoning_effort")
+        if effort is None:
+            return None
+        route["reasoning_effort"] = effort
+    return route
 
 
 def _run(command: list[str], prompt: bytes, env: dict[str, str] | None = None) -> int:
@@ -155,11 +177,20 @@ def main(argv: list[str]) -> int:
 
     prompt = sys.stdin.buffer.read()
     route = _route(category, balancer)
-    if route is None:
-        print("codex_routed_worker.py: degraded routing; unpinned Codex fallback", file=sys.stderr)
+    if route is None or "__unknown_category__" in route:
+        if route is None:
+            reason = "degraded routing"
+        else:
+            reason = f"unknown category {category!r}"
+        print(f"codex_routed_worker.py: {reason}; unpinned Codex fallback", file=sys.stderr)
         return _run([str(codex), "exec", *extra, "-"], prompt)
     if route["provider"] != "codex-cli":
-        print("codex_routed_worker.py: route provider is not codex-cli; refusing local Codex", file=sys.stderr)
+        print(
+            f"codex_routed_worker.py: route provider is {route['provider']} "
+            f"(model {route['model']}); refusing local Codex — "
+            f"{_RUNNER_HINTS.get(route['provider'], _DEFAULT_RUNNER_HINT)}",
+            file=sys.stderr,
+        )
         return 65
     try:
         worker = _child_path("CLAUDE_BOOSTER_ROUTED_WORKER", "codex_worker.py")

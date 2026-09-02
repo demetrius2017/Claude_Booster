@@ -318,7 +318,7 @@ def _build_grok_advisory_message(category: str, model: str, description: str) ->
     else:
         command = (
             "  printf '%s\\n' '<review prompt>' | "
-            f"~/.claude/scripts/grok_cli.py review --model {model} --budget-turns 3"
+            f"~/.claude/scripts/grok_cli.py review --model {model} --budget-turns 8"
         )
         role = "xAI Grok read-only external reviewer"
     return "\n".join([
@@ -331,7 +331,8 @@ def _build_grok_advisory_message(category: str, model: str, description: str) ->
         "Use Bash with the Grok runner instead of Agent:",
         command,
         "",
-        "If Grok CLI is unauthenticated, use another provider and log cross-provider: DEGRADED.",
+        "If `grok_cli.py status` exits non-zero (127 binary missing, 69 not "
+        "authenticated), use another provider and log cross-provider: DEGRADED.",
     ])
 
 

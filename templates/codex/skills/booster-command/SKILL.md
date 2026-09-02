@@ -83,14 +83,36 @@ Execute the command behavior, not the literal Claude Code tool names.
   Use the Z.ai third-model runner when `ZAI_API_KEY` is present:
   `printf '%s\n' '<review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`.
   Label it exactly as "GLM-5.2 via Z.ai". A missing credential, non-zero exit,
-  timeout, tool exception, or unusable response advances to Grok:
-  `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --model grok-4.5 --budget-turns 3`.
+  timeout, tool exception, or unusable response advances to Grok. Grok is
+  available only when `~/.claude/scripts/grok_cli.py status` exits 0 (127 =
+  binary missing, 69 = not authenticated); that probe is the ONLY accepted
+  availability test — never infer availability from env vars such as
+  `XAI_API_KEY`. Then run:
+  `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --model grok-4.5 --budget-turns 8`.
+  `--budget-turns 8` is the default for diff-only reviews; for repo-reading
+  audits (prompts that ask Grok to read files) use `--budget-turns 24`, and
+  `failure_type=max_turns` in the failure log means the budget was too small,
+  not that Grok is unavailable — retry once with a larger budget before
+  labeling DEGRADED.
   Label it exactly as "Grok via xAI". If PAL, Z.ai, and Grok are unavailable,
   spawn a separate Codex review subagent when subagents are available and label
   it clearly as "Codex second opinion", not as PAL/GPT or Z.ai, and mark it
   `degraded_external_independence` because it is same-provider. If none are
   available, mark the external-review step as unavailable with sanitized
   missing-tool/runtime evidence; never treat an error payload as an opinion.
+  Any DEGRADED external-review label MUST name the concrete failure class per
+  channel, e.g. `PAL: 429 credit_balance_exhausted`,
+  `Z.ai: 429 1113 insufficient_balance`,
+  `Grok: grok_cli.py status exit 69 (not authenticated)`.
+- **Runner rule.** Categories the balancer routes to a non-Codex provider
+  (`audit_secondary`, `audit_tertiary`, and `hackathon_external` when the route
+  is `grok-cli` or `zai-cli`) MUST be executed with
+  `~/.claude/scripts/grok_cli.py review` or `~/.claude/scripts/zai_cli.py review`,
+  never with `codex_routed_worker.py`. A `codex_routed_worker.py` exit 65 means
+  "wrong runner", NOT "provider unavailable" — do not record it as a degraded
+  external channel. `codex_routed_worker.py` accepts only balancer categories:
+  `audit` and `code-review` are not categories; use `audit_external`,
+  `audit_secondary`, `audit_tertiary`, or `medium`.
 - Claude session JSONL paths under `~/.claude/projects/...` become the newest
   relevant Codex session JSONL under `~/.codex/sessions/...` when preparing a
   Codex handover. If a Claude session is relevant, mention both.
@@ -174,7 +196,9 @@ where the native model is Claude and "the other provider" is Codex
   third-model read-only channel for Challenge, external audit, edge-harvest, and
   diff-review. It does not replace the exit-code Judge/Verifier unless a future
   audited command explicitly makes it write-capable.
-- If Grok CLI is authenticated, Grok via `~/.claude/scripts/grok_cli.py` is a
+- If `~/.claude/scripts/grok_cli.py status` exits 0 (127 = binary missing,
+  69 = not authenticated; never infer from `XAI_API_KEY`), Grok via
+  `~/.claude/scripts/grok_cli.py` is a
   fourth-model read-only review channel, and `~/.claude/scripts/grok_sandbox_worker.sh`
   is a write-capable code-worker channel that must run in an isolated worktree
   and return a diff.

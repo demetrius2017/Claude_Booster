@@ -74,9 +74,12 @@ External-review order:
 1. PAL/GPT (`mcp__pal__codereview` or `mcp__pal__second_opinion`) is the primary external expert when PAL is available.
 2. Z.ai GLM-5.2 is the third-model reviewer when `ZAI_API_KEY` is present. Run it via:
    `printf '%s\n' '<review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`
-3. xAI Grok is the fourth-model reviewer when Grok CLI is authenticated. Run it via:
-   `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --budget-turns 3`
-4. If PAL is unavailable, GLM-5.2 is mandatory fallback. If GLM is unavailable but Grok is authenticated, Grok is the mandatory fallback. If PAL, Z.ai, and Grok are all unavailable, label the run `external-review: DEGRADED (PAL unavailable; ZAI_API_KEY absent; Grok unauthenticated)` and continue with the selected lenses.
+3. xAI Grok is the fourth-model reviewer when `~/.claude/scripts/grok_cli.py status` exits 0 (127 = binary missing, 69 = not authenticated). That probe is the ONLY accepted availability test — never infer availability from env vars such as `XAI_API_KEY`. Run the review via:
+   `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --budget-turns 8`
+   `--budget-turns 8` is the default for diff-only reviews; for repo-reading audits (prompts that ask Grok to read files) use `--budget-turns 24`, and `failure_type=max_turns` in the failure log means the budget was too small, not that Grok is unavailable — retry once with a larger budget before labeling DEGRADED.
+4. If PAL is unavailable, GLM-5.2 is mandatory fallback. If GLM is unavailable but `grok_cli.py status` exits 0, Grok is the mandatory fallback. If PAL, Z.ai, and Grok are all unavailable, label the run `external-review: DEGRADED (<concrete failure class per channel>)` and continue with the selected lenses. The evidence MUST name the concrete failure class, e.g. `PAL: 429 credit_balance_exhausted`, `Z.ai: 429 1113 insufficient_balance`, `Grok: grok_cli.py status exit 69 (not authenticated)`.
+
+**Runner rule.** Categories the balancer routes to a non-Codex provider (`audit_secondary`, `audit_tertiary`, and `hackathon_external` when the route is `grok-cli` or `zai-cli`) MUST be executed with `~/.claude/scripts/grok_cli.py review` or `~/.claude/scripts/zai_cli.py review` — never with `codex_routed_worker.py`. `codex_routed_worker.py` exiting 65 means "wrong runner", NOT "provider unavailable"; do not record it as a degraded external channel. `codex_routed_worker.py` also accepts only balancer categories: `audit` and `code-review` are not categories — use `audit_external`, `audit_secondary`, `audit_tertiary`, or `medium`.
 
 Spawn only the lenses selected in Phase 1. Do not spawn auditors for unselected lenses.
 
@@ -546,6 +549,7 @@ PAL returns its verdict in its own format. Include it verbatim in the report und
 
 GLM-5.2 call:
 - Use `~/.claude/scripts/zai_cli.py review --budget 5`.
+- Grok, when used, runs as `~/.claude/scripts/grok_cli.py review --budget-turns 8` and only after `grok_cli.py status` exits 0. `--budget-turns 8` is the default for diff-only reviews; for repo-reading audits (prompts that ask Grok to read files) use `--budget-turns 24`, and `failure_type=max_turns` in the failure log means the budget was too small, not that Grok is unavailable — retry once with a larger budget before labeling DEGRADED.
 - Pass the Verified Facts Brief, audit topic, key file paths, and the same finding format.
 - The GLM reviewer is read-only. It must not edit files, run network calls, or access secrets.
 - Include its verdict verbatim in the report under §GLM-5.2 External Review.

@@ -194,6 +194,63 @@ def test_skill_keeps_no_bare_gpt_5_6_pin() -> None:
     assert "gpt-5.6` --" not in text
 
 
+def test_grok_route_refuses_and_launches_no_codex_child() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        env, log, _ = _environment(Path(directory), '{"provider":"grok-cli","model":"grok-4.5"}')
+        result = _run(env, "audit_tertiary")
+        stderr = result.stderr.decode()
+        assert result.returncode == 65
+        assert not log.exists()
+        assert "route provider is grok-cli (model grok-4.5)" in stderr
+        assert "refusing local Codex" in stderr
+        assert "grok_cli.py review" in stderr
+        assert "unpinned Codex fallback" not in stderr
+
+
+def test_zai_route_names_zai_runner() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        env, log, _ = _environment(Path(directory), '{"provider":"zai-cli","model":"glm-5.2"}')
+        result = _run(env, "audit_secondary")
+        assert result.returncode == 65
+        assert not log.exists()
+        assert "zai_cli.py review" in result.stderr.decode()
+
+
+def test_anthropic_route_names_agent_tool() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        env, log, _ = _environment(Path(directory), '{"provider":"anthropic","model":"claude-opus-5"}')
+        result = _run(env, "coding")
+        assert result.returncode == 65
+        assert not log.exists()
+        assert "use the Agent tool / PAL" in result.stderr.decode()
+
+
+def test_codex_route_without_reasoning_effort_falls_back_with_diagnostic() -> None:
+    """An unpinned codex-cli route still runs, but says so on stderr."""
+    with tempfile.TemporaryDirectory() as directory:
+        env, log, _ = _environment(Path(directory), '{"provider":"codex-cli","model":"gpt-5.6-terra"}')
+        result = _run(env, "recon", "--ephemeral")
+        assert result.returncode == 0, result.stderr.decode()
+        row = _read_log(log)
+        assert row["argv"] == ["exec", "--ephemeral", "-"]
+        assert "degraded routing; unpinned Codex fallback" in result.stderr.decode()
+
+
+def test_unknown_category_diagnostic_names_the_category() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        tmp = Path(directory)
+        env, log, _ = _environment(tmp, '{"provider":"codex-cli","model":"gpt-5.6-terra","reasoning_effort":"medium"}')
+        _write(
+            tmp / "model_balancer.py",
+            "import sys\nprint(\"error: unknown category 'nope'\", file=sys.stderr)\nraise SystemExit(1)\n",
+        )
+        result = _run(env, "nope", "--ephemeral")
+        stderr = result.stderr.decode()
+        assert result.returncode == 0, stderr
+        assert _read_log(log)["argv"] == ["exec", "--ephemeral", "-"]
+        assert "unknown category 'nope'; unpinned Codex fallback" in stderr
+
+
 def main() -> int:
     for test in (
         test_exact_worker_forwarding,
@@ -203,6 +260,11 @@ def main() -> int:
         test_malformed_lookup_uses_absolute_codex_bin_default,
         test_non_codex_route_refuses_launch,
         test_caller_override_refuses_launch,
+        test_grok_route_refuses_and_launches_no_codex_child,
+        test_zai_route_names_zai_runner,
+        test_anthropic_route_names_agent_tool,
+        test_codex_route_without_reasoning_effort_falls_back_with_diagnostic,
+        test_unknown_category_diagnostic_names_the_category,
         test_skill_keeps_no_bare_gpt_5_6_pin,
         test_installer_enumerates_python_codex_routing_targets,
     ):
