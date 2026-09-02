@@ -80,3 +80,14 @@ smoke вернул `START_ROUTED_OK` через `gpt-5.6-luna` c `low` effort и
 receipt, failure ledger и fail-closed pre-push/CI границами. Финальный RELEASE
 gate прошёл 44/44 frozen jobs на commit `e43a7bd`; следующий этап — shadow
 калибровка p50/p90 и omission rate до широкого включения enforcement.
+
+## Завершено в сессии 2026-09-02 — внешние рецензенты восстановлены
+
+PAL/OpenAI и Z.ai падали по балансу, а не по коду; Z.ai пополнен (Lite
+yearly), PAL ждёт кредитов OpenAI. Grok получил probe `grok_cli.py status`,
+типизированные события отказов (`max_turns`, `binary_missing`, `auth_missing`)
+и редакцию секретов; `codex_routed_worker.py` больше не подменяет Grok/GLM
+самим Codex — non-Codex маршруты завершаются exit 65 с подсказкой runner'а.
+Спеки audit/consilium/hackathon/go и Codex-skill ссылаются на probe и
+требуют `--budget-turns 24` для аудитов с чтением репозитория. Commit
+`ee8a1a3`, установлено через `install.py --yes`; 318 passed, smoke 14/14.
