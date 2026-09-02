@@ -39,12 +39,24 @@ def test_source_surfaces_define_one_fact_bound_command() -> None:
     require(SKILL.read_text(encoding="utf-8"), 'name: "gantt"', "`gantt`", "update_plan", "list_agents", "Do not poll")
     require(PROMPT.read_text(encoding="utf-8"), "command `gantt`", "update_plan", "list_agents", "неизвестно")
     command = COMMAND.read_text(encoding="utf-8")
+    legacy_pipe_header = "Дорожка | Done (Сделано) | Now (Сейчас) | Next (Дальше) | State (Состояние)"
+    assert legacy_pipe_header not in command, (
+        "canonical Gantt command must not retain the legacy pipe-table header"
+    )
     require(
         command,
         "$gantt",
         "`list_agents`",
         "`update_plan`",
-        "Дорожка | Done (Сделано) | Now (Сейчас) | Next (Дальше) | State (Состояние)",
+        "Дорожка:",
+        "Done (Сделано):",
+        "Now (Сейчас):",
+        "Next (Дальше):",
+        "State (Состояние):",
+        "отдельным вертикальным блоком",
+        "между блоками обязательна пустая строка",
+        "Запрещены pipe-таблицы (`|`)",
+        "несколько дорожек в одном абзаце или непрерывном",
         "✅ complete",
         "▶️ active",
         "🟡 at-risk / needs verification",
