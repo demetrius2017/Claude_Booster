@@ -72,9 +72,9 @@ run_decide() {
 cp "$LIVE_JSON" "$BALANCER_BAK" 2>/dev/null || true
 sqlite3 "$DB" ".dump model_metrics" > "$METRICS_BAK" 2>/dev/null || true
 EXPECTED_CODING_PROVIDER=$(jq -r '.routing.coding.provider // "codex-cli"' "$BALANCER_BAK" 2>/dev/null || echo "codex-cli")
-EXPECTED_CODING_MODEL=$(jq -r '.routing.coding.model // "gpt-5.5"' "$BALANCER_BAK" 2>/dev/null || echo "gpt-5.5")
+EXPECTED_CODING_MODEL=$(jq -r '.routing.coding.model // "claude-opus-5"' "$BALANCER_BAK" 2>/dev/null || echo "claude-opus-5")
 EXPECTED_LEAD_PROVIDER=$(jq -r '.routing.lead.provider // "anthropic"' "$BALANCER_BAK" 2>/dev/null || echo "anthropic")
-EXPECTED_LEAD_MODEL=$(jq -r '.routing.lead.model // "claude-opus-4-8"' "$BALANCER_BAK" 2>/dev/null || echo "claude-opus-4-8")
+EXPECTED_LEAD_MODEL=$(jq -r '.routing.lead.model // "claude-opus-5"' "$BALANCER_BAK" 2>/dev/null || echo "claude-opus-5")
 
 restore() {
   # restore balancer JSON
@@ -119,12 +119,15 @@ if [[ -f "$LIVE_JSON" ]]; then
     fail_c C1b "rationale='$RATIONALE_C1' — expected to start with 'active — no samples'"
   fi
 
-  # Routing must not change from pre-run state
+  # Empty samples must still apply deterministic legacy-route migrations.
   ROUTING_AFTER_C1=$(jq -c '.routing' "$LIVE_JSON" 2>/dev/null || echo "CHANGED")
-  if [[ "$ROUTING_BEFORE_C1" == "$ROUTING_AFTER_C1" ]]; then
-    pass_c C1c "routing unchanged after empty-DB decide"
+  if [[ "$(jget '.routing.audit_external.model')" == "gpt-5.6-sol" && \
+        "$(jget '.routing.audit_secondary.model')" == "glm-5.1" && \
+        "$(jget '.routing.audit_tertiary.model')" == "grok-4.6" && \
+        "$(jget '.routing.high_blast_radius.model')" == "claude-sonnet-5" ]]; then
+    pass_c C1c "legacy routes refresh after empty-DB decide"
   else
-    fail_c C1c "routing changed — before='$ROUTING_BEFORE_C1' after='$ROUTING_AFTER_C1'"
+    fail_c C1c "legacy-route refresh incomplete — before='$ROUTING_BEFORE_C1' after='$ROUTING_AFTER_C1'"
   fi
 else
   fail_c C1b "model_balancer.json missing after decide"
@@ -330,10 +333,10 @@ else
   fail_c C6b "high_blast_radius.provider='$C6_PROV' — expected anthropic"
 fi
 
-if [[ "$C6_MODEL" == "claude-sonnet-4-6" ]]; then
-  pass_c C6c "high_blast_radius.model == claude-sonnet-4-6 (pinned)"
+if [[ "$C6_MODEL" == "claude-sonnet-5" ]]; then
+  pass_c C6c "high_blast_radius.model == claude-sonnet-5 (pinned)"
 else
-  fail_c C6c "high_blast_radius.model='$C6_MODEL' — expected claude-sonnet-4-6"
+  fail_c C6c "high_blast_radius.model='$C6_MODEL' — expected claude-sonnet-5"
 fi
 
 if [[ "$APPLIES_BEFORE" == "$APPLIES_AFTER" ]]; then

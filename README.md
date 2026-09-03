@@ -84,7 +84,7 @@ Three mechanisms, each targeting a distinct way LLM agents fail on multi-session
 
 1. **Temporal-causal memory** — stores *causal chains* (tried → happened → concluded → still-open), not just facts. Kills the "re-discover the same bug every week" loop.
 2. **The семёрка pipeline (`/go`)** — the strong model *thinks* (design critique, independent verification, diff review) while the fast flat-fee model *types*. **No model ever reviews its own code**; the verdict is a timestamped receipt from authorized read-only sources. The final deploy gate then runs durable regression tests and the full existing suite.
-3. **Smart model routing** — GPT-5.6 Luna for cheap recon, Terra for implementation, Sol for hard reasoning, plus Claude and external providers for independent verification. Right model, right effort, enough quota to finish the week.
+3. **Smart model routing** — GPT-5.6 Luna for cheap recon, Terra for medium implementation, Sol for consilium and external review; Claude Opus 5 owns the heavy lanes and Sonnet 5 the guarded high-blast-radius lane. GLM-5.1 and Grok-4.6 supply independent external review. Right model, right effort, enough quota to finish the week.
 
 > **New here?** Run `python install.py`, open a session with `/start`, build something with `/go`, and close with `/handover`. Everything else is depth you'll reach for when you need it.
 
@@ -131,8 +131,8 @@ Claude Booster doesn't run every agent on the same model. The Lead routes each d
 | Tier | Model | When |
 |------|-------|------|
 | Trivial | Haiku 4.5 | Grep, file lookup, path search — instant, lightweight |
-| Coding | Sonnet 4.6 | Workers writing code/configs (≥20 lines); Verifiers collecting direct read-only evidence |
-| Medium | Sonnet 4.6 | Research, single-file review, routine audits |
+| Coding | Sonnet 5 | Workers writing code/configs (≥20 lines); Verifiers collecting direct read-only evidence |
+| Medium | Sonnet 5 | Research, single-file review, routine audits |
 | Hard | Opus 4.8 | Architecture, security review, consilium, deep debugging |
 
 The **Lead** (orchestrator) stays on **Opus 4.8** — strongest model for synthesis, routing, and judgment. Optionally, with `/fast` toggle, the Lead runs on **Opus 4.8 fast output** (~2.5x faster tokens). To pin the old Opus 4.6 fast mode: `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1`.
@@ -156,7 +156,7 @@ the three heavy routing lanes move back to Claude:
 | `coding` | `anthropic:claude-opus-5` | Worker agents writing code |
 | `hard` | `anthropic:claude-opus-5` | Architecture, Flow Designer, deep debugging |
 | `trivial` / `recon` / `medium` | Codex Luna / Terra | Unchanged — cheap work stays flat-fee |
-| `high_blast_radius` | `claude-sonnet-4-6` | Unchanged — PreToolUse guards must keep firing |
+| `high_blast_radius` | `claude-sonnet-5` | Unchanged — PreToolUse guards must keep firing |
 
 **No automatic budget fallback, by explicit decision.** These three lanes are in
 `_PINNED_CATEGORIES`, which means the active scorer never recomputes them — and
@@ -214,7 +214,7 @@ the critical review path.
 
 **In practice:** `/start` shows degraded lanes directly in the
 `=== MODEL BALANCER ===` block, for example
-`degraded=zai-cli:glm-5.2`. `model_balancer.py status` also prints
+`degraded=zai-cli:glm-5.1`. `model_balancer.py status` also prints
 `degraded_providers` so the Lead can see the operational reason behind a route
 change before planning.
 
@@ -297,7 +297,7 @@ Claude Opus 4.8 is now available in Claude Code CLI. All references to `claude-o
 - `templates/rules/tool-strategy.md` — `/lead` default model: `--model claude-opus-4-8`
 
 **Not changed (intentional):**
-- `claude-sonnet-4-6` — Sonnet 4.6 remains the current Sonnet model
+- `claude-sonnet-4-6` — Sonnet 4.6 was the current Sonnet model at the time of v1.14
 - README env var `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE=1` — CC-defined env var name, still valid for pinning old behavior
 - Historical release notes — they describe what was true at the time
 

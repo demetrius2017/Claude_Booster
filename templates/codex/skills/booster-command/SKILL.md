@@ -82,19 +82,19 @@ Execute the command behavior, not the literal Claude Code tool names.
   native second opinion**. A successful PAL response remains primary.
   Use the Z.ai third-model runner when `ZAI_API_KEY` is present:
   `printf '%s\n' '<review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`.
-  Label it exactly as "GLM-5.2 via Z.ai". A missing credential, non-zero exit,
+  Label it exactly as "GLM-5.1 via Z.ai". A missing credential, non-zero exit,
   timeout, tool exception, or unusable response advances to Grok. Grok is
   available only when `~/.claude/scripts/grok_cli.py status` exits 0 (127 =
   binary missing, 69 = not authenticated); that probe is the ONLY accepted
   availability test — never infer availability from env vars such as
   `XAI_API_KEY`. Then run:
-  `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --model grok-4.5 --budget-turns 8`.
+  `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --model grok-4.6 --budget-turns 8`.
   `--budget-turns 8` is the default for diff-only reviews; for repo-reading
   audits (prompts that ask Grok to read files) use `--budget-turns 24`, and
   `failure_type=max_turns` in the failure log means the budget was too small,
   not that Grok is unavailable — retry once with a larger budget before
   labeling DEGRADED.
-  Label it exactly as "Grok via xAI". If PAL, Z.ai, and Grok are unavailable,
+  Label it exactly as "Grok-4.6 via xAI". If PAL, Z.ai, and Grok are unavailable,
   spawn a separate Codex review subagent when subagents are available and label
   it clearly as "Codex second opinion", not as PAL/GPT or Z.ai, and mark it
   `degraded_external_independence` because it is same-provider. If none are
@@ -192,7 +192,7 @@ where the native model is Claude and "the other provider" is Codex
   Notebook N/A is permitted only when the entire Prototype Gate is explicitly
   N/A for a pure docs/format/static-config task with no executable data/runtime
   hypothesis and a concrete reason.
-- If `ZAI_API_KEY` is present, GLM-5.2 via `~/.claude/scripts/zai_cli.py` is a
+- If `ZAI_API_KEY` is present, GLM-5.1 via `~/.claude/scripts/zai_cli.py` is a
   third-model read-only channel for Challenge, external audit, edge-harvest, and
   diff-review. It does not replace the exit-code Judge/Verifier unless a future
   audited command explicitly makes it write-capable.

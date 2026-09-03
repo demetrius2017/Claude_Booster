@@ -39,11 +39,11 @@ def test_fallback_order_and_independence_label_are_explicit() -> None:
 def test_successful_pal_remains_primary_and_grok_model_is_supported() -> None:
     for contract in (COMMAND, CODEX):
         assert "successful PAL" in contract
-        assert "--model grok-4.5" in contract
+        assert "--model grok-4.6" in contract
     for relative in (
         "templates/commands/go.md",
         "templates/commands/hackathon.md",
     ):
         consumer = (ROOT / relative).read_text(encoding="utf-8")
-        assert "grok_sandbox_worker.sh grok-4.5" in consumer
+        assert "grok_sandbox_worker.sh grok-4.6" in consumer
         assert "grok_sandbox_worker.sh grok-build" not in consumer

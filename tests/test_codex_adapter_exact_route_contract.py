@@ -196,12 +196,12 @@ def test_skill_keeps_no_bare_gpt_5_6_pin() -> None:
 
 def test_grok_route_refuses_and_launches_no_codex_child() -> None:
     with tempfile.TemporaryDirectory() as directory:
-        env, log, _ = _environment(Path(directory), '{"provider":"grok-cli","model":"grok-4.5"}')
+        env, log, _ = _environment(Path(directory), '{"provider":"grok-cli","model":"grok-4.6"}')
         result = _run(env, "audit_tertiary")
         stderr = result.stderr.decode()
         assert result.returncode == 65
         assert not log.exists()
-        assert "route provider is grok-cli (model grok-4.5)" in stderr
+        assert "route provider is grok-cli (model grok-4.6)" in stderr
         assert "refusing local Codex" in stderr
         assert "grok_cli.py review" in stderr
         assert "unpinned Codex fallback" not in stderr
@@ -209,7 +209,7 @@ def test_grok_route_refuses_and_launches_no_codex_child() -> None:
 
 def test_zai_route_names_zai_runner() -> None:
     with tempfile.TemporaryDirectory() as directory:
-        env, log, _ = _environment(Path(directory), '{"provider":"zai-cli","model":"glm-5.2"}')
+        env, log, _ = _environment(Path(directory), '{"provider":"zai-cli","model":"glm-5.1"}')
         result = _run(env, "audit_secondary")
         assert result.returncode == 65
         assert not log.exists()

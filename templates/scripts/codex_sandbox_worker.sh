@@ -25,8 +25,8 @@
 #     This ensures worktrees never accumulate.
 #
 # CLI:
-#     printf '%s\n' 'fix the bug in parser.py' | codex_sandbox_worker.sh gpt-5.3-codex
-#     cat task.txt | codex_sandbox_worker.sh gpt-5.3-codex --json
+#     printf '%s\n' 'fix the bug in parser.py' | codex_sandbox_worker.sh gpt-5.6-terra
+#     cat task.txt | codex_sandbox_worker.sh gpt-5.6-terra --json
 #
 # Limitations:
 #     - Only tracked files appear in the worktree (gitignored dirs excluded).

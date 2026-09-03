@@ -130,22 +130,19 @@ _QUALITY_SCORES_ANTHROPIC: dict[str, int] = {
     "claude-opus-5": 20,
     "claude-opus-4-7": 20,
     "claude-opus-4-8": 20,
-    "claude-sonnet-4-6": 17,
+    "claude-sonnet-5": 17,
     "claude-haiku-4-5": 13,
 }
 
 _QUALITY_SCORES_ZAI: dict[str, int] = {
-    # Artificial Analysis Intelligence Index: GLM-5.2 ≈ 51 vs Opus 4.8 ≈ 61.
+    # GLM-5.1 remains the economical external-review tier below Opus.
     # The internal 0..20 scale intentionally keeps it below Opus and above
     # Sonnet as a cheap but capable external-review model.
-    "glm-5.2": 18,
-    "glm-5.2-air": 15,
+    "glm-5.1": 18,
 }
 
 _QUALITY_SCORES_GROK: dict[str, int] = {
-    # grok.com login exposes only grok-4.5 (verified `grok models` 2026-07-23);
-    # grok-build / grok-composer-2.5-fast return "unknown model id".
-    "grok-4.5": 17,
+    "grok-4.6": 17,
 }
 
 # Pinned categories — their routing is NEVER overwritten by active logic.
@@ -185,15 +182,15 @@ DEFAULTS: dict = {
         "coding":         {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "hard":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "consilium_bio":  {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-        "audit_external": {"provider": PROVIDER_PAL,       "model": "gpt-5.5"},
-        "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.2"},
-        "audit_tertiary": {"provider": PROVIDER_GROK,      "model": "grok-4.5"},
-        "hackathon_external": {"provider": PROVIDER_ZAI,   "model": "glm-5.2"},
-        "hackathon_coder": {"provider": PROVIDER_GROK,     "model": "grok-4.5"},
+        "audit_external": {"provider": PROVIDER_PAL,       "model": "gpt-5.6-sol"},
+        "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.1"},
+        "audit_tertiary": {"provider": PROVIDER_GROK,      "model": "grok-4.6"},
+        "hackathon_external": {"provider": PROVIDER_ZAI,   "model": "glm-5.1"},
+        "hackathon_coder": {"provider": PROVIDER_GROK,     "model": "grok-4.6"},
         "lead":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "high_blast_radius": {
             "provider": PROVIDER_ANTHROPIC,
-            "model": "claude-sonnet-4-6",
+            "model": "claude-sonnet-5",
             "applies_to": [
                 "auth", "security", "secrets",
                 "db_migrations", "financial_dml", "infra_config",
@@ -226,8 +223,18 @@ _LEGACY_BOOTSTRAP_ROUTES: dict[str, list[dict[str, str]]] = {
         {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
         {"provider": PROVIDER_CODEX, "model": "gpt-5.6-sol"},
     ],
-    "audit_secondary": [{"provider": PROVIDER_ZAI, "model": "glm-5.2[1m]"}],
-    "hackathon_external": [{"provider": PROVIDER_ZAI, "model": "glm-5.2[1m]"}],
+    "audit_external": [{"provider": PROVIDER_PAL, "model": "gpt-5.5"}],
+    "audit_secondary": [
+        {"provider": PROVIDER_ZAI, "model": "glm-5.2"},
+        {"provider": PROVIDER_ZAI, "model": "glm-5.2[1m]"},
+    ],
+    "audit_tertiary": [{"provider": PROVIDER_GROK, "model": "grok-4.5"}],
+    "hackathon_external": [
+        {"provider": PROVIDER_ZAI, "model": "glm-5.2"},
+        {"provider": PROVIDER_ZAI, "model": "glm-5.2[1m]"},
+    ],
+    "hackathon_coder": [{"provider": PROVIDER_GROK, "model": "grok-4.5"}],
+    "high_blast_radius": [{"provider": PROVIDER_ANTHROPIC, "model": "claude-sonnet-4-6"}],
 }
 
 _CODEX_REASONING_EFFORT_BY_MODEL = {
@@ -242,11 +249,11 @@ _KNOWN_CATEGORIES = set(DEFAULTS["routing"].keys())
 _HEALTH_FALLBACK_ROUTES: dict[str, dict[str, str]] = {
     "audit_secondary": {
         "provider": PROVIDER_GROK,
-        "model": "grok-4.5",
+        "model": "grok-4.6",
     },
     "hackathon_external": {
         "provider": PROVIDER_GROK,
-        "model": "grok-4.5",
+        "model": "grok-4.6",
     },
 }
 

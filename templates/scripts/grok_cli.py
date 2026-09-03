@@ -69,8 +69,8 @@ from provider_failure_log import (  # noqa: E402
 )
 
 
-DEFAULT_MODEL = "grok-4.5"
-DEFAULT_CODER_MODEL = "grok-4.5"
+DEFAULT_MODEL = "grok-4.6"
+DEFAULT_CODER_MODEL = "grok-4.6"
 PROVIDER = "grok-cli"
 DEFAULT_DB_PATH = Path.home() / ".claude" / "rolling_memory.db"
 DEFAULT_GROK_BIN = Path.home() / ".grok" / "bin" / "grok"

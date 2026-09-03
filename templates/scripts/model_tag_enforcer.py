@@ -359,7 +359,7 @@ def _infer_tag_from_model_param(model_param: Optional[str]) -> str:
     Derive a human-readable [tag] from the model param string.
 
     Claude Code accepts short aliases: "sonnet", "opus", "haiku" as well as
-    full model IDs like "claude-sonnet-4-6".  We extract the first recognised
+    full model IDs like "claude-sonnet-5".  We extract the first recognised
     tier keyword.  Falls back to "[inherit]" when model param is absent or
     unrecognised (the agent inherits the Lead's model).
     """

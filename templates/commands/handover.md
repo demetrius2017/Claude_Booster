@@ -40,7 +40,7 @@ the slice ledger. The handover remains docs-only for verify-gate purposes when
 the staged diff contains only allowlisted documentation/report/test paths;
 merely reading or citing telemetry does not turn it into runtime verification.
 
-**Model routing for handover delegation:** when spawning the handover-write agent, pass `model: "sonnet"` explicitly (Sonnet 4.6 is sufficient for report synthesis). For separate git-log/diff collection spawns, use `model: "haiku"`. Do NOT default to Opus — Lead's expensive model is for orchestration, not report writing.
+**Model routing for handover delegation:** when spawning the handover-write agent, pass `model: "sonnet"` explicitly (Sonnet 5 is sufficient for report synthesis). For separate git-log/diff collection spawns, use `model: "haiku"`. Do NOT default to Opus — Lead's expensive model is for orchestration, not report writing.
 
 **[CRITICAL] Verify-gate JSON block — required before `git add`/`git commit` of the handover file.**
 Before running `git add reports/handover_*.md` or `git commit … reports/handover_*.md`, emit one of these as an assistant text block (the PreToolUse hook `verify_gate.py` scans the last 200 transcript lines for it):

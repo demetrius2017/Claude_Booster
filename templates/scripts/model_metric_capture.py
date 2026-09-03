@@ -174,13 +174,13 @@ def _codex_provenance(event: dict, requested: str) -> dict | None:
         )
         observed_path = (
             requested == "gpt-5.6-sol" and reason == "observed_chatgpt_account_unsupported"
-            and effective == "gpt-5.5" and age == 0 and len(attempts) == 2
+            and effective == "gpt-5.6-terra" and age == 0 and len(attempts) == 2
             and attempts[0]["model"] == requested and attempts[0]["success"] is False
             and attempts[1]["model"] == effective
         )
         cached_path = (
             requested == "gpt-5.6-sol" and reason == "cached_chatgpt_account_unsupported"
-            and effective == "gpt-5.5" and isinstance(age, int) and not isinstance(age, bool)
+            and effective == "gpt-5.6-terra" and isinstance(age, int) and not isinstance(age, bool)
             and age >= 0 and len(attempts) == 1 and attempts[0]["model"] == effective
         )
         if valid and (requested_path or observed_path or cached_path):

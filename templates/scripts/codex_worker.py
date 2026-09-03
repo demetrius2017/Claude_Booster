@@ -2,7 +2,7 @@
 """Capability-aware Codex worker boundary.
 
 Purpose: Run one Codex text worker and, only for Booster balancer-selected Sol
-routes, retry once with the known-working GPT-5.5 model after the canonical
+routes, retry once with the known-working GPT-5.6 Terra model after the canonical
 ChatGPT-account entitlement error.
 Contract: stdin is forwarded byte-for-byte to each attempt; stdout is only the
 effective Codex stdout; stderr retains Codex diagnostics plus one sanitized
@@ -31,7 +31,7 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 SOL = "gpt-5.6-sol"
-FALLBACK = "gpt-5.5"
+FALLBACK = "gpt-5.6-terra"
 MANAGED_CATEGORIES = frozenset({"hard", "lead", "consilium_bio"})
 MANAGED_SOURCES = frozenset({"balancer", "policy"})
 DEFAULT_TTL = 24 * 60 * 60

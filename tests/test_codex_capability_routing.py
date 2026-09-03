@@ -38,7 +38,7 @@ if model == "gpt-5.6-sol" and mode == "metadata":
 if model == "gpt-5.6-sol" and mode == "appended":
     sys.stderr.write('■ {"status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5.6-sol\' model is not supported when using Codex with a ChatGPT account. SECRET"}}\n')
     raise SystemExit(1)
-if model == "gpt-5.5" and mode == "fallback_fails":
+if model == "gpt-5.6-terra" and mode == "fallback_fails":
     sys.stderr.write("fallback failed\n")
     raise SystemExit(9)
 sys.stdout.buffer.write(b"OUT:" + model.encode() + b":" + prompt)
@@ -63,6 +63,9 @@ def run(env: dict[str, str], *, managed: bool = True, mode: str = "success") -> 
     current = {**env, "FAKE_MODE": mode}
     if managed:
         current.update(CLAUDE_BOOSTER_TASK_CATEGORY="hard", CLAUDE_BOOSTER_ROUTE_SOURCE="balancer")
+    else:
+        current.pop("CLAUDE_BOOSTER_TASK_CATEGORY", None)
+        current.pop("CLAUDE_BOOSTER_ROUTE_SOURCE", None)
     return subprocess.run([sys.executable, str(WORKER), "gpt-5.6-sol", "--json"], input=b"same prompt", capture_output=True, env=current)
 
 
@@ -74,17 +77,17 @@ def calls(env: dict[str, str]) -> list[dict]:
 def test_canonical_failure_retries_once_and_caches_without_sensitive_body(env: dict[str, str]) -> None:
     first = run(env, mode="unsupported")
     assert first.returncode == 0
-    assert first.stdout == b"OUT:gpt-5.5:same prompt"
-    assert [item["model"] for item in calls(env)] == ["gpt-5.6-sol", "gpt-5.5"]
+    assert first.stdout == b"OUT:gpt-5.6-terra:same prompt"
+    assert [item["model"] for item in calls(env)] == ["gpt-5.6-sol", "gpt-5.6-terra"]
     assert all(item["prompt"] == "same prompt" for item in calls(env))
     cache = Path(env["CLAUDE_BOOSTER_CODEX_CAPABILITY_CACHE"])
     payload = json.loads(cache.read_text())
     assert set(payload) == {"schema_version", "model", "reason", "observed_at", "expires_at"}
     assert stat.S_IMODE(cache.stat().st_mode) == 0o600
-    assert b'"effective_model":"gpt-5.5"' in first.stderr
+    assert b'"effective_model":"gpt-5.6-terra"' in first.stderr
     second = run(env, mode="success")
     assert second.returncode == 0
-    assert [item["model"] for item in calls(env)][-1] == "gpt-5.5"
+    assert [item["model"] for item in calls(env)][-1] == "gpt-5.6-terra"
 
 
 def test_metadata_warning_never_triggers_fallback(env: dict[str, str]) -> None:
@@ -126,7 +129,7 @@ def test_concurrent_first_calls_single_flight_sol_probe(env: dict[str, str]) -> 
     assert all(item[2] == 0 for item in results)
     models = [item["model"] for item in calls(env)]
     assert models.count("gpt-5.6-sol") == 1
-    assert models.count("gpt-5.5") == 2
+    assert models.count("gpt-5.6-terra") == 2
 
 
 def _worker_module():
@@ -184,7 +187,7 @@ def test_fallback_failure_stops_without_loop(env: dict[str, str]) -> None:
     Path(env["FAKE_LOG"]).unlink()
     failed = run(env, mode="fallback_fails")
     assert failed.returncode == 9
-    assert [item["model"] for item in calls(env)] == ["gpt-5.5"]
+    assert [item["model"] for item in calls(env)] == ["gpt-5.6-terra"]
 
 
 def test_expired_cache_recovers_to_preferred_sol(env: dict[str, str]) -> None:

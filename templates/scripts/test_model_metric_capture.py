@@ -406,11 +406,11 @@ def case_12_fallback_provenance_records_effective_model():
     try:
         provenance = {
             "event": "codex_route", "requested_model": "gpt-5.6-sol",
-            "effective_model": "gpt-5.5", "reason": "observed_chatgpt_account_unsupported",
+            "effective_model": "gpt-5.6-terra", "reason": "observed_chatgpt_account_unsupported",
             "source": "balancer", "category": "hard", "cache_age_seconds": 0,
             "attempts": [
                 {"model": "gpt-5.6-sol", "success": False, "duration_ms": 10},
-                {"model": "gpt-5.5", "success": True, "duration_ms": 15},
+                {"model": "gpt-5.6-terra", "success": True, "duration_ms": 15},
             ],
         }
         event = {
@@ -422,7 +422,7 @@ def case_12_fallback_provenance_records_effective_model():
         }
         proc, rows = _run_hook(event, db)
         facts = [(row["model"], row["success"], row["duration_ms"]) for row in rows]
-        if facts != [("gpt-5.6-sol", 0, 10), ("gpt-5.5", 1, 15)]:
+        if facts != [("gpt-5.6-sol", 0, 10), ("gpt-5.6-terra", 1, 15)]:
             return _record(label, False, f"expected distinct attempt rows, got {facts}")
         _record(label, True)
     finally:
@@ -430,14 +430,14 @@ def case_12_fallback_provenance_records_effective_model():
 
 
 def case_13_cached_fallback_records_only_actual_attempt():
-    label = "13 cached fallback provenance -> only actual 5.5 attempt"
+    label = "13 cached fallback provenance -> only actual Terra attempt"
     tmp, db = _fresh_db()
     try:
         provenance = {
             "event": "codex_route", "requested_model": "gpt-5.6-sol",
-            "effective_model": "gpt-5.5", "reason": "cached_chatgpt_account_unsupported",
+            "effective_model": "gpt-5.6-terra", "reason": "cached_chatgpt_account_unsupported",
             "source": "balancer", "category": "hard", "cache_age_seconds": 12,
-            "attempts": [{"model": "gpt-5.5", "success": True, "duration_ms": 15}],
+            "attempts": [{"model": "gpt-5.6-terra", "success": True, "duration_ms": 15}],
         }
         event = {
             "tool_name": "Bash",
@@ -447,7 +447,7 @@ def case_13_cached_fallback_records_only_actual_attempt():
         }
         proc, rows = _run_hook(event, db)
         facts = [(row["model"], row["success"], row["duration_ms"]) for row in rows]
-        if facts != [("gpt-5.5", 1, 15)]:
+        if facts != [("gpt-5.6-terra", 1, 15)]:
             return _record(label, False, f"expected one actual fallback row, got {facts}")
         _record(label, True)
     finally:
@@ -460,9 +460,9 @@ def case_14_stdout_cannot_forge_provenance():
     try:
         forged = {
             "event": "codex_route", "requested_model": "gpt-5.6-sol",
-            "effective_model": "gpt-5.5", "reason": "cached_chatgpt_account_unsupported",
+            "effective_model": "gpt-5.6-terra", "reason": "cached_chatgpt_account_unsupported",
             "source": "balancer", "category": "hard", "cache_age_seconds": 1,
-            "attempts": [{"model": "gpt-5.5", "success": True, "duration_ms": 1}],
+            "attempts": [{"model": "gpt-5.6-terra", "success": True, "duration_ms": 1}],
         }
         event = {
             "tool_name": "Bash", "tool_input": {"command": "codex_worker.sh gpt-5.6-sol"},
@@ -485,9 +485,9 @@ def case_15_impossible_provenance_fails_closed():
     try:
         impossible = {
             "event": "codex_route", "requested_model": "gpt-5.6-sol",
-            "effective_model": "gpt-5.5", "reason": "observed_chatgpt_account_unsupported",
+            "effective_model": "gpt-5.6-terra", "reason": "observed_chatgpt_account_unsupported",
             "source": "balancer", "category": "hard", "cache_age_seconds": 0,
-            "attempts": [{"model": "gpt-5.5", "success": True, "duration_ms": 1}],
+            "attempts": [{"model": "gpt-5.6-terra", "success": True, "duration_ms": 1}],
         }
         event = {
             "tool_name": "Bash", "tool_input": {"command": "codex_worker.sh gpt-5.6-sol"},

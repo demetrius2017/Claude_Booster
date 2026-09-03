@@ -59,6 +59,8 @@ def test_zai_cli_builds_read_only_claude_command(monkeypatch) -> None:
     monkeypatch.setenv("ZAI_CLI_DISABLE_TELEMETRY", "1")
     monkeypatch.setenv("ZAI_PREFLIGHT_DISABLE", "1")
     zai_cli = _import_script("zai_cli")
+    assert zai_cli.DEFAULT_MODEL == "glm-5.1"
+    assert zai_cli.DEFAULT_AIR_MODEL == "glm-5.1"
     captured: dict[str, object] = {}
 
     def fake_run(cmd, *, input, env, check, **kwargs):  # noqa: ANN001
@@ -74,7 +76,7 @@ def test_zai_cli_builds_read_only_claude_command(monkeypatch) -> None:
 
     rc = zai_cli._run_claude(
         "review this",
-        model="glm-5.2",
+        model="glm-5.1",
         budget="5",
         tools="",
         read_only=True,
@@ -84,7 +86,7 @@ def test_zai_cli_builds_read_only_claude_command(monkeypatch) -> None:
     assert rc == 0
     cmd = captured["cmd"]
     assert cmd[:3] == ["claude", "--bare", "--print"]
-    assert "glm-5.2" in cmd
+    assert "glm-5.1" in cmd
     assert "Edit,Write,NotebookEdit" in cmd
     env = captured["env"]
     assert env["ANTHROPIC_AUTH_TOKEN"] == "secret-value-that-must-not-print"
@@ -119,7 +121,7 @@ def test_zai_cli_records_model_metrics(monkeypatch, tmp_path) -> None:
     zai_cli = _import_script("zai_cli")
 
     zai_cli._record_metric(
-        model="glm-5.2",
+        model="glm-5.1",
         task_category="audit_secondary",
         duration_ms=1234,
         success=True,
@@ -136,7 +138,7 @@ def test_zai_cli_records_model_metrics(monkeypatch, tmp_path) -> None:
 
     assert row == (
         "zai-cli",
-        "glm-5.2",
+        "glm-5.1",
         "audit_secondary",
         1234,
         1234,
@@ -206,7 +208,7 @@ def test_zai_preflight_429_insufficient_balance_blocks_child(monkeypatch, tmp_pa
 
     rc = zai_cli._run_claude(
         "review this",
-        model="glm-5.2",
+        model="glm-5.1",
         budget="3",
         tools="",
         read_only=True,
@@ -239,7 +241,7 @@ def test_zai_preflight_success_allows_child_and_records_success(monkeypatch, tmp
 
     rc = zai_cli._run_claude(
         "review this",
-        model="glm-5.2",
+        model="glm-5.1",
         budget="3",
         tools="",
         read_only=True,
@@ -278,7 +280,7 @@ def test_zai_preflight_ok_then_permanent_child_failure_records_failure_only(monk
 
     rc = zai_cli._run_claude(
         "review this",
-        model="glm-5.2",
+        model="glm-5.1",
         budget="3",
         tools="",
         read_only=True,
@@ -314,7 +316,7 @@ def test_zai_preflight_timeout_records_failure_and_never_launches_child(monkeypa
 
     rc = zai_cli._run_claude(
         "review this",
-        model="glm-5.2",
+        model="glm-5.1",
         budget="3",
         tools="",
         read_only=True,
@@ -336,7 +338,7 @@ def test_provider_event_sidecar_is_bounded_locked_and_private(monkeypatch, tmp_p
 
     def write_event(index: int) -> None:
         zai_cli._record_failure_event(
-            model="glm-5.2",
+            model="glm-5.1",
             task_category="audit_secondary",
             failure_type="invalid_model",
             returncode=400,
@@ -364,13 +366,13 @@ def test_model_balancer_exposes_zai_routes(monkeypatch, tmp_path) -> None:
     routing = model_balancer.DEFAULTS["routing"]
     assert routing["audit_secondary"] == {
         "provider": "zai-cli",
-        "model": "glm-5.2",
+        "model": "glm-5.1",
     }
     assert routing["hackathon_external"] == {
         "provider": "zai-cli",
-        "model": "glm-5.2",
+        "model": "glm-5.1",
     }
-    assert model_balancer._get_intelligence_score("zai-cli", "glm-5.2") == 18
+    assert model_balancer._get_intelligence_score("zai-cli", "glm-5.1") == 18
 
 
 def test_model_balancer_merges_new_routes_into_existing_file(monkeypatch, tmp_path) -> None:
@@ -386,7 +388,7 @@ def test_model_balancer_merges_new_routes_into_existing_file(monkeypatch, tmp_pa
 
     assert decision["routing"]["audit_external"]["provider"] == "pal"
     assert decision["routing"]["audit_secondary"]["provider"] == "zai-cli"
-    assert decision["routing"]["hackathon_external"]["model"] == "glm-5.2"
+    assert decision["routing"]["hackathon_external"]["model"] == "glm-5.1"
 
 
 def test_model_balancer_persists_merged_routes_for_fresh_file(monkeypatch, tmp_path) -> None:
@@ -438,7 +440,7 @@ def test_model_balancer_demotes_unhealthy_zai_external_routes(monkeypatch, tmp_p
                 INSERT INTO model_metrics
                     (ts_utc, provider, model, task_category, per_turn_ms, success)
                 VALUES
-                    (datetime('now'), 'zai-cli', 'glm-5.2', 'audit_secondary', 200000, 0)
+                    (datetime('now'), 'zai-cli', 'glm-5.1', 'audit_secondary', 200000, 0)
                 """
             )
 
@@ -457,13 +459,13 @@ def test_model_balancer_demotes_unhealthy_zai_external_routes(monkeypatch, tmp_p
 
     assert decision["routing"]["audit_secondary"] == {
         "provider": "grok-cli",
-        "model": "grok-4.5",
+        "model": "grok-4.6",
     }
     assert decision["routing"]["hackathon_external"] == {
         "provider": "grok-cli",
-        "model": "grok-4.5",
+        "model": "grok-4.6",
     }
-    health = decision["provider_health"]["zai-cli:glm-5.2"]
+    health = decision["provider_health"]["zai-cli:glm-5.1"]
     assert health["status"] == "degraded"
     assert health["sample_count"] == 5
     assert health["failure_count"] == 5
@@ -490,8 +492,8 @@ def test_model_balancer_migrates_legacy_zai_alias(monkeypatch, tmp_path) -> None
 
     decision = model_balancer.current_decision()
 
-    assert decision["routing"]["audit_secondary"]["model"] == "glm-5.2"
-    assert decision["routing"]["hackathon_external"]["model"] == "glm-5.2"
+    assert decision["routing"]["audit_secondary"]["model"] == "glm-5.1"
+    assert decision["routing"]["hackathon_external"]["model"] == "glm-5.1"
 
 
 def test_model_balancer_immediately_demotes_permanent_zai_failure(monkeypatch, tmp_path) -> None:
@@ -501,7 +503,7 @@ def test_model_balancer_immediately_demotes_permanent_zai_failure(monkeypatch, t
             {
                 "ts_utc": "2099-01-01T00:00:00Z",
                 "provider": "zai-cli",
-                "model": "glm-5.2",
+                "model": "glm-5.1",
                 "task_category": "audit_secondary",
                 "failure_type": "insufficient_balance",
                 "permanent": True,
@@ -523,9 +525,9 @@ def test_model_balancer_immediately_demotes_permanent_zai_failure(monkeypatch, t
 
     assert decision["routing"]["audit_secondary"] == {
         "provider": "grok-cli",
-        "model": "grok-4.5",
+        "model": "grok-4.6",
     }
-    health = decision["provider_health"]["zai-cli:glm-5.2"]
+    health = decision["provider_health"]["zai-cli:glm-5.1"]
     assert health["status"] == "degraded"
     assert health["permanent_failure_count"] == 1
     assert health["degrade_reason"] == "insufficient_balance"
@@ -541,7 +543,7 @@ def test_model_balancer_success_event_supersedes_older_permanent_failure(monkeyp
                         "ts_utc": "2099-01-01T00:00:00Z",
                         "event_type": "failure",
                         "provider": "zai-cli",
-                        "model": "glm-5.2",
+                        "model": "glm-5.1",
                         "task_category": "audit_secondary",
                         "failure_type": "insufficient_balance",
                         "permanent": True,
@@ -555,7 +557,7 @@ def test_model_balancer_success_event_supersedes_older_permanent_failure(monkeyp
                         "ts_utc": "2099-01-01T00:01:00Z",
                         "event_type": "success",
                         "provider": "zai-cli",
-                        "model": "glm-5.2",
+                        "model": "glm-5.1",
                         "task_category": "audit_secondary",
                         "failure_type": None,
                         "permanent": False,
@@ -579,7 +581,7 @@ def test_model_balancer_success_event_supersedes_older_permanent_failure(monkeyp
 
     assert decision["routing"]["audit_secondary"] == {
         "provider": "zai-cli",
-        "model": "glm-5.2",
+        "model": "glm-5.1",
     }
     assert decision["provider_health"] == {}
 
@@ -600,8 +602,8 @@ def test_model_balancer_decide_fast_path_applies_and_reverses_typed_health(monke
                 "decision_date": today,
                 "valid_until": "2099-01-01T00:00:00Z",
                 "routing": {
-                    "audit_secondary": {"provider": "zai-cli", "model": "glm-5.2"},
-                    "hackathon_external": {"provider": "zai-cli", "model": "glm-5.2"},
+                    "audit_secondary": {"provider": "zai-cli", "model": "glm-5.1"},
+                    "hackathon_external": {"provider": "zai-cli", "model": "glm-5.1"},
                     "lead": {"provider": "anthropic", "model": "claude-opus-5"},
                 },
                 "transitions": [],
@@ -615,7 +617,7 @@ def test_model_balancer_decide_fast_path_applies_and_reverses_typed_health(monke
                 "ts_utc": "2099-01-01T00:00:00Z",
                 "event_type": "failure",
                 "provider": "zai-cli",
-                "model": "glm-5.2",
+                "model": "glm-5.1",
                 "task_category": "audit_secondary",
                 "failure_type": "insufficient_balance",
                 "permanent": True,
@@ -632,7 +634,7 @@ def test_model_balancer_decide_fast_path_applies_and_reverses_typed_health(monke
     degraded_again = model_balancer.decide()
     assert degraded["routing"]["audit_secondary"] == {
         "provider": "grok-cli",
-        "model": "grok-4.5",
+        "model": "grok-4.6",
     }
     assert degraded_again["routing"]["audit_secondary"] == degraded["routing"]["audit_secondary"]
     assert len(
@@ -651,7 +653,7 @@ def test_model_balancer_decide_fast_path_applies_and_reverses_typed_health(monke
                 "ts_utc": "2099-01-01T00:01:00Z",
                 "event_type": "success",
                 "provider": "zai-cli",
-                "model": "glm-5.2",
+                "model": "glm-5.1",
                 "task_category": "audit_secondary",
                 "failure_type": None,
                 "permanent": False,
@@ -667,7 +669,7 @@ def test_model_balancer_decide_fast_path_applies_and_reverses_typed_health(monke
     recovered = model_balancer.decide()
     assert recovered["routing"]["audit_secondary"] == {
         "provider": "zai-cli",
-        "model": "glm-5.2",
+        "model": "glm-5.1",
     }
     assert recovered["routing"]["lead"] == {"provider": "anthropic", "model": "claude-opus-5"}
     assert recovered["provider_health"] == {}

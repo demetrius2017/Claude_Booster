@@ -2,7 +2,7 @@
 # Smoke test for /audit external-review routing.
 #
 # This intentionally keeps the scope at the Booster command layer. It verifies
-# that the installed audit command can select PAL, GLM-5.2 through zai_cli.py,
+# that the installed audit command can select PAL, GLM-5.1 through zai_cli.py,
 # Grok through grok_cli.py, or an explicit DEGRADED path without running a full
 # repository audit.
 
@@ -70,10 +70,10 @@ else
     fail "C4 audit command does not mention PAL/GPT primary path"
 fi
 
-if contains "$TEMPLATE" "Z.ai GLM-5.2"; then
-    pass "C5 Z.ai GLM-5.2 third-model path is documented"
+if contains "$TEMPLATE" "Z.ai GLM-5.1"; then
+    pass "C5 Z.ai GLM-5.1 third-model path is documented"
 else
-    fail "C5 audit command does not mention Z.ai GLM-5.2"
+    fail "C5 audit command does not mention Z.ai GLM-5.1"
 fi
 
 if contains "$TEMPLATE" "ZAI_API_KEY"; then
@@ -88,10 +88,10 @@ else
     fail "C7 audit command does not invoke zai_cli.py review --budget 5"
 fi
 
-if contains "$TEMPLATE" "grok_cli.py review --budget-turns 8"; then
-    pass "C8 audit command invokes grok_cli.py review read-only lane"
+if contains "$TEMPLATE" "grok_cli.py review --model grok-4.6 --budget-turns 8"; then
+    pass "C8 audit command invokes Grok-4.6 read-only lane"
 else
-    fail "C8 audit command does not invoke grok_cli.py review --budget-turns 8"
+    fail "C8 audit command does not invoke Grok-4.6"
 fi
 
 if contains "$TEMPLATE" "grok_cli.py status\` exits 0 (127 = binary missing, 69 = not authenticated)"; then

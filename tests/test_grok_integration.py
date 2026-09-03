@@ -28,6 +28,8 @@ def test_grok_cli_builds_read_only_command(monkeypatch) -> None:
     monkeypatch.setenv("GROK_CLI_DISABLE_TELEMETRY", "1")
     monkeypatch.setenv("GROK_BIN", "/usr/bin/grok")
     grok_cli = _import_script("grok_cli")
+    assert grok_cli.DEFAULT_MODEL == "grok-4.6"
+    assert grok_cli.DEFAULT_CODER_MODEL == "grok-4.6"
     captured: dict[str, object] = {}
 
     def fake_which(binary):  # noqa: ANN001
@@ -46,7 +48,7 @@ def test_grok_cli_builds_read_only_command(monkeypatch) -> None:
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=3,
         read_only=True,
         task_category="audit_tertiary",
@@ -55,7 +57,7 @@ def test_grok_cli_builds_read_only_command(monkeypatch) -> None:
     assert rc == 0
     cmd = captured["cmd"]
     assert cmd[:2] == ["/usr/bin/grok", "-p"]
-    assert "grok-4.5" in cmd
+    assert "grok-4.6" in cmd
     assert "--permission-mode" in cmd
     assert "dontAsk" in cmd
     assert "--disallowed-tools" in cmd
@@ -91,7 +93,7 @@ def test_grok_cli_records_model_metrics(monkeypatch, tmp_path) -> None:
     grok_cli = _import_script("grok_cli")
 
     grok_cli._record_metric(
-        model="grok-4.5",
+        model="grok-4.6",
         task_category="audit_tertiary",
         duration_ms=4321,
         success=True,
@@ -108,7 +110,7 @@ def test_grok_cli_records_model_metrics(monkeypatch, tmp_path) -> None:
 
     assert row == (
         "grok-cli",
-        "grok-4.5",
+        "grok-4.6",
         "audit_tertiary",
         4321,
         4321,
@@ -127,13 +129,13 @@ def test_model_balancer_exposes_grok_routes(monkeypatch, tmp_path) -> None:
 
     assert routing["audit_tertiary"] == {
         "provider": "grok-cli",
-        "model": "grok-4.5",
+        "model": "grok-4.6",
     }
     assert routing["hackathon_coder"] == {
         "provider": "grok-cli",
-        "model": "grok-4.5",
+        "model": "grok-4.6",
     }
-    assert model_balancer._get_intelligence_score("grok-cli", "grok-4.5") == 17
+    assert model_balancer._get_intelligence_score("grok-cli", "grok-4.6") == 17
 
 
 def test_grok_cli_preserves_raw_stdout_bytes(monkeypatch, capsys) -> None:
@@ -153,7 +155,7 @@ def test_grok_cli_preserves_raw_stdout_bytes(monkeypatch, capsys) -> None:
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=3,
         read_only=True,
         task_category="audit_tertiary",
@@ -201,7 +203,7 @@ def test_grok_cli_rejects_whitespace_only_success_and_records_truth(monkeypatch,
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=3,
         read_only=True,
         task_category="audit_tertiary",
@@ -230,7 +232,7 @@ def test_grok_cli_preserves_partial_stdout_and_nonzero(monkeypatch, capsys, tmp_
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=3,
         read_only=True,
         task_category="audit_tertiary",
@@ -269,12 +271,12 @@ def test_grok_status_available_without_smoke(monkeypatch, tmp_path, capsys) -> N
         lambda *a, **k: pytest_fail_no_child(),
     )
 
-    rc = grok_cli._status(model="grok-4.5", run_smoke=False, task_category="grok_status")
+    rc = grok_cli._status(model="grok-4.6", run_smoke=False, task_category="grok_status")
 
     out = capsys.readouterr().out.strip().splitlines()
     assert rc == 0
     assert len(out) == 1
-    assert out[0].startswith("grok_cli: status=available model=grok-4.5 binary=")
+    assert out[0].startswith("grok_cli: status=available model=grok-4.6 binary=")
 
 
 def pytest_fail_no_child():  # noqa: D103
@@ -286,11 +288,11 @@ def test_grok_status_binary_missing(monkeypatch, tmp_path, capsys) -> None:
     grok_cli = _import_script("grok_cli")
     monkeypatch.setattr(grok_cli.shutil, "which", lambda binary: None)
 
-    rc = grok_cli._status(model="grok-4.5", run_smoke=False, task_category="grok_status")
+    rc = grok_cli._status(model="grok-4.6", run_smoke=False, task_category="grok_status")
 
     out = capsys.readouterr().out.strip()
     assert rc == 127
-    assert out == "grok_cli: status=unavailable reason=binary_missing model=grok-4.5"
+    assert out == "grok_cli: status=unavailable reason=binary_missing model=grok-4.6"
     events = _events(tmp_path / "events.jsonl")
     assert [event["failure_type"] for event in events] == ["binary_missing"]
     assert events[0]["permanent"] is True
@@ -301,11 +303,11 @@ def test_grok_status_auth_missing(monkeypatch, tmp_path, capsys) -> None:
     _status_env(monkeypatch, tmp_path, binary=True, auth=False)
     grok_cli = _import_script("grok_cli")
 
-    rc = grok_cli._status(model="grok-4.5", run_smoke=False, task_category="grok_status")
+    rc = grok_cli._status(model="grok-4.6", run_smoke=False, task_category="grok_status")
 
     out = capsys.readouterr().out.strip()
     assert rc == 69
-    assert out.startswith("grok_cli: status=unavailable reason=auth_missing model=grok-4.5")
+    assert out.startswith("grok_cli: status=unavailable reason=auth_missing model=grok-4.6")
     events = _events(tmp_path / "events.jsonl")
     assert [event["failure_type"] for event in events] == ["auth_missing"]
     assert events[0]["permanent"] is True
@@ -323,11 +325,11 @@ def test_grok_status_smoke_failure_records_event(monkeypatch, tmp_path, capsys) 
         ),
     )
 
-    rc = grok_cli._status(model="grok-4.5", run_smoke=True, task_category="grok_status")
+    rc = grok_cli._status(model="grok-4.6", run_smoke=True, task_category="grok_status")
 
     assert rc == 4
     assert capsys.readouterr().out.strip() == (
-        "grok_cli: status=unavailable reason=smoke_failed model=grok-4.5 returncode=4"
+        "grok_cli: status=unavailable reason=smoke_failed model=grok-4.6 returncode=4"
     )
     events = _events(tmp_path / "events.jsonl")
     assert len(events) == 1
@@ -362,7 +364,7 @@ def test_grok_status_smoke_success_records_metric(monkeypatch, tmp_path) -> None
         ),
     )
 
-    rc = grok_cli._status(model="grok-4.5", run_smoke=True, task_category="grok_status")
+    rc = grok_cli._status(model="grok-4.6", run_smoke=True, task_category="grok_status")
 
     with sqlite3.connect(db_path) as conn:
         row = conn.execute("SELECT task_category, success FROM model_metrics").fetchone()
@@ -389,7 +391,7 @@ def test_grok_status_without_smoke_records_no_metric(monkeypatch, tmp_path) -> N
     monkeypatch.setenv("CLAUDE_BOOSTER_METRICS_DB", str(db_path))
     grok_cli = _import_script("grok_cli")
 
-    rc = grok_cli._status(model="grok-4.5", run_smoke=False, task_category="grok_status")
+    rc = grok_cli._status(model="grok-4.6", run_smoke=False, task_category="grok_status")
 
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute("SELECT COUNT(*) FROM model_metrics").fetchone()[0]
@@ -442,7 +444,7 @@ def test_grok_failure_event_on_nonzero_exit(monkeypatch, tmp_path) -> None:
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=8,
         read_only=True,
         task_category="audit_tertiary",
@@ -471,7 +473,7 @@ def test_grok_failure_event_on_empty_response(monkeypatch, tmp_path) -> None:
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=8,
         read_only=True,
         task_category="audit_tertiary",
@@ -493,7 +495,7 @@ def test_grok_failure_event_on_timeout(monkeypatch, tmp_path) -> None:
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=8,
         read_only=True,
         task_category="audit_tertiary",
@@ -511,7 +513,7 @@ def test_grok_failure_event_on_binary_missing(monkeypatch, tmp_path) -> None:
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=8,
         read_only=True,
         task_category="audit_tertiary",
@@ -533,11 +535,11 @@ def test_grok_status_smoke_timeout_exits_124(monkeypatch, tmp_path, capsys) -> N
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    rc = grok_cli._status(model="grok-4.5", run_smoke=True, task_category="grok_status")
+    rc = grok_cli._status(model="grok-4.6", run_smoke=True, task_category="grok_status")
 
     assert rc == 124
     assert capsys.readouterr().out.strip() == (
-        "grok_cli: status=unavailable reason=smoke_timeout model=grok-4.5 returncode=124"
+        "grok_cli: status=unavailable reason=smoke_timeout model=grok-4.6 returncode=124"
     )
     events = _events(tmp_path / "events.jsonl")
     assert [event["failure_type"] for event in events] == ["timeout"]
@@ -555,11 +557,11 @@ def test_grok_status_smoke_empty_response_exits_69(monkeypatch, tmp_path, capsys
         ),
     )
 
-    rc = grok_cli._status(model="grok-4.5", run_smoke=True, task_category="grok_status")
+    rc = grok_cli._status(model="grok-4.6", run_smoke=True, task_category="grok_status")
 
     assert rc == 69
     assert capsys.readouterr().out.strip() == (
-        "grok_cli: status=unavailable reason=smoke_empty_response model=grok-4.5 returncode=0"
+        "grok_cli: status=unavailable reason=smoke_empty_response model=grok-4.6 returncode=0"
     )
     events = _events(tmp_path / "events.jsonl")
     assert [event["failure_type"] for event in events] == ["empty_response"]
@@ -612,7 +614,7 @@ def test_grok_child_stderr_is_redacted_before_passthrough(monkeypatch, tmp_path,
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=8,
         read_only=True,
         task_category="audit_tertiary",
@@ -651,7 +653,7 @@ def test_max_turns_is_classified_as_non_permanent_budget_failure(
 
     rc = grok_cli._run_grok(
         "review this",
-        model="grok-4.5",
+        model="grok-4.6",
         budget_turns=8,
         read_only=True,
         task_category="audit_tertiary",
