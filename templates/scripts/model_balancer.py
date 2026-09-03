@@ -135,10 +135,10 @@ _QUALITY_SCORES_ANTHROPIC: dict[str, int] = {
 }
 
 _QUALITY_SCORES_ZAI: dict[str, int] = {
-    # GLM-5.1 remains the economical external-review tier below Opus.
+    # GLM-5.3 is the current economical external-review tier below Opus.
     # The internal 0..20 scale intentionally keeps it below Opus and above
     # Sonnet as a cheap but capable external-review model.
-    "glm-5.1": 18,
+    "glm-5.3": 18,
 }
 
 _QUALITY_SCORES_GROK: dict[str, int] = {
@@ -183,9 +183,9 @@ DEFAULTS: dict = {
         "hard":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "consilium_bio":  {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-sol", "reasoning_effort": "medium"},
         "audit_external": {"provider": PROVIDER_PAL,       "model": "gpt-5.6-sol"},
-        "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.1"},
+        "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.3"},
         "audit_tertiary": {"provider": PROVIDER_GROK,      "model": "grok-4.6"},
-        "hackathon_external": {"provider": PROVIDER_ZAI,   "model": "glm-5.1"},
+        "hackathon_external": {"provider": PROVIDER_ZAI,   "model": "glm-5.3"},
         "hackathon_coder": {"provider": PROVIDER_GROK,     "model": "grok-4.6"},
         "lead":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "high_blast_radius": {
@@ -225,11 +225,13 @@ _LEGACY_BOOTSTRAP_ROUTES: dict[str, list[dict[str, str]]] = {
     ],
     "audit_external": [{"provider": PROVIDER_PAL, "model": "gpt-5.5"}],
     "audit_secondary": [
+        {"provider": PROVIDER_ZAI, "model": "glm-5.1"},
         {"provider": PROVIDER_ZAI, "model": "glm-5.2"},
         {"provider": PROVIDER_ZAI, "model": "glm-5.2[1m]"},
     ],
     "audit_tertiary": [{"provider": PROVIDER_GROK, "model": "grok-4.5"}],
     "hackathon_external": [
+        {"provider": PROVIDER_ZAI, "model": "glm-5.1"},
         {"provider": PROVIDER_ZAI, "model": "glm-5.2"},
         {"provider": PROVIDER_ZAI, "model": "glm-5.2[1m]"},
     ],

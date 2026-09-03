@@ -317,7 +317,7 @@ The Flow Designer drafted the PFD on the `hard` tier. This phase has a **differe
   `fable_control.degraded=true`, record `downgrade_reason`, and use the normal
   cross-provider Challenge mapping below with the same output contract.
 - **If Flow Designer's provider was `codex-cli` or `zai-cli`**: spawn ONE Challenge **Agent** with `model: "opus"` explicitly. **NOT `run_in_background`** — Lead waits.
-- **If Flow Designer's provider WAS `anthropic`**: prefer GLM-5.1 when available; otherwise use `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < <prompt-file>`.
+- **If Flow Designer's provider WAS `anthropic`**: prefer GLM-5.3 when available; otherwise use `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < <prompt-file>`.
 
 Either way the prompt is identical:
 
@@ -586,7 +586,7 @@ Before spawning the Worker, decide whether this task warrants COMPETING implemen
 **If both → escalate to `/hackathon`** for the implementation stage:
 - Pass the PFD-augmented Artifact Contract and Prototype Handoff as the hackathon Artifact Contract.
 - Seed the Judge Mandate from the PFD `verifier_assertions` + `invariants` and Prototype Handoff direct-probe requirements — the deterministic evidence criteria the Семёрка already derived.
-- Spawn the 2–3 candidates ACROSS providers (e.g. one Claude Opus 5 Agent + one Codex `codex_sandbox_worker.sh gpt-5.6-terra`). When `ZAI_API_KEY` is present, include GLM-5.1 via `~/.claude/scripts/zai_cli.py review` for design critique, edge harvest, or external diff review. When `~/.claude/scripts/grok_cli.py status` exits 0 (127 = binary missing, 69 = not authenticated; that probe is the only accepted availability test — never infer from `XAI_API_KEY`), include Grok-4.6 via `~/.claude/scripts/grok_sandbox_worker.sh grok-4.6` as a write-capable contestant or via `~/.claude/scripts/grok_cli.py review --model grok-4.6 --budget-turns 8` as a fourth-model reviewer. Z.ai is a third-model review lane by default; Grok may be a code worker only through the sandbox worker; neither should be the deterministic Judge unless the Judge remains a deterministic direct-probe runner with exit-code scoring during iteration; durable test execution is reserved for the final deploy gate.
+- Spawn the 2–3 candidates ACROSS providers (e.g. one Claude Opus 5 Agent + one Codex `codex_sandbox_worker.sh gpt-5.6-terra`). When `ZAI_API_KEY` is present, include GLM-5.3 via `~/.claude/scripts/zai_cli.py review` for design critique, edge harvest, or external diff review. When `~/.claude/scripts/grok_cli.py status` exits 0 (127 = binary missing, 69 = not authenticated; that probe is the only accepted availability test — never infer from `XAI_API_KEY`), include Grok-4.6 via `~/.claude/scripts/grok_sandbox_worker.sh grok-4.6` as a write-capable contestant or via `~/.claude/scripts/grok_cli.py review --model grok-4.6 --budget-turns 8` as a fourth-model reviewer. Z.ai is a third-model review lane by default; Grok may be a code worker only through the sandbox worker; neither should be the deterministic Judge unless the Judge remains a deterministic direct-probe runner with exit-code scoring during iteration; durable test execution is reserved for the final deploy gate.
 - The hackathon's deterministic Judge (direct-probe runner with exit-code scoring, winner-take-all) REPLACES the single cross-provider Verifier for this run — use direct evidence during iteration. Any durable regression authoring waits for the final deploy gate.
 - When the hackathon returns a winner, **resume the Семёрка at Phase 3B** (diff-review the winner) → Phase 4 verdict. Skip the standard single-Worker path below.
 - Log it in the verdict: `implementation: /hackathon (N candidates, winner cN, score X/Y)`.
@@ -612,7 +612,7 @@ A model verifying its own output shares its own blind spots — same-provider ve
 | `zai-cli` | `anthropic` or `codex-cli` | `opus` preferred, else Terra at medium effort |
 | `grok-cli` | `anthropic` or `codex-cli` | `opus` preferred, else Terra at medium effort |
 
-This guarantees Worker and Verifier never share a provider. The Verifier still sees ONLY the AC fields + PFD `verifier_assertions`/`invariants`/`branching_scenarios` (never the Worker's prompt or code) — cross-provider does not relax the knowledge boundary, it hardens it. Z.ai/GLM-5.1 is currently a read-only third-model lane for Challenge, edge-harvest, and Diff-review unless a future audited commit adds a write-capable Z.ai worker. Grok-4.6 may write code only through `grok_sandbox_worker.sh`, which isolates writes in a git worktree and returns a diff for Lead review.
+This guarantees Worker and Verifier never share a provider. The Verifier still sees ONLY the AC fields + PFD `verifier_assertions`/`invariants`/`branching_scenarios` (never the Worker's prompt or code) — cross-provider does not relax the knowledge boundary, it hardens it. Z.ai/GLM-5.3 is currently a read-only third-model lane for Challenge, edge-harvest, and Diff-review unless a future audited commit adds a write-capable Z.ai worker. Grok-4.6 may write code only through `grok_sandbox_worker.sh`, which isolates writes in a git worktree and returns a diff for Lead review.
 
 (The real invariant is provider inequality: Sol, Terra, and Luna are all OpenAI/Codex and never independently verify one another. On Codex CLI the other provider is Claude. The bridge handles the mirror and degrade-and-log fallback.)
 
@@ -837,7 +837,7 @@ The Verifier checked *observable behavior* but never saw the code. This phase gi
 
 **Skip criteria (log the skip in the verdict):** the diff is trivial — docs/comments only, or < ~15 changed lines with no logic / control-flow / IO. Otherwise the review runs.
 
-**Provider rule:** the reviewer MUST run on a different provider than the Worker (it reads the Worker's code, so it must not be the author's own model). Prefer GLM-5.1 as a third-model reviewer when `ZAI_API_KEY` is present and the Worker is not `zai-cli`; otherwise use the same mapping as the Verifier:
+**Provider rule:** the reviewer MUST run on a different provider than the Worker (it reads the Worker's code, so it must not be the author's own model). Prefer GLM-5.3 as a third-model reviewer when `ZAI_API_KEY` is present and the Worker is not `zai-cli`; otherwise use the same mapping as the Verifier:
 - **If `GO_FABLE=1` and the budget gate allows it**: run exactly ONE read-only
   Fable Diff-review. The prompt MUST include only the AC, Prototype Handoff,
   evidence receipt/direct-probe output, final diff or watchlist-oriented diff slices, and
@@ -847,9 +847,9 @@ The Verifier checked *observable behavior* but never saw the code. This phase gi
   `downgrade_reason`, and run the normal reviewer below against the same
   watchlist contract.
 - `WP=codex-cli` → reviewer = Opus **Agent** (`model: "opus"`), read-only.
-- `WP=anthropic` → reviewer = GLM-5.1 when available, else `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < review_prompt.txt`.
+- `WP=anthropic` → reviewer = GLM-5.3 when available, else `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < review_prompt.txt`.
 - `WP=zai-cli` → reviewer = Opus Agent preferred, else Codex.
-- `WP=grok-cli` → reviewer = GLM-5.1 via `~/.claude/scripts/zai_cli.py review` when available, else Opus Agent/Codex.
+- `WP=grok-cli` → reviewer = GLM-5.3 via `~/.claude/scripts/zai_cli.py review` when available, else Opus Agent/Codex.
 
 Collect the diff first: `git -C "$(git rev-parse --show-toplevel)" diff -- <changed paths>` (or read the files the Worker wrote).
 

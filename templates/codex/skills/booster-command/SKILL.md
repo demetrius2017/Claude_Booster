@@ -1,6 +1,6 @@
 ---
 name: "booster-command"
-description: "Run Claude Booster command protocols in Codex. Use when Dmitry invokes or asks to install/run Booster commands such as start, handover, fable, autopilot, consilium, audit, code-review, architecture, go, debt, phase, update, delegate, lead, agent-status, gantt, verify-flow, verify-after-edit, audit-trace, or hackathon."
+description: "Run Claude Booster command protocols in Codex. Use when Dmitry invokes or asks to install/run Booster commands such as start, handover, fable, autopilot, consilium, audit, code-review, architecture, go, debt, phase, update, delegate, lead, agent-status, gantt, loop, verify-flow, verify-after-edit, audit-trace, or hackathon."
 ---
 
 # Booster Command Runner
@@ -21,6 +21,7 @@ Use it when the user invokes a Booster command by name, for example:
 - `debt <mode>`
 - `$agent-status` (or legacy `/prompts:agent-status`)
 - `gantt [detail]` via `$gantt` (or legacy `/prompts:gantt`)
+- `$loop INTERVAL --thread UUID`, `$loop status`, or `$loop stop` (or legacy `/prompts:loop`)
 - `$consilium <topic>` or `/prompts:consilium <topic>`
 
 ## Source Of Truth
@@ -82,7 +83,7 @@ Execute the command behavior, not the literal Claude Code tool names.
   native second opinion**. A successful PAL response remains primary.
   Use the Z.ai third-model runner when `ZAI_API_KEY` is present:
   `printf '%s\n' '<review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`.
-  Label it exactly as "GLM-5.1 via Z.ai". A missing credential, non-zero exit,
+  Label it exactly as "GLM-5.3 via Z.ai". A missing credential, non-zero exit,
   timeout, tool exception, or unusable response advances to Grok. Grok is
   available only when `~/.claude/scripts/grok_cli.py status` exits 0 (127 =
   binary missing, 69 = not authenticated); that probe is the ONLY accepted
@@ -192,7 +193,7 @@ where the native model is Claude and "the other provider" is Codex
   Notebook N/A is permitted only when the entire Prototype Gate is explicitly
   N/A for a pure docs/format/static-config task with no executable data/runtime
   hypothesis and a concrete reason.
-- If `ZAI_API_KEY` is present, GLM-5.1 via `~/.claude/scripts/zai_cli.py` is a
+- If `ZAI_API_KEY` is present, GLM-5.3 via `~/.claude/scripts/zai_cli.py` is a
   third-model read-only channel for Challenge, external audit, edge-harvest, and
   diff-review. It does not replace the exit-code Judge/Verifier unless a future
   audited command explicitly makes it write-capable.

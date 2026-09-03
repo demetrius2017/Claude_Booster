@@ -27,7 +27,7 @@ Unlike `/consilium` (opinions) and paired Worker+Verifier (one implementation), 
    - Criteria are observable behaviors (exit codes, file contents, stdout patterns, HTTP responses) proved with candidate-bound read-only probes
    - No LLM judgment allowed anywhere in the Judge Mandate
 
-4. **Pick contestants** — 2–3 Workers. Default: equal footing (all the same model) to isolate the *approach* difference. **When invoked as a /go SHIP-4 escalation:** spawn candidates ACROSS providers instead (e.g. one Claude Opus 5 Agent + one Codex `codex_sandbox_worker.sh gpt-5.6-terra`; when `ZAI_API_KEY` is present, add one GLM-5.1 read-only design/review contestant or external reviewer via `~/.claude/scripts/zai_cli.py`; when `~/.claude/scripts/grok_cli.py status` exits 0 (127 = binary missing, 69 = not authenticated; never infer from `XAI_API_KEY`), add one write-capable Grok contestant via `~/.claude/scripts/grok_sandbox_worker.sh grok-4.6`) — there the goal is provider diversity, not just prompt diversity. More contestants = more compute + better odds of the optimal solution.
+4. **Pick contestants** — 2–3 Workers. Default: equal footing (all the same model) to isolate the *approach* difference. **When invoked as a /go SHIP-4 escalation:** spawn candidates ACROSS providers instead (e.g. one Claude Opus 5 Agent + one Codex `codex_sandbox_worker.sh gpt-5.6-terra`; when `ZAI_API_KEY` is present, add one GLM-5.3 read-only design/review contestant or external reviewer via `~/.claude/scripts/zai_cli.py`; when `~/.claude/scripts/grok_cli.py status` exits 0 (127 = binary missing, 69 = not authenticated; never infer from `XAI_API_KEY`), add one write-capable Grok contestant via `~/.claude/scripts/grok_sandbox_worker.sh grok-4.6`) — there the goal is provider diversity, not just prompt diversity. More contestants = more compute + better odds of the optimal solution.
 
 ## Phase 2 — Competition (all Workers in ONE message, parallel)
 
@@ -120,12 +120,12 @@ fixes may rerun the frozen suite.
 
 After winner is selected:
 - `mcp__pal__codereview` — GPT second opinion on winning implementation when PAL is available
-- GLM-5.1 third-model review when `ZAI_API_KEY` is present:
+- GLM-5.3 third-model review when `ZAI_API_KEY` is present:
   `printf '%s\n' '<winner review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`
 - Grok fourth-model review when `~/.claude/scripts/grok_cli.py status` exits 0 (127 = binary missing, 69 = not authenticated). That probe is the ONLY accepted availability test — never infer availability from env vars such as `XAI_API_KEY`:
   `printf '%s\n' '<winner review prompt>' | ~/.claude/scripts/grok_cli.py review --budget-turns 8`
   `--budget-turns 8` is the default for diff-only reviews; for repo-reading audits (prompts that ask Grok to read files) use `--budget-turns 24`, and `failure_type=max_turns` in the failure log means the budget was too small, not that Grok is unavailable — retry once with a larger budget before labeling DEGRADED.
-- If PAL `gpt-5.6-sol` is unavailable, GLM-5.1 is mandatory fallback. If GLM is unavailable but `grok_cli.py status` exits 0, Grok-4.6 is the mandatory fallback. If all external channels are unavailable, record `external-review: DEGRADED (<concrete failure class per channel>)`. The evidence MUST name the concrete failure class, e.g. `PAL: 429 credit_balance_exhausted`, `Z.ai: 429 1113 insufficient_balance`, `Grok: grok_cli.py status exit 69 (not authenticated)`.
+- If PAL `gpt-5.6-sol` is unavailable, GLM-5.3 is mandatory fallback. If GLM is unavailable but `grok_cli.py status` exits 0, Grok-4.6 is the mandatory fallback. If all external channels are unavailable, record `external-review: DEGRADED (<concrete failure class per channel>)`. The evidence MUST name the concrete failure class, e.g. `PAL: 429 credit_balance_exhausted`, `Z.ai: 429 1113 insufficient_balance`, `Grok: grok_cli.py status exit 69 (not authenticated)`.
 - **Runner rule.** Categories the balancer routes to a non-Codex provider (`audit_secondary`, `audit_tertiary`, and `hackathon_external` when the route is `grok-cli` or `zai-cli`) MUST be executed with `~/.claude/scripts/grok_cli.py review` or `~/.claude/scripts/zai_cli.py review` — never with `codex_routed_worker.py`. `codex_routed_worker.py` exiting 65 means "wrong runner", NOT "provider unavailable". `codex_routed_worker.py` accepts only balancer categories: `audit` and `code-review` are not categories — use `audit_external`, `audit_secondary`, `audit_tertiary`, or `medium`.
 - Address any HIGH findings before committing
 - Save judge report to `reports/hackathon_YYYY-MM-DD_<topic>.md` and git commit

@@ -66,6 +66,7 @@ That's it. Booster installs a set of rules, hooks, and slash commands into `~/.c
 | `/verify-flow` | Verifies a full UI flow end-to-end | Individual fixes pass while the flow they live in is broken |
 | `/audit-trace` | Data-continuity audit — traces one concept through every computation path; divergence = defect | Silent data corruption where two code paths compute the "same" value differently |
 | `/gantt` | Compact fact-bound Gantt snapshot of current task lanes, without polling or invented progress | Work status turns into a vague narrative instead of an explicit current-state view |
+| `$loop` | Bounded external scheduler that wakes one explicit Codex thread through `codex queue` | Model tokens spent merely waiting or polling |
 
 **Systemic thinking & infra — understand blast radius before you edit**
 
@@ -84,7 +85,7 @@ Three mechanisms, each targeting a distinct way LLM agents fail on multi-session
 
 1. **Temporal-causal memory** — stores *causal chains* (tried → happened → concluded → still-open), not just facts. Kills the "re-discover the same bug every week" loop.
 2. **The семёрка pipeline (`/go`)** — the strong model *thinks* (design critique, independent verification, diff review) while the fast flat-fee model *types*. **No model ever reviews its own code**; the verdict is a timestamped receipt from authorized read-only sources. The final deploy gate then runs durable regression tests and the full existing suite.
-3. **Smart model routing** — GPT-5.6 Luna for cheap recon, Terra for medium implementation, Sol for consilium and external review; Claude Opus 5 owns the heavy lanes and Sonnet 5 the guarded high-blast-radius lane. GLM-5.1 and Grok-4.6 supply independent external review. Right model, right effort, enough quota to finish the week.
+3. **Smart model routing** — GPT-5.6 Luna for cheap recon, Terra for medium implementation, Sol for consilium and external review; Claude Opus 5 owns the heavy lanes and Sonnet 5 the guarded high-blast-radius lane. GLM-5.3 and Grok-4.6 supply independent external review. Right model, right effort, enough quota to finish the week.
 
 > **New here?** Run `python install.py`, open a session with `/start`, build something with `/go`, and close with `/handover`. Everything else is depth you'll reach for when you need it.
 

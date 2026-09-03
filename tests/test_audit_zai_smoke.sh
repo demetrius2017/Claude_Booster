@@ -2,7 +2,7 @@
 # Smoke test for /audit external-review routing.
 #
 # This intentionally keeps the scope at the Booster command layer. It verifies
-# that the installed audit command can select PAL, GLM-5.1 through zai_cli.py,
+# that the installed audit command can select PAL, GLM-5.3 through zai_cli.py,
 # Grok through grok_cli.py, or an explicit DEGRADED path without running a full
 # repository audit.
 
@@ -70,10 +70,10 @@ else
     fail "C4 audit command does not mention PAL/GPT primary path"
 fi
 
-if contains "$TEMPLATE" "Z.ai GLM-5.1"; then
-    pass "C5 Z.ai GLM-5.1 third-model path is documented"
+if contains "$TEMPLATE" "Z.ai GLM-5.3"; then
+    pass "C5 Z.ai GLM-5.3 third-model path is documented"
 else
-    fail "C5 audit command does not mention Z.ai GLM-5.1"
+    fail "C5 audit command does not mention Z.ai GLM-5.3"
 fi
 
 if contains "$TEMPLATE" "ZAI_API_KEY"; then

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run GLM-5.1 via Z.ai's Anthropic-compatible Claude Code endpoint.
+"""Run GLM-5.3 via Z.ai's Anthropic-compatible Claude Code endpoint.
 
 Purpose
 -------
@@ -60,8 +60,8 @@ from provider_failure_log import (  # noqa: E402
 
 BASE_URL = "https://api.z.ai/api/anthropic"
 PREFLIGHT_URL = f"{BASE_URL}/v1/messages"
-DEFAULT_MODEL = "glm-5.1"
-DEFAULT_AIR_MODEL = "glm-5.1"
+DEFAULT_MODEL = "glm-5.3"
+DEFAULT_AIR_MODEL = "glm-5.3"
 PROVIDER = "zai-cli"
 DEFAULT_DB_PATH = Path.home() / ".claude" / "rolling_memory.db"
 DEFAULT_SECRET_PATH = Path.home() / ".claude" / "secrets" / "zai_api_key"
@@ -521,7 +521,7 @@ def _run_claude(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run GLM-5.2 through Z.ai.")
+    parser = argparse.ArgumentParser(description="Run GLM-5.3 through Z.ai.")
     parser.add_argument("mode", choices=("smoke", "review"))
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--budget", default="3")

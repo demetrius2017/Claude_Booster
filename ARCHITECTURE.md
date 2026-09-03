@@ -63,7 +63,7 @@ C4Container
     System_Ext(codex_cli, "Codex CLI", "OpenAI codex binary; Worker/audit provider via codex_worker.sh + codex_sandbox_worker.sh")
     System_Ext(anthropic_api, "Anthropic API", "consolidate() Haiku synthesis + token counting (Anthropic SDK)")
     System_Ext(pal_mcp, "PAL MCP", "External second-opinion/audit provider (gpt-5.6-sol) for audit_external category")
-    System_Ext(zai_api, "Z.ai API", "Anthropic-compatible GLM-5.1 endpoint for third-model read-only review")
+    System_Ext(zai_api, "Z.ai API", "Anthropic-compatible GLM-5.3 endpoint for third-model read-only review")
     System_Ext(grok_cli, "Grok CLI", "xAI Grok-4.6 Build CLI; fourth-model review and sandboxed code worker")
     System_Ext(git, "Git", "Version control: installer, check_booster_update, verify_gate, codex_sandbox worktree")
     System_Ext(filesystem, "~/.claude/ filesystem", "Target directory for all deployed artifacts")
@@ -95,7 +95,7 @@ C4Container
     Rel(balancer, sqlite_db, "reads", "model_metrics 14-day p50 latency")
     Rel(balancer, balancer_json, "writes", "decide() atomic; pinned categories preserved")
     Rel(balancer, pal_mcp, "routes", "audit_external → gpt-5.6-sol")
-    Rel(balancer, zai_api, "routes", "audit_secondary / hackathon_external → glm-5.1 via zai_cli.py")
+    Rel(balancer, zai_api, "routes", "audit_secondary / hackathon_external → glm-5.3 via zai_cli.py")
     Rel(balancer, grok_cli, "routes", "audit_tertiary / hackathon_coder → grok-4.6")
     Rel(balancer, codex_cli, "routes", "trivial/recon → Luna; medium → Terra; consilium_bio → Sol")
 

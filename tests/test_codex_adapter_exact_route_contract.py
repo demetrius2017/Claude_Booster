@@ -209,7 +209,7 @@ def test_grok_route_refuses_and_launches_no_codex_child() -> None:
 
 def test_zai_route_names_zai_runner() -> None:
     with tempfile.TemporaryDirectory() as directory:
-        env, log, _ = _environment(Path(directory), '{"provider":"zai-cli","model":"glm-5.1"}')
+        env, log, _ = _environment(Path(directory), '{"provider":"zai-cli","model":"glm-5.3"}')
         result = _run(env, "audit_secondary")
         assert result.returncode == 65
         assert not log.exists()

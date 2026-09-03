@@ -91,3 +91,19 @@ yearly), PAL ждёт кредитов OpenAI. Grok получил probe `grok_c
 Спеки audit/consilium/hackathon/go и Codex-skill ссылаются на probe и
 требуют `--budget-turns 24` для аудитов с чтением репозитория. Commit
 `ee8a1a3`, установлено через `install.py --yes`; 318 passed, smoke 14/14.
+
+## Завершено в сессии 2026-09-03 — bounded Codex loop и GLM-5.3
+
+Добавлена `$loop`: внешний scheduler спит без участия модели и делает bounded
+`codex queue` wakes только для явно указанного thread. Безопасный default — не
+более 8 пробуждений (при `30m` это 4 часа), но предел настраивается через
+`--max-wakes`; доступны `$loop status` и `$loop stop`. Реализация валидирует
+интервал, UUID и timeout, управляет singleton/stale PID состоянием и не повторяет
+queue автоматически после неоднозначного локального timeout. Прямой probe поймал
+и закрыл пропущенный `--message` в queue argv.
+
+Z.ai route обновлён до `glm-5.3` и подтверждён живым ответом `GLM_5_3_OK`.
+Проверки: focused pytest **47 passed**, Z.ai smoke **14/14**, model-balancer
+**7/7 suites и 127 assertions**, installed/template parity и `git diff --check`
+прошли. Отдельный wait-history patch из начала roadmap не заменён этой работой:
+он всё ещё pinned к `rust-v0.145.0-alpha.13` и требует rebase для Codex `0.146.1`.

@@ -72,19 +72,19 @@ Audit lenses selected: correctness, security, data-integrity
 
 External-review order:
 1. PAL/GPT (`mcp__pal__codereview` or `mcp__pal__second_opinion`) is the primary external expert when PAL is available.
-2. Z.ai GLM-5.1 is the third-model reviewer when `ZAI_API_KEY` is present. Run it via:
+2. Z.ai GLM-5.3 is the third-model reviewer when `ZAI_API_KEY` is present. Run it via:
    `printf '%s\n' '<review prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`
 3. xAI Grok-4.6 is the fourth-model reviewer when `~/.claude/scripts/grok_cli.py status` exits 0 (127 = binary missing, 69 = not authenticated). That probe is the ONLY accepted availability test — never infer availability from env vars such as `XAI_API_KEY`. Run the review via:
    `printf '%s\n' '<review prompt>' | ~/.claude/scripts/grok_cli.py review --model grok-4.6 --budget-turns 8`
    `--budget-turns 8` is the default for diff-only reviews; for repo-reading audits (prompts that ask Grok to read files) use `--budget-turns 24`, and `failure_type=max_turns` in the failure log means the budget was too small, not that Grok is unavailable — retry once with a larger budget before labeling DEGRADED.
-4. PAL uses `gpt-5.6-sol`. If PAL is unavailable, GLM-5.1 is mandatory fallback. If GLM is unavailable but `grok_cli.py status` exits 0, Grok-4.6 is the mandatory fallback. If PAL, Z.ai, and Grok are all unavailable, label the run `external-review: DEGRADED (<concrete failure class per channel>)` and continue with the selected lenses. The evidence MUST name the concrete failure class, e.g. `PAL: 429 credit_balance_exhausted`, `Z.ai: 429 1113 insufficient_balance`, `Grok: grok_cli.py status exit 69 (not authenticated)`.
+4. PAL uses `gpt-5.6-sol`. If PAL is unavailable, GLM-5.3 is mandatory fallback. If GLM is unavailable but `grok_cli.py status` exits 0, Grok-4.6 is the mandatory fallback. If PAL, Z.ai, and Grok are all unavailable, label the run `external-review: DEGRADED (<concrete failure class per channel>)` and continue with the selected lenses. The evidence MUST name the concrete failure class, e.g. `PAL: 429 credit_balance_exhausted`, `Z.ai: 429 1113 insufficient_balance`, `Grok: grok_cli.py status exit 69 (not authenticated)`.
 
 **Runner rule.** Categories the balancer routes to a non-Codex provider (`audit_secondary`, `audit_tertiary`, and `hackathon_external` when the route is `grok-cli` or `zai-cli`) MUST be executed with `~/.claude/scripts/grok_cli.py review` or `~/.claude/scripts/zai_cli.py review` — never with `codex_routed_worker.py`. `codex_routed_worker.py` exiting 65 means "wrong runner", NOT "provider unavailable"; do not record it as a degraded external channel. `codex_routed_worker.py` also accepts only balancer categories: `audit` and `code-review` are not categories — use `audit_external`, `audit_secondary`, `audit_tertiary`, or `medium`.
 
 Spawn only the lenses selected in Phase 1. Do not spawn auditors for unselected lenses.
 
 Each auditor agent is `subagent_type: "general-purpose"`, `model: "sonnet"`.
-PAL `gpt-5.6-sol` runs as a tool call in the same batch when available. GLM-5.1 and Grok-4.6 run as read-only Bash reviewers and must receive the same Verified Facts Brief and key file list.
+PAL `gpt-5.6-sol` runs as a tool call in the same batch when available. GLM-5.3 and Grok-4.6 run as read-only Bash reviewers and must receive the same Verified Facts Brief and key file list.
 
 ### Progress output
 
@@ -95,7 +95,7 @@ As each background agent completes, output a cumulative progress line:
 Audit ▰▱▱▱▱▱▱ 1/<total> · <lens> ✓ (<verdict>)
 Audit ▰▰▱▱▱▱▱ 2/<total> · <lens> ✓ · <lens> ✓
 ```
-Where `<total>` is the number of selected lenses plus every available external reviewer (PAL `gpt-5.6-sol`, GLM-5.1, and/or Grok-4.6), or just the selected lenses if external review degraded. Fill in lens names and verdicts (PASS/FAIL/CONCERN) as each returns. **Do NOT begin Phase 3 synthesis until ALL agents/reviewers have returned.**
+Where `<total>` is the number of selected lenses plus every available external reviewer (PAL `gpt-5.6-sol`, GLM-5.3, and/or Grok-4.6), or just the selected lenses if external review degraded. Fill in lens names and verdicts (PASS/FAIL/CONCERN) as each returns. **Do NOT begin Phase 3 synthesis until ALL agents/reviewers have returned.**
 
 Every agent receives:
 - The **Verified Facts Brief** from Phase 0
@@ -537,7 +537,7 @@ Use the Shared Verdict Format above. Finding prefix: O. Extra field: `oncall_imp
 
 In the same spawn batch as the auditors, also call the external reviewers.
 
-**[MANDATORY] Some external review is required.** Preferred is PAL `gpt-5.6-sol` plus GLM-5.1. A /audit with neither PAL nor GLM-5.1 is degraded and must say so in the report.
+**[MANDATORY] Some external review is required.** Preferred is PAL `gpt-5.6-sol` plus GLM-5.3. A /audit with neither PAL nor GLM-5.3 is degraded and must say so in the report.
 
 PAL call parameters:
 - `relevant_files`: array of the key file paths from the Verified Facts Brief (Lead pre-identified these in Phase 0)
@@ -547,12 +547,12 @@ PAL call parameters:
 
 PAL returns its verdict in its own format. Include it verbatim in the report under §PAL External Review.
 
-GLM-5.1 call:
+GLM-5.3 call:
 - Use `~/.claude/scripts/zai_cli.py review --budget 5`.
 - Grok-4.6, when used, runs as `~/.claude/scripts/grok_cli.py review --model grok-4.6 --budget-turns 8` and only after `grok_cli.py status` exits 0. `--budget-turns 8` is the default for diff-only reviews; for repo-reading audits (prompts that ask Grok to read files) use `--budget-turns 24`, and `failure_type=max_turns` in the failure log means the budget was too small, not that Grok is unavailable — retry once with a larger budget before labeling DEGRADED.
 - Pass the Verified Facts Brief, audit topic, key file paths, and the same finding format.
 - The GLM reviewer is read-only. It must not edit files, run network calls, or access secrets.
-- Include its verdict verbatim in the report under §GLM-5.1 External Review.
+- Include its verdict verbatim in the report under §GLM-5.3 External Review.
 
 ---
 
@@ -570,7 +570,7 @@ Build the verdict matrix:
 | security | ... | | | |
 | ... | | | | |
 | PAL/GPT | PASS/CONCERN/FAIL/DEGRADED | n | n | n |
-| GLM-5.1 | PASS/CONCERN/FAIL/DEGRADED | n | n | n |
+| GLM-5.3 | PASS/CONCERN/FAIL/DEGRADED | n | n | n |
 | **COMBINED** | **PASS/CONCERN/FAIL** | **total** | **total** | **total** |
 
 **Combined verdict logic:**

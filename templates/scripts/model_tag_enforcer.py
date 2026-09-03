@@ -296,7 +296,7 @@ def _build_zai_advisory_message(category: str, model: str, description: str) -> 
         "",
         f"  Description: {preview!r}",
         f"  Category:    {category}",
-        f"  Required:    Z.ai GLM-5.2 read-only external reviewer",
+        f"  Required:    Z.ai GLM-5.3 read-only external reviewer",
         "",
         "Use Bash with the Z.ai runner instead of Agent:",
         "  printf '%s\\n' '<review prompt>' | ZAI_API_KEY=\"$ZAI_API_KEY\" "

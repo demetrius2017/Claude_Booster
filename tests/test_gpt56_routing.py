@@ -49,9 +49,9 @@ def main() -> int:
     expected_models.update({c: "claude-opus-5" for c in expected_opus})
     expected_models.update({
         "audit_external": "gpt-5.6-sol",
-        "audit_secondary": "glm-5.1",
+        "audit_secondary": "glm-5.3",
         "audit_tertiary": "grok-4.6",
-        "hackathon_external": "glm-5.1",
+        "hackathon_external": "glm-5.3",
         "hackathon_coder": "grok-4.6",
         "high_blast_radius": "claude-sonnet-5",
     })
@@ -75,6 +75,7 @@ def main() -> int:
     assert {"provider": "codex-cli", "model": "gpt-5.6-sol"} in balancer._LEGACY_BOOTSTRAP_ROUTES["hard"]
     assert {"provider": "codex-cli", "model": "gpt-5.6-terra"} in balancer._LEGACY_BOOTSTRAP_ROUTES["coding"]
     assert {"provider": "pal", "model": "gpt-5.5"} in balancer._LEGACY_BOOTSTRAP_ROUTES["audit_external"]
+    assert {"provider": "zai-cli", "model": "glm-5.1"} in balancer._LEGACY_BOOTSTRAP_ROUTES["audit_secondary"]
     assert {"provider": "zai-cli", "model": "glm-5.2"} in balancer._LEGACY_BOOTSTRAP_ROUTES["audit_secondary"]
     assert {"provider": "grok-cli", "model": "grok-4.5"} in balancer._LEGACY_BOOTSTRAP_ROUTES["audit_tertiary"]
     assert {"provider": "anthropic", "model": "claude-sonnet-4-6"} in balancer._LEGACY_BOOTSTRAP_ROUTES["high_blast_radius"]
@@ -90,7 +91,7 @@ def main() -> int:
     stale_routes = {
         "high_blast_radius": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
         "audit_external": {"provider": "pal", "model": "gpt-5.5"},
-        "audit_secondary": {"provider": "zai-cli", "model": "glm-5.2"},
+        "audit_secondary": {"provider": "zai-cli", "model": "glm-5.1"},
         "audit_tertiary": {"provider": "grok-cli", "model": "grok-4.5"},
         "coding": custom,
     }
@@ -110,7 +111,7 @@ def main() -> int:
             balancer._cached_decision = original_cache
     assert persisted["routing"]["high_blast_radius"]["model"] == "claude-sonnet-5"
     assert persisted["routing"]["audit_external"]["model"] == "gpt-5.6-sol"
-    assert persisted["routing"]["audit_secondary"]["model"] == "glm-5.1"
+    assert persisted["routing"]["audit_secondary"]["model"] == "glm-5.3"
     assert persisted["routing"]["audit_tertiary"]["model"] == "grok-4.6"
     assert persisted["routing"]["coding"] == custom
 

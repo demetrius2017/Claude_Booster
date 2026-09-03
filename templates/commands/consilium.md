@@ -1,5 +1,5 @@
 ---
-description: "Run consilium (multi-agent debate). RECON first, spawn 3-5 bio-specific agents + PAL gpt-5.6-sol and GLM-5.1 external perspectives when available, synthesize, save report."
+description: "Run consilium (multi-agent debate). RECON first, spawn 3-5 bio-specific agents + PAL gpt-5.6-sol and GLM-5.3 external perspectives when available, synthesize, save report."
 argument-hint: <topic for consilium/audit>
 ---
 
@@ -34,7 +34,7 @@ Steps: `1/6 recon`, `2/6 spawn_agents`, `3/6 analysis`, `4/6 gpt_review`, `5/6 s
    reason and continue the fallback chain. Do not abort consilium and do not
    present an error payload as a reviewer opinion.
 
-   Third-model reviewer: when `ZAI_API_KEY` is present, run GLM-5.1 via:
+   Third-model reviewer: when `ZAI_API_KEY` is present, run GLM-5.3 via:
    `printf '%s\n' '<consilium prompt>' | ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5`
    On PAL runtime failure, attempt reviewers in this exact order until a usable
    external opinion returns: **Z.ai → Grok → Codex native second opinion**.
@@ -50,7 +50,7 @@ Steps: `1/6 recon`, `2/6 spawn_agents`, `3/6 analysis`, `4/6 gpt_review`, `5/6 s
    labeling DEGRADED.
    A missing credential/binary, non-zero exit, timeout, empty/error-only output,
    or tool exception means that reviewer is runtime unavailable and advances the
-   chain. Label successful routes exactly `GLM-5.1 via Z.ai`, `Grok-4.6 via xAI`, or
+   chain. Label successful routes exactly `GLM-5.3 via Z.ai`, `Grok-4.6 via xAI`, or
    `Codex second opinion`. A Codex-native fallback is same-provider and MUST be
    marked `degraded_external_independence`; it is a second pass, not independent
    external verification. If no fallback returns a usable opinion, mark the

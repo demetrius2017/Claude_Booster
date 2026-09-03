@@ -203,7 +203,7 @@
       "writes_to": ["external:stdout"],
       "called_by": ["templates/commands/audit.md", "templates/commands/consilium.md", "templates/commands/go.md", "templates/commands/hackathon.md"],
       "critical": false,
-      "notes": "Read-only third-model external reviewer via Z.ai Anthropic-compatible GLM-5.1 endpoint. Does not store API keys or edit files; exits 64 if ZAI_API_KEY is absent."
+      "notes": "Read-only third-model external reviewer via Z.ai Anthropic-compatible GLM-5.3 endpoint. Does not store API keys or edit files; exits 64 if ZAI_API_KEY is absent."
     },
     "grok_cli": {
       "file": "templates/scripts/grok_cli.py::main",

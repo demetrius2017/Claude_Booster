@@ -189,6 +189,25 @@ def test_t3_yes_installs_bridge_manifest() -> None:
         if (commands_dir / "fable-identity.md").exists():
             errors.append("fable-identity must remain a helper skill, not a command alias")
 
+        # Loop is a four-part public contract: the skill explains its usage,
+        # the prompt makes it discoverable, the command is an alias, and the
+        # helper is runnable after a clean install.  Keep the older command
+        # aliases explicit too: adding loop must not displace them.
+        loop_artifacts = (
+            (ROOT / "templates" / "codex" / "skills" / "loop" / "SKILL.md", agents_dir / "skills" / "loop" / "SKILL.md"),
+            (ROOT / "templates" / "codex" / "prompts" / "loop.md", codex_dir / "prompts" / "loop.md"),
+            (ROOT / "templates" / "commands" / "loop.md", commands_dir / "loop.md"),
+            (ROOT / "templates" / "scripts" / "codex_loop.py", Path(home) / ".claude" / "scripts" / "codex_loop.py"),
+        )
+        for source, installed in loop_artifacts:
+            if not installed.is_file():
+                errors.append(f"installed loop artifact missing: {installed}")
+            elif installed.read_bytes() != source.read_bytes():
+                errors.append(f"installed loop artifact differs from canonical source: {installed}")
+        for alias in ("start.md", "handover.md", "autopilot.md", "audit.md", "consilium.md"):
+            if not (commands_dir / alias).is_file():
+                errors.append(f"existing command alias missing after loop install: {alias}")
+
         # Delivery contract: the installed bridge must carry the exact canonical
         # autopilot goal lifecycle, not merely the right artifact counts. This
         # catches a stale/partial mirror that would make `$autopilot roadmap.md`

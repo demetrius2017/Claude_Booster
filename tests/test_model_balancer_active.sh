@@ -122,7 +122,7 @@ if [[ -f "$LIVE_JSON" ]]; then
   # Empty samples must still apply deterministic legacy-route migrations.
   ROUTING_AFTER_C1=$(jq -c '.routing' "$LIVE_JSON" 2>/dev/null || echo "CHANGED")
   if [[ "$(jget '.routing.audit_external.model')" == "gpt-5.6-sol" && \
-        "$(jget '.routing.audit_secondary.model')" == "glm-5.1" && \
+        "$(jget '.routing.audit_secondary.model')" == "glm-5.3" && \
         "$(jget '.routing.audit_tertiary.model')" == "grok-4.6" && \
         "$(jget '.routing.high_blast_radius.model')" == "claude-sonnet-5" ]]; then
     pass_c C1c "legacy routes refresh after empty-DB decide"
