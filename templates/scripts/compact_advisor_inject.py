@@ -128,7 +128,7 @@ def main() -> int:
     advisory = (
         f"ℹ Context ≈ {tokens:,} tok = {pct}% of {window//1000}k window. "
         "/compact recommended before the next heavy task. "
-        "Re-anchor: distinguish verified from assumed, name the falsifier, and list unverified integration boundaries. "
+        "Re-anchor: business outcome, acceptance and domain invariants first; retain verified evidence, assumptions and material falsifiers at integration boundaries. Deliver when checks pass and material risks are covered; reopen only for changes, failures or concrete unresolved risk. "
         "(one-shot; you are not out of room)"
     )
 

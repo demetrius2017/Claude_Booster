@@ -127,7 +127,7 @@ def test_phase(tmp: Path, env: dict[str, str], scripts: Path) -> None:
         "RECON": ("code", "runtime", "report", "memory"),
         "PLAN": ("assumption", "alternative", "fals"),
         "IMPLEMENT": ("contract", "downstream"),
-        "AUDIT": ("reject", "fals"),
+        "AUDIT": ("acceptance", "material", "fals"),
         "VERIFY": ("pass", "evidence", "exit"),
         "MERGE": ("residual", "downstream"),
     }

@@ -28,6 +28,8 @@ Dmitry's protocol change: когда Lead делегирует содержат�
 
 ## When this rule applies
 
+**Proportionality precedence:** apply `core.md` §Business outcome governs the process and the opening scope rule in `pipeline.md` before the generic requirements below. For reversible prompt/documentation edits that preserve safety controls, targeted existing checks (direct hook output where applicable) plus one focused review suffice; no paired spawn is required solely because wording changes agent behavior or spans several files. This is a narrow exception to the behavior/multi-file skip prohibitions below, not an exception for production code/config, data, auth/security, financial logic, incident-preservation controls, or explicit full `/go`/`audit` contracts. Independent meaningful verification of those business and runtime invariants remains mandatory.
+
 - Любой `Agent` spawn, который **производит** артефакт (код, конфиг, данные, миграция, патч).
 - Любой `Agent` spawn, чей выход Lead иначе бы «прочитал и одобрил».
 - НЕ применяется к чисто read-only recon (Explore listing файлов, grep, summarize) — там нет артефакта против контракта.

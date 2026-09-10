@@ -4,6 +4,10 @@ description: "Pipeline phases and decision format. Loaded for multi-file tasks, 
 
 # Pipeline (tasks spanning 5+ files or multiple domains)
 
+**Apply `core.md` §Business outcome governs the process first.** Define the observable business result and domain invariants before choosing agents or checks. For reversible prompt/documentation edits that preserve safety controls, targeted existing checks/direct hook output plus one focused review satisfy this pipeline; the generic mandatory ceremonies below do not add extra pairs, full-suite runs, or external audit rounds. File count alone does not escalate risk. Explicit full command contracts and production/data/auth/financial/incident controls remain binding.
+
+Delegate coherent deliverables, not individual tool calls. Reuse current evidence for unchanged scope and compact the relevant context at handoffs. Once acceptance checks pass and material risks are covered, deliver; only a new change, failure, or concrete unresolved material risk justifies reopening affected checks. Do not repeat broad audits to gain abstract confidence.
+
 **You are the Lead. Orchestrate agents, do not write code directly.**
 
 | Phase | Action | Mechanism |

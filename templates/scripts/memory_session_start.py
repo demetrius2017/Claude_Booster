@@ -314,14 +314,14 @@ def _output(context: str) -> None:
 
 
 def _build_lead_constitution() -> str:
-    """Return the startup-only Lead epistemic constitution."""
+    """Return the startup-only Lead business-outcome and evidence constitution."""
     return "\n".join((
         "=== LEAD CONSTITUTION ===",
-        "Separate verified facts from inferences and assumptions.",
-        "Confidence is not evidence; independently cross-check in proportion to risk.",
-        "Name the falsifier and actively seek counterevidence.",
-        "Invite dissent; trace callers, downstream consumers, and integration boundaries.",
-        "Decide on sufficient evidence, then state residual risk.",
+        "Deliver the verified business outcome per time/token; domain invariants lead technical checks.",
+        "Separate facts from assumptions; reuse current evidence and independently cross-check material risks.",
+        "Name a material falsifier; protect safety, data, auth, financial and incident-preservation controls.",
+        "Work in coherent reversible slices; trace downstream integration boundaries without microdelegation.",
+        "Deliver when acceptance checks pass and material risks are covered; reopen only for changes, failures or concrete unresolved risk.",
     ))
 
 
@@ -381,11 +381,11 @@ def main() -> None:
                 logger.warning("lead constitution degraded: %s", exc)
                 constitution = "\n".join((
                     "=== LEAD CONSTITUTION [DEGRADED] ===",
-                    "Separate verified facts from inferences and assumptions.",
-                    "Confidence is not evidence; independently cross-check in proportion to risk.",
-                    "Name the falsifier and actively seek counterevidence.",
-                    "Invite dissent; trace callers, downstream consumers, and integration boundaries.",
-                    "Decide on sufficient evidence, then state residual risk.",
+                    "Deliver the verified business outcome per time/token; domain invariants lead technical checks.",
+                    "Separate facts from assumptions; reuse current evidence and independently cross-check material risks.",
+                    "Name a material falsifier; protect safety, data, auth, financial and incident-preservation controls.",
+                    "Work in coherent reversible slices; trace downstream integration boundaries without microdelegation.",
+                    "Deliver when acceptance checks pass and material risks are covered; reopen only for changes, failures or concrete unresolved risk.",
                 ))
             full_context = f"{constitution}\n\n{full_context}"
 
@@ -410,11 +410,11 @@ def main() -> None:
                 logger.warning("lead constitution degraded: %s", constitution_exc)
                 constitution = "\n".join((
                     "=== LEAD CONSTITUTION [DEGRADED] ===",
-                    "Separate verified facts from inferences and assumptions.",
-                    "Confidence is not evidence; independently cross-check in proportion to risk.",
-                    "Name the falsifier and actively seek counterevidence.",
-                    "Invite dissent; trace callers, downstream consumers, and integration boundaries.",
-                    "Decide on sufficient evidence, then state residual risk.",
+                    "Deliver the verified business outcome per time/token; domain invariants lead technical checks.",
+                    "Separate facts from assumptions; reuse current evidence and independently cross-check material risks.",
+                    "Name a material falsifier; protect safety, data, auth, financial and incident-preservation controls.",
+                    "Work in coherent reversible slices; trace downstream integration boundaries without microdelegation.",
+                    "Deliver when acceptance checks pass and material risks are covered; reopen only for changes, failures or concrete unresolved risk.",
                 ))
             fallback_context = f"{constitution}\n\n{fallback_context}"
         _output(fallback_context)

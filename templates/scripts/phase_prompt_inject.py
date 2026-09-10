@@ -19,24 +19,24 @@ _DELEGATE_BUDGET = os.environ.get("CLAUDE_BOOSTER_DELEGATE_BUDGET", "1")
 
 HINT = {
     "RECON":     "read-only; no Edit/Write. Use Read/Grep/Glob/WebSearch.",
-    "PLAN":      "design + TaskCreate + consilium if uncertainty; no code edits.",
+    "PLAN":      "define outcome + acceptance; consilium for material high risk; no code edits.",
     "IMPLEMENT": (
         f"code edits via delegated agents; run tests after."
-        f" Lead: delegate coding via Agent (paired Worker+Verifier),"
+        f" Lead: delegate coding via Agent (pair under core proportionality rule),"
         f" budget={_DELEGATE_BUDGET} direct action per delegation window."
     ),
-    "AUDIT":     "review + PAL second opinion; no new code.",
+    "AUDIT":     "review under core proportionality rule; PAL when required; no new code.",
     "VERIFY":    "real curl/pytest/DevTools — collect evidence.",
     "MERGE":     "git push after user acceptance; post-merge verification required.",
 }
 
 LEAD_CUE = {
-    "RECON": "Lead: separate current code/runtime facts from inherited reports or memory.",
-    "PLAN": "Lead: name the key assumption, an alternative, and what would falsify it.",
-    "IMPLEMENT": "Lead: protect contracts, callers, downstream consumers, and integration boundaries.",
-    "AUDIT": "Lead: seek a reason to reject; agreement without attempted falsification is not evidence.",
-    "VERIFY": "Lead: PASS requires observable results and exit codes, not impressions.",
-    "MERGE": "Lead: state residual risk and confirm downstream consumers accept the result.",
+    "RECON": "Lead: identify the business result; separate current code/runtime facts from reports or memory; reuse relevant evidence.",
+    "PLAN": "Lead: define acceptance and domain invariants; name the key assumption, material alternative and falsifier; choose a coherent reversible slice.",
+    "IMPLEMENT": "Lead: deliver the business slice; protect contracts, downstream integration and safety controls; avoid microdelegation.",
+    "AUDIT": "Lead: test material falsifiers against business acceptance and domain invariants; one sufficient review, no repeated broad audit without a concrete trigger.",
+    "VERIFY": "Lead: PASS requires observable business results, evidence and exit codes; stop when acceptance passes and material risks are covered.",
+    "MERGE": "Lead: deliver the accepted result, state residual risk and confirm downstream consumers; reopen checks only for changes, failures or concrete unresolved risk.",
 }
 
 

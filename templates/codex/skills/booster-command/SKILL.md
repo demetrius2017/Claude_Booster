@@ -215,6 +215,8 @@ where the native model is Claude and "the other provider" is Codex
 
 ## Execution Rules
 
+Business outcome comes first: define observable acceptance and domain invariants, deliver coherent reversible slices, and reuse current evidence with compact relevant context. Stop when acceptance passes and material risks are covered; reopen affected checks only for a new change, failure, or concrete unresolved material risk. Avoid repeated broad audits and microdelegation. Apply `core.md` proportionality precedence: reversible prompt/docs edits preserving safety controls need targeted existing checks plus one focused review, regardless of file count. Explicit full command contracts and production/data/auth/financial/incident controls remain binding.
+
 - **Pre-Work Context Gate:** before any command step that can lead to a code/config
   edit, deploy, migration, or coding subagent/worker spawn, build and state a
   `Context Receipt`:
