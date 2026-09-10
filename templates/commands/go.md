@@ -207,7 +207,7 @@ Use the returned provider/model/reasoning_effort for the Flow Designer. Pass Cod
 | Provider from `get hard` | Flow Designer spawn path |
 |---|---|
 | `anthropic` or balancer error | Spawn ONE Flow Designer via the **Agent tool** with the returned model; fallback `model: "opus"`. **NOT `run_in_background`** — Lead waits for the result before Phase 1B. |
-| `codex-cli` | Run via `CLAUDE_BOOSTER_ROUTE_SOURCE=balancer CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT="<reasoning_effort>" ~/.claude/scripts/codex_worker.sh <model> < <prompt-file>`. The prefixes are per invocation: source enables the bounded entitlement fallback for automatic Sol routes, category tags telemetry, and effort prevents inheritance from the Lead. This is the read-only TEXT channel. |
+| `codex-cli` | Run via `CLAUDE_BOOSTER_ROUTE_SOURCE=balancer CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT="<reasoning_effort>" ~/.claude/scripts/codex_worker.sh <model> < <prompt-file>`. The prefixes are per invocation: source enables the bounded entitlement fallback for automatic Astra routes, category tags telemetry, and effort prevents inheritance from the Lead. This is the read-only TEXT channel. |
 | `zai-cli` | Run the Flow Designer via Bash: `printf '%s\n' "$PROMPT" \| ZAI_API_KEY="$ZAI_API_KEY" ~/.claude/scripts/zai_cli.py review --budget 5 --model <model>`. Use only when `ZAI_API_KEY` is present; otherwise fall back and log `zai-cli unavailable`. |
 
 **Flow Designer agent prompt:**
@@ -317,7 +317,7 @@ The Flow Designer drafted the PFD on the `hard` tier. This phase has a **differe
   `fable_control.degraded=true`, record `downgrade_reason`, and use the normal
   cross-provider Challenge mapping below with the same output contract.
 - **If Flow Designer's provider was `codex-cli` or `zai-cli`**: spawn ONE Challenge **Agent** with `model: "opus"` explicitly. **NOT `run_in_background`** — Lead waits.
-- **If Flow Designer's provider WAS `anthropic`**: prefer GLM-5.3 when available; otherwise use `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < <prompt-file>`.
+- **If Flow Designer's provider WAS `anthropic`**: prefer GLM-5.3 when available; otherwise use `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-6-astra < <prompt-file>`.
 
 Either way the prompt is identical:
 
@@ -599,7 +599,7 @@ Query the model balancer for the coding tier:
 ```bash
 python3 ~/.claude/scripts/model_balancer.py get coding
 ```
-It returns `{"provider": "<WP>", "model": "<WM>", "reasoning_effort": "<WE>"}` for GPT-5.6 routes. Call these the Worker provider, model, and effort. Fallback if the balancer fails: `WP=anthropic, WM=sonnet`.
+It returns `{"provider": "<WP>", "model": "<WM>", "reasoning_effort": "<WE>"}` for Codex routes. Call these the Worker provider, model, and effort. Fallback if the balancer fails: `WP=anthropic, WM=sonnet`.
 
 ### [CRITICAL] SHIP-2 — the Verifier runs on a DIFFERENT provider than the Worker
 
@@ -614,7 +614,7 @@ A model verifying its own output shares its own blind spots — same-provider ve
 
 This guarantees Worker and Verifier never share a provider. The Verifier still sees ONLY the AC fields + PFD `verifier_assertions`/`invariants`/`branching_scenarios` (never the Worker's prompt or code) — cross-provider does not relax the knowledge boundary, it hardens it. Z.ai/GLM-5.3 is currently a read-only third-model lane for Challenge, edge-harvest, and Diff-review unless a future audited commit adds a write-capable Z.ai worker. Grok-4.6 may write code only through `grok_sandbox_worker.sh`, which isolates writes in a git worktree and returns a diff for Lead review.
 
-(The real invariant is provider inequality: Sol, Terra, and Luna are all OpenAI/Codex and never independently verify one another. On Codex CLI the other provider is Claude. The bridge handles the mirror and degrade-and-log fallback.)
+(The real invariant is provider inequality: Astra, Sol, Terra, and Luna are all OpenAI/Codex and never independently verify one another. On Codex CLI the other provider is Claude. The bridge handles the mirror and degrade-and-log fallback.)
 
 ### Spawn mechanics by provider
 
@@ -847,7 +847,7 @@ The Verifier checked *observable behavior* but never saw the code. This phase gi
   `downgrade_reason`, and run the normal reviewer below against the same
   watchlist contract.
 - `WP=codex-cli` → reviewer = Opus **Agent** (`model: "opus"`), read-only.
-- `WP=anthropic` → reviewer = GLM-5.3 when available, else `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-5.6-sol < review_prompt.txt`.
+- `WP=anthropic` → reviewer = GLM-5.3 when available, else `CLAUDE_BOOSTER_ROUTE_SOURCE=policy CLAUDE_BOOSTER_TASK_CATEGORY=hard CODEX_REASONING_EFFORT=medium ~/.claude/scripts/codex_worker.sh gpt-6-astra < review_prompt.txt`.
 - `WP=zai-cli` → reviewer = Opus Agent preferred, else Codex.
 - `WP=grok-cli` → reviewer = GLM-5.3 via `~/.claude/scripts/zai_cli.py review` when available, else Opus Agent/Codex.
 
@@ -1138,7 +1138,7 @@ On retry, always include the failed agent's session context (via `session_contex
 2. **Flow Designer → Challenge → Prototype Gate → Worker + Verifier is a strict order.**
    PFD is an INPUT to the Challenge; the (possibly augmented) PFD is an INPUT to the Prototype Gate; the Prototype Handoff is an INPUT to both Worker and Verifier. Spawning Worker or Verifier before the Challenge reconciles and Prototype Gate passes/N/A logs = protocol violation.
 
-   **The Challenge MUST run on a different provider than the Flow Designer.** A model cannot find its own blind spots — same-provider "review" is theater. If `get hard` returned a non-anthropic provider, the Challenge is a Claude Opus 5 Agent; if it returned anthropic, the Challenge runs via `codex_worker.sh gpt-5.6-sol`. The Challenge is additive (may add failure modes / directives / assertions, never delete them) and produces NO code — so the exit-code-only PASS axiom is preserved.
+   **The Challenge MUST run on a different provider than the Flow Designer.** A model cannot find its own blind spots — same-provider "review" is theater. If `get hard` returned a non-anthropic provider, the Challenge is a Claude Opus 5 Agent; if it returned anthropic, the Challenge runs via `codex_worker.sh gpt-6-astra`. The Challenge is additive (may add failure modes / directives / assertions, never delete them) and produces NO code — so the exit-code-only PASS axiom is preserved.
 
 3. **Verifier MUST NOT see Worker's prompt or implementation approach.**
    The Verifier's prompt contains ONLY: AC fields (Objective, Artifact path, Expected observable behavior, Acceptance emphasis) + PFD sections (verifier_assertions, invariants, branching_scenarios). Nothing else.

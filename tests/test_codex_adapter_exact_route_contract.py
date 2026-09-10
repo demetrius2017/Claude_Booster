@@ -75,25 +75,37 @@ def _read_log(path: Path) -> dict[str, object]:
 
 def test_exact_worker_forwarding() -> None:
     with tempfile.TemporaryDirectory() as directory:
-        env, log, _ = _environment(Path(directory), '{"provider":"codex-cli","model":"gpt-5.6-terra","reasoning_effort":"medium"}')
+        env, log, _ = _environment(Path(directory), '{"provider":"codex-cli","model":"gpt-6-astra","reasoning_effort":"medium"}')
         result = _run(env, "recon", "--ephemeral", "--sandbox", "read-only")
         assert result.returncode == 0, result.stderr.decode()
         row = _read_log(log)
-        assert row["argv"] == ["gpt-5.6-terra", "--ephemeral", "--sandbox", "read-only"]
+        assert row["argv"] == ["gpt-6-astra", "--ephemeral", "--sandbox", "read-only"]
         assert row["stdin"] == PROMPT.hex()
         assert row["env"] == {"CLAUDE_BOOSTER_ROUTE_SOURCE": "balancer", "CLAUDE_BOOSTER_TASK_CATEGORY": "recon", "CODEX_REASONING_EFFORT": "medium"}
 
 
-def test_malformed_lookup_uses_unpinned_fallback() -> None:
-    with tempfile.TemporaryDirectory() as directory:
-        env, log, _ = _environment(Path(directory), '{"provider":"codex-cli","model":42,"reasoning_effort":"medium"}')
-        result = _run(env, "recon", "--ephemeral", "--sandbox", "read-only")
-        assert result.returncode == 0, result.stderr.decode()
-        row = _read_log(log)
-        assert row["argv"] == ["exec", "--ephemeral", "--sandbox", "read-only", "-"]
-        assert row["stdin"] == PROMPT.hex()
-        assert "degraded routing; unpinned Codex fallback" in result.stderr.decode()
-        assert "-m" not in row["argv"] and not any(str(arg).startswith("--model") for arg in row["argv"])
+def test_malformed_success_fails_closed_without_child_execution() -> None:
+    malformed_routes = (
+        ("not-json", "invalid JSON"),
+        ('["not", "an", "object"]', "expected object"),
+        ('{"model":"gpt-6-astra","reasoning_effort":"medium"}', "invalid provider field"),
+        ('{"provider":42,"model":"gpt-6-astra","reasoning_effort":"medium"}', "invalid provider field"),
+        ('{"provider":"codex-cli","reasoning_effort":"medium"}', "invalid model field"),
+        ('{"provider":"codex-cli","model":42,"reasoning_effort":"medium"}', "invalid model field"),
+        ('{"provider":"codex-cli","model":"gpt-6-astra"}', "invalid reasoning_effort field"),
+        ('{"provider":"codex-cli","model":"gpt-6-astra","reasoning_effort":42}', "invalid reasoning_effort field"),
+    )
+    for route, diagnostic in malformed_routes:
+        with tempfile.TemporaryDirectory() as directory:
+            env, log, _ = _environment(Path(directory), route)
+            result = _run(env, "consilium_bio", "--ephemeral")
+            stderr = result.stderr.decode()
+            assert result.returncode != 0, stderr
+            assert not log.exists()
+            assert f"malformed balancer output ({diagnostic})" in stderr
+            assert "refusing Codex launch" in stderr
+            assert route not in stderr
+            assert "unpinned Codex fallback" not in stderr
 
 
 def test_nonzero_lookup_uses_unpinned_fallback() -> None:
@@ -145,9 +157,10 @@ def test_installer_enumerates_python_codex_routing_targets() -> None:
     } <= sources
 
 
-def test_malformed_lookup_uses_absolute_codex_bin_default() -> None:
+def test_missing_lookup_uses_absolute_codex_bin_default() -> None:
     with tempfile.TemporaryDirectory() as directory:
-        env, log, codex = _environment(Path(directory), '{"provider":"codex-cli","model":42,"reasoning_effort":"medium"}')
+        env, log, codex = _environment(Path(directory), '{"provider":"codex-cli","model":"gpt-6-astra","reasoning_effort":"medium"}')
+        env["CLAUDE_BOOSTER_ROUTED_BALANCER"] = str(Path(directory) / "missing-balancer.py")
         env.pop("CLAUDE_BOOSTER_ROUTED_CODEX_BIN")
         env["CODEX_BIN"] = str(codex)
         result = _run(env, "recon", "--ephemeral")
@@ -225,15 +238,13 @@ def test_anthropic_route_names_agent_tool() -> None:
         assert "use the Agent tool / PAL" in result.stderr.decode()
 
 
-def test_codex_route_without_reasoning_effort_falls_back_with_diagnostic() -> None:
-    """An unpinned codex-cli route still runs, but says so on stderr."""
+def test_codex_route_without_reasoning_effort_fails_closed() -> None:
     with tempfile.TemporaryDirectory() as directory:
-        env, log, _ = _environment(Path(directory), '{"provider":"codex-cli","model":"gpt-5.6-terra"}')
+        env, log, _ = _environment(Path(directory), '{"provider":"codex-cli","model":"gpt-6-astra"}')
         result = _run(env, "recon", "--ephemeral")
-        assert result.returncode == 0, result.stderr.decode()
-        row = _read_log(log)
-        assert row["argv"] == ["exec", "--ephemeral", "-"]
-        assert "degraded routing; unpinned Codex fallback" in result.stderr.decode()
+        assert result.returncode != 0
+        assert not log.exists()
+        assert "malformed balancer output (invalid reasoning_effort field)" in result.stderr.decode()
 
 
 def test_unknown_category_diagnostic_names_the_category() -> None:
@@ -254,16 +265,16 @@ def test_unknown_category_diagnostic_names_the_category() -> None:
 def main() -> int:
     for test in (
         test_exact_worker_forwarding,
-        test_malformed_lookup_uses_unpinned_fallback,
+        test_malformed_success_fails_closed_without_child_execution,
         test_nonzero_lookup_uses_unpinned_fallback,
         test_lookup_launch_and_timeout_fail_open_without_waiting,
-        test_malformed_lookup_uses_absolute_codex_bin_default,
+        test_missing_lookup_uses_absolute_codex_bin_default,
         test_non_codex_route_refuses_launch,
         test_caller_override_refuses_launch,
         test_grok_route_refuses_and_launches_no_codex_child,
         test_zai_route_names_zai_runner,
         test_anthropic_route_names_agent_tool,
-        test_codex_route_without_reasoning_effort_falls_back_with_diagnostic,
+        test_codex_route_without_reasoning_effort_fails_closed,
         test_unknown_category_diagnostic_names_the_category,
         test_skill_keeps_no_bare_gpt_5_6_pin,
         test_installer_enumerates_python_codex_routing_targets,

@@ -701,7 +701,7 @@ Query: `python3 ~/.claude/scripts/model_balancer.py get hard`
 
 | Provider | Model | When |
 |----------|-------|------|
-| Codex CLI | gpt-5.6-sol | Balancer returns `codex-cli` for the hard tier |
+| Codex CLI | gpt-6-astra | Balancer returns `codex-cli` for the hard tier |
 | Anthropic | Claude Opus 5 | Balancer returns `anthropic` |
 
 ### Rationale

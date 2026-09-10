@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Verify GPT-5.6 route defaults, migration, effort, and live policy contracts."""
+"""Verify Codex route defaults, migration, effort, and live policy contracts."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -28,7 +29,7 @@ def main() -> int:
         "trivial": ("gpt-5.6-luna", "low"),
         "recon": ("gpt-5.6-luna", "low"),
         "medium": ("gpt-5.6-terra", "medium"),
-        "consilium_bio": ("gpt-5.6-sol", "medium"),
+        "consilium_bio": ("gpt-6-astra", "medium"),
     }
     for category, (model, effort) in expected_codex.items():
         route = balancer.DEFAULTS["routing"][category]
@@ -73,6 +74,28 @@ def main() -> int:
     # retired, or the live install silently keeps Codex on these categories.
     assert {"provider": "codex-cli", "model": "gpt-5.6-sol"} in balancer._LEGACY_BOOTSTRAP_ROUTES["lead"]
     assert {"provider": "codex-cli", "model": "gpt-5.6-sol"} in balancer._LEGACY_BOOTSTRAP_ROUTES["hard"]
+    canonical_consilium_sol = {
+        "provider": "codex-cli",
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "medium",
+    }
+    assert canonical_consilium_sol in balancer._LEGACY_BOOTSTRAP_ROUTES["consilium_bio"]
+    migrated_consilium = balancer._with_default_routes({
+        "routing": {"consilium_bio": canonical_consilium_sol},
+    })["routing"]["consilium_bio"]
+    assert migrated_consilium == {
+        "provider": "codex-cli",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+    }
+
+    # The migration is deliberately exact: any extra operator-owned field
+    # makes the same Sol provider/model route a custom override.
+    custom_consilium_sol = dict(canonical_consilium_sol, operator="keep-sol")
+    preserved_consilium = balancer._with_default_routes({
+        "routing": {"consilium_bio": custom_consilium_sol},
+    })["routing"]["consilium_bio"]
+    assert preserved_consilium == custom_consilium_sol
     assert {"provider": "codex-cli", "model": "gpt-5.6-terra"} in balancer._LEGACY_BOOTSTRAP_ROUTES["coding"]
     assert {"provider": "pal", "model": "gpt-5.5"} in balancer._LEGACY_BOOTSTRAP_ROUTES["audit_external"]
     assert {"provider": "zai-cli", "model": "glm-5.1"} in balancer._LEGACY_BOOTSTRAP_ROUTES["audit_secondary"]
@@ -120,6 +143,58 @@ def main() -> int:
     assert balancer._QUALITY_SCORES_ANTHROPIC["claude-opus-5"] == 20
     for category in expected_opus:
         assert category in balancer._PINNED_CATEGORIES, category
+    assert "consilium_bio" in balancer._PINNED_CATEGORIES
+
+    # A fresh next-day scoring pass must not even query consilium_bio metrics,
+    # so arbitrarily fast historical Sol samples cannot resurrect that route.
+    hostile_metric_queries: list[str] = []
+    hostile_prior = balancer._with_default_routes({
+        "decision_date": (date.today() - timedelta(days=1)).isoformat(),
+        "routing": {},
+    })
+    original_globals = {
+        "_DB_PATH": balancer._DB_PATH,
+        "_get_weekly_max_pct": balancer._get_weekly_max_pct,
+        "_get_codex_quota_pct": balancer._get_codex_quota_pct,
+        "_query_provider_failure_events": balancer._query_provider_failure_events,
+        "_query_provider_health": balancer._query_provider_health,
+        "_query_metrics": balancer._query_metrics,
+    }
+    with tempfile.TemporaryDirectory() as directory:
+        db_path = Path(directory) / "hostile.sqlite"
+        db_path.touch()
+
+        def hostile_metrics(category: str, _db_path: Path):
+            hostile_metric_queries.append(category)
+            if category == "consilium_bio":
+                return [
+                    {
+                        "provider": "codex-cli",
+                        "model": "gpt-5.6-sol",
+                        "per_turn_ms": 1,
+                        "success": 1,
+                    }
+                ] * balancer.MIN_SAMPLES
+            return []
+
+        try:
+            balancer._DB_PATH = db_path
+            balancer._get_weekly_max_pct = lambda _prior: 0.0
+            balancer._get_codex_quota_pct = lambda _prior: 0.0
+            balancer._query_provider_failure_events = lambda: {}
+            balancer._query_provider_health = lambda _path: {}
+            balancer._query_metrics = hostile_metrics
+            hostile_decision = balancer._active_decide(hostile_prior)
+        finally:
+            for name, value in original_globals.items():
+                setattr(balancer, name, value)
+
+    assert "consilium_bio" not in hostile_metric_queries
+    assert hostile_decision["routing"]["consilium_bio"] == {
+        "provider": "codex-cli",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+    }
 
     assert balancer.DEFAULTS["routing"]["high_blast_radius"]["provider"] == "anthropic"
     for model in ("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"):
@@ -130,7 +205,7 @@ def main() -> int:
     assert "Sol, Terra, and Luna are all OpenAI/Codex" in go
     assert "never select `xhigh` automatically" in skill
     assert "CODEX_REASONING_EFFORT" in go
-    print("PASS: GPT-5.6 routes and effort contracts")
+    print("PASS: Codex routes and effort contracts")
     return 0
 
 

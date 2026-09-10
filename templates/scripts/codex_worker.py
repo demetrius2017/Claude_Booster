@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Capability-aware Codex worker boundary.
 
-Purpose: Run one Codex text worker and, only for Booster balancer-selected Sol
-routes, retry once with the known-working GPT-5.6 Terra model after the canonical
+Purpose: Run one Codex text worker and, only for Booster-managed Astra routes,
+retry once with the known-working GPT-5.6 Terra model after the canonical
 ChatGPT-account entitlement error.
 Contract: stdin is forwarded byte-for-byte to each attempt; stdout is only the
 effective Codex stdout; stderr retains Codex diagnostics plus one sanitized
@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
-SOL = "gpt-5.6-sol"
+PREFERRED = "gpt-6-astra"
 FALLBACK = "gpt-5.6-terra"
 MANAGED_CATEGORIES = frozenset({"hard", "lead", "consilium_bio"})
 MANAGED_SOURCES = frozenset({"balancer", "policy"})
@@ -55,7 +55,7 @@ def _ttl() -> int:
 def _managed(model: str) -> tuple[bool, str, str]:
     category = os.environ.get("CLAUDE_BOOSTER_TASK_CATEGORY", "")
     source = os.environ.get("CLAUDE_BOOSTER_ROUTE_SOURCE", "")
-    return model == SOL and category in MANAGED_CATEGORIES and source in MANAGED_SOURCES, category, source
+    return model == PREFERRED and category in MANAGED_CATEGORIES and source in MANAGED_SOURCES, category, source
 
 
 def _read_cache(path: Path, now: int) -> tuple[bool, int | None]:
@@ -68,7 +68,7 @@ def _read_cache(path: Path, now: int) -> tuple[bool, int | None]:
         data = json.loads(path.read_text(encoding="utf-8"))
         if set(data) != {"schema_version", "model", "reason", "observed_at", "expires_at"}:
             return False, None
-        if data["schema_version"] != SCHEMA_VERSION or data["model"] != SOL or data["reason"] != "chatgpt_account_unsupported":
+        if data["schema_version"] != SCHEMA_VERSION or data["model"] != PREFERRED or data["reason"] != "chatgpt_account_unsupported":
             return False, None
         observed, expires = data["observed_at"], data["expires_at"]
         if not all(isinstance(value, int) and not isinstance(value, bool) for value in (observed, expires)):
@@ -81,7 +81,7 @@ def _read_cache(path: Path, now: int) -> tuple[bool, int | None]:
 def _write_cache(path: Path, now: int) -> None:
     payload = {
         "schema_version": SCHEMA_VERSION,
-        "model": SOL,
+        "model": PREFERRED,
         "reason": "chatgpt_account_unsupported",
         "observed_at": now,
         "expires_at": now + _ttl(),
@@ -104,7 +104,7 @@ def _write_cache(path: Path, now: int) -> None:
 
 
 def _canonical_unsupported(stderr: bytes, requested: str, returncode: int) -> bool:
-    if returncode == 0 or requested != SOL:
+    if returncode == 0 or requested != PREFERRED:
         return False
     text = stderr.decode("utf-8", errors="replace")
     for line in text.splitlines():

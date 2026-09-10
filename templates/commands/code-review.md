@@ -24,8 +24,8 @@ Steps: `1/4 recon`, `2/4 review`, `3/4 apply`, `4/4 verify`
 Parse `$ARGUMENTS`:
 
 - `[model]` — optional first positional model selector. Recognized aliases:
-  `fable`, `codex`, `luna`, `terra`, `sol`, `gpt-5.6-luna`,
-  `gpt-5.6-terra`, `gpt-5.6-sol`, `sonnet`, `opus`, `haiku`,
+  `fable`, `codex`, `luna`, `terra`, `astra`, `sol`, `gpt-5.6-luna`,
+  `gpt-5.6-terra`, `gpt-6-astra`, `gpt-5.6-sol`, `sonnet`, `opus`, `haiku`,
   `grok`, `zai`, `glm`. Example: `code-review fable --scope templates/commands`.
 - `--model <model>` — explicit model selector; wins over positional model.
 - `<topic>` — optional human description of what changed or what to review.
@@ -55,6 +55,7 @@ commands.
 | `fable` | One explicit Fable 5 review pass. This is Dmitry's explicit permission for this `/code-review` only. Fable must be read-only: it may inspect context and produce findings, but must not edit files. |
 | `codex`, `luna`, `gpt-5.6-luna` | Luna reviewer: `CODEX_REASONING_EFFORT=low codex_worker.sh gpt-5.6-luna`. |
 | `terra`, `gpt-5.6-terra` | Terra reviewer: `CODEX_REASONING_EFFORT=medium codex_worker.sh gpt-5.6-terra`. |
+| `astra`, `gpt-6-astra` | Astra flagship reviewer: `CODEX_REASONING_EFFORT=medium codex_worker.sh gpt-6-astra`. |
 | `sol`, `gpt-5.6-sol` | Sol reviewer: `CODEX_REASONING_EFFORT=medium codex_worker.sh gpt-5.6-sol`. |
 | `sonnet` | Claude Sonnet reviewer via Agent/Claude CLI when available. |
 | `opus` | Claude Opus reviewer via Agent/Claude CLI when available. |

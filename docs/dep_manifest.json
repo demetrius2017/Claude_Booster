@@ -179,7 +179,7 @@
       "writes_to": ["external:~/.claude/model_balancer.json", "external:~/.claude/model_balancer.json.bak.<date>"],
       "called_by": ["hook:SessionStart", "cli:model_balancer.py decide"],
       "critical": true,
-      "notes": "Idempotent per UTC day. Pareto scoring q=0.5/l=0.3/b=0.2 over (provider,model) per task_category using 14-day p50 latency from model_metrics. PINNED categories {lead, recon, medium, coding, hard, high_blast_radius} never overwritten by active scorer. Falls back to prior routing below MIN_SAMPLES (passive). scheduled_changes apply once (applied_on)."
+      "notes": "Idempotent per UTC day. Pareto scoring q=0.5/l=0.3/b=0.2 over (provider,model) per task_category using 14-day p50 latency from model_metrics. PINNED categories {lead, recon, medium, coding, hard, high_blast_radius, consilium_bio} never overwritten by active scorer. consilium_bio exact-migrates the canonical Codex Sol route to Astra while preserving custom route fields. Falls back to prior routing below MIN_SAMPLES (passive). scheduled_changes apply once (applied_on)."
     },
     "model_balancer_get_routing": {
       "file": "templates/scripts/model_balancer.py::get_routing",
@@ -195,7 +195,7 @@
       "writes_to": ["external:stdout", "external:stderr", "process:codex_worker.py or CODEX_BIN exec"],
       "called_by": ["templates/codex/skills/booster-command/SKILL.md local Codex delegation"],
       "critical": true,
-      "notes": "Executable exact-route boundary. Validates category and typed non-empty provider/model/reasoning_effort, forbids caller model/config pins, forwards only codex-cli routes with exact child env, refuses other providers, and uses an unpinned fallback only when lookup is unavailable, timed out, or malformed."
+      "notes": "Executable exact-route boundary. Validates category and typed non-empty provider/model/reasoning_effort, forbids caller model/config pins, forwards only codex-cli routes with exact child env, and refuses other providers. Unpinned fallback is limited to lookup unavailability, timeout, nonzero lookup exit, or unknown category. A successful lookup with malformed output fails closed with exit 65 before any child launch."
     },
     "zai_cli": {
       "file": "templates/scripts/zai_cli.py::main",
@@ -369,9 +369,9 @@
       "file": "templates/scripts/codex_worker.py::main",
       "reads_from": ["external:stdin (task prompt)", "external:CODEX_BIN (default /opt/homebrew/bin/codex)"],
       "writes_to": ["external:stdout (text analysis)"],
-      "called_by": ["Lead via Bash (consilium_bio, audit_external, recon, medium read-only)"],
+      "called_by": ["Lead via Bash (consilium_bio, policy-selected hard/lead, recon, medium read-only)"],
       "critical": false,
-      "notes": "Capability-aware Python worker that runs codex exec --skip-git-repo-check -m <MODEL> -. Read-only analysis / second opinions. Replaces PAL second_opinion/codereview as default external review. Exit 127 if binary missing."
+      "notes": "Capability-aware Python worker that runs codex exec --skip-git-repo-check -m <MODEL> -. Managed Astra routes retry Terra once only after the exact canonical unsupported-account error; explicit models never fallback. The negative cache is Astra-bound, bounded, mode-0600, TTL-limited, and single-flight. PAL gpt-5.6-sol remains the audit_external route. Exit 127 if binary missing."
     },
     "codex_sandbox_worker": {
       "file": "templates/scripts/codex_sandbox_worker.sh",
@@ -451,8 +451,8 @@
   "append_only_tables": [],
   "_append_only_note": "This project has NO DB-enforced append-only table. The real append-only contract lives in the JSONL logs under ~/.claude/logs/ (written only via _gate_common.append_jsonl, never UPDATE/DELETE): go_gate_decisions, delegate_gate_decisions, ask_gate_decisions, gate_bypass_attempts, financial_dml_guard_decisions, model_metric_capture_sample, compact_advisor, kpi_rework. supervisor_decisions is append-only by convention (no mutators in code) but not constraint-enforced.",
 
-  "pinned_routing_categories": ["lead", "recon", "medium", "coding", "hard", "high_blast_radius"],
-  "_pinned_routing_note": "model_balancer.json categories the active Pareto scorer never overwrites. high_blast_radius stays on Anthropic (Sonnet) via Agent tool so PreToolUse guards fire (Codex subprocess is opaque). Editing model_balancer.py DEFAULT pins is a silent no-op on existing installs — sync runtime model_balancer.json in the same change.",
+  "pinned_routing_categories": ["lead", "recon", "medium", "coding", "hard", "high_blast_radius", "consilium_bio"],
+  "_pinned_routing_note": "model_balancer.json categories the active Pareto scorer never overwrites. consilium_bio is pinned so historical Sol metrics cannot resurrect the retired flagship after its exact persisted migration to Astra. high_blast_radius stays on Anthropic (Sonnet) via Agent tool so PreToolUse guards fire (Codex subprocess is opaque).",
 
   "invariants": {
     "INV-01": {
@@ -571,7 +571,7 @@
     },
     "INV-20": {
       "description": "model_balancer pinned categories never overwritten by active scorer",
-      "formula": "category IN {lead, recon, medium, coding, hard, high_blast_radius} -> retain prior routing",
+      "formula": "category IN {lead, recon, medium, coding, hard, high_blast_radius, consilium_bio} -> retain prior routing",
       "enforced_in": "templates/scripts/model_balancer.py::decide (_PINNED_CATEGORIES)",
       "on_violation": "Pin change in DEFAULT is a silent no-op unless runtime model_balancer.json edited too"
     },

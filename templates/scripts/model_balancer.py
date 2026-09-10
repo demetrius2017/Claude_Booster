@@ -154,9 +154,10 @@ _QUALITY_SCORES_GROK: dict[str, int] = {
 # the `=== LIMITS ===` block at /start.
 # recon/medium stay on Codex: standalone Codex sessions are not captured in
 # model_metrics, so the active scorer only sees Anthropic samples and would
-# flip them back daily. Unpin once Codex telemetry capture lands.
+# flip them back daily. consilium_bio is pinned so historical Sol metrics
+# cannot resurrect the retired flagship after the Astra migration.
 _PINNED_CATEGORIES: frozenset[str] = frozenset(
-    {"lead", "high_blast_radius", "coding", "hard", "recon", "medium"}
+    {"lead", "high_blast_radius", "coding", "hard", "recon", "medium", "consilium_bio"}
 )
 
 # Transitions ring-buffer cap
@@ -181,7 +182,7 @@ DEFAULTS: dict = {
         "medium":         {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-terra", "reasoning_effort": "medium"},
         "coding":         {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
         "hard":           {"provider": PROVIDER_ANTHROPIC, "model": "claude-opus-5"},
-        "consilium_bio":  {"provider": PROVIDER_CODEX,     "model": "gpt-5.6-sol", "reasoning_effort": "medium"},
+        "consilium_bio":  {"provider": PROVIDER_CODEX,     "model": "gpt-6-astra", "reasoning_effort": "medium"},
         "audit_external": {"provider": PROVIDER_PAL,       "model": "gpt-5.6-sol"},
         "audit_secondary": {"provider": PROVIDER_ZAI,      "model": "glm-5.3"},
         "audit_tertiary": {"provider": PROVIDER_GROK,      "model": "grok-4.6"},
@@ -223,6 +224,14 @@ _LEGACY_BOOTSTRAP_ROUTES: dict[str, list[dict[str, str]]] = {
         {"provider": PROVIDER_CODEX, "model": "gpt-5.5"},
         {"provider": PROVIDER_CODEX, "model": "gpt-5.6-sol"},
     ],
+    # Exact matching is intentional for this category. The three-field route
+    # below is the canonical installed Sol default; any additional field marks
+    # an operator override and must survive the Astra migration unchanged.
+    "consilium_bio": [{
+        "provider": PROVIDER_CODEX,
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "medium",
+    }],
     "audit_external": [{"provider": PROVIDER_PAL, "model": "gpt-5.5"}],
     "audit_secondary": [
         {"provider": PROVIDER_ZAI, "model": "glm-5.1"},
@@ -243,7 +252,10 @@ _CODEX_REASONING_EFFORT_BY_MODEL = {
     "gpt-5.6-luna": "low",
     "gpt-5.6-terra": "medium",
     "gpt-5.6-sol": "medium",
+    "gpt-6-astra": "medium",
 }
+
+_EXACT_LEGACY_ROUTE_CATEGORIES: frozenset[str] = frozenset({"consilium_bio"})
 
 # Known routing categories (for validation)
 _KNOWN_CATEGORIES = set(DEFAULTS["routing"].keys())
@@ -363,7 +375,7 @@ def _build_bootstrap() -> dict:
 
 
 def _normalise_route(route: dict) -> dict:
-    """Attach the canonical effort to a recognized GPT-5.6 Codex route.
+    """Attach the canonical effort to a recognized Codex route.
 
     `reasoning_effort` is a Codex-only concept, so it is stripped from any
     non-Codex route. Without this, a category migrated off Codex would keep the
@@ -387,8 +399,12 @@ def _with_default_routes(data: dict) -> dict:
         current = routing.get(category)
         legacy = _LEGACY_BOOTSTRAP_ROUTES.get(category, [])
         is_retired = isinstance(current, dict) and any(
-            current.get("provider") == entry["provider"]
-            and current.get("model") == entry["model"]
+            current == entry
+            if category in _EXACT_LEGACY_ROUTE_CATEGORIES
+            else (
+                current.get("provider") == entry["provider"]
+                and current.get("model") == entry["model"]
+            )
             for entry in legacy
         )
         if current is None:

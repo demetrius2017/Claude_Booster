@@ -97,7 +97,7 @@ C4Container
     Rel(balancer, pal_mcp, "routes", "audit_external → gpt-5.6-sol")
     Rel(balancer, zai_api, "routes", "audit_secondary / hackathon_external → glm-5.3 via zai_cli.py")
     Rel(balancer, grok_cli, "routes", "audit_tertiary / hackathon_coder → grok-4.6")
-    Rel(balancer, codex_cli, "routes", "trivial/recon → Luna; medium → Terra; consilium_bio → Sol")
+    Rel(balancer, codex_cli, "routes", "trivial/recon → Luna; medium → Terra; consilium_bio → Astra")
 
     Rel(supervisor, sqlite_db, "reads/writes", "supervisor_decisions + supervisor_quota")
     Rel(supervisor, claude_cli, "spawns", "headless subprocess via stream-json")
@@ -119,7 +119,7 @@ C4Container
 | `rolling_memory.py::recall()` / `search()` | db:agent_memory, db:agent_memory_fts | db:agent_memory (touch access_count) on recall | consolidate(), build_context(), build_start_context(), CLI | Retrieval — broken = empty /start context / no FTS knowledge base |
 | `rolling_memory.py::consolidate()` | db:agent_memory, Anthropic API (Haiku) | db:agent_memory (insert synthesized, deactivate originals) | CLI | Memory compaction — broken = unbounded growth. scope='all' forbidden; preserve=1 immune |
 | `rolling_memory.py::init_db()` | db PRAGMA user_version | CREATE/ALTER/INDEX/TRIGGER (schema v8) | get_connection() path | Schema migration — atomic FTS migration in BEGIN IMMEDIATE; broken = corrupt DB |
-| `model_balancer.py::decide()` | model_balancer.json, db:model_metrics (14-day p50), openai_models.json | model_balancer.json (atomic), rolling .bak (max 7) | SessionStart hook, `model_balancer.py decide` CLI | Routing — broken = wrong provider/model per category. Pinned {lead, high_blast_radius, coding, hard} never overwritten by active scorer |
+| `model_balancer.py::decide()` | model_balancer.json, db:model_metrics (14-day p50), openai_models.json | model_balancer.json (atomic), rolling .bak (max 7) | SessionStart hook, `model_balancer.py decide` CLI | Routing — broken = wrong provider/model per category. Pinned {lead, high_blast_radius, coding, hard, recon, medium, consilium_bio} never overwritten by active scorer |
 | `model_balancer.py::get_routing()` | model_balancer.json (cached) | n/a | memory_session_start, supervisor runtime, delegating Lead | Routing reads — broken = agents fall back to static tier map |
 | `codex_routed_worker.py::main()` | stdin prompt, `model_balancer.py get <category>`, caller args | child stdout/stderr; exact route env to Python `codex_worker.py`, or unpinned `CODEX_BIN exec` fallback | Codex Booster command skill local delegations; installed under `~/.claude/scripts/` by template enumeration | Codex routing boundary — broken = caller model pins or malformed routes can bypass policy; non-Codex routes must not launch local Codex |
 | `zai_cli.py::main()` | stdin prompt, ZAI_API_KEY env, Claude Code CLI | stdout model response | `/audit`, `/consilium`, `/go`, `/hackathon` external-review fallback | Third-model review — broken = PAL fallback collapses to same-provider review; must never persist API keys |
@@ -338,7 +338,7 @@ flowchart TD
 | INV-17 | QuotaTracker reserves 15% for supervisor control traffic | reserve_pct=0.15, thresholds 50%/85% | Circuit opens at 85% — worker cancelled |
 | INV-18 | /go verdict is **exit-code-only**: Verifier test exit code is PASS/FAIL, never LLM judgment | go.md Stage 4 + paired-verification contract | FAIL → classify W/V/A/E, re-spawn, hard cap 3 |
 | INV-19 | Cross-provider independence: Worker, Verifier, and diff-reviewer must not be the same provider/model | go.md Stage 3/5 routing | Same-provider pairing is a contract defect |
-| INV-20 | model_balancer pinned categories {lead, recon, medium, coding, hard, high_blast_radius} never overwritten by active scorer | decide() _PINNED_CATEGORIES guard | Pin upgrade requires editing runtime JSON too (silent no-op otherwise) |
+| INV-20 | model_balancer pinned categories {lead, recon, medium, coding, hard, high_blast_radius, consilium_bio} never overwritten by active scorer | decide() _PINNED_CATEGORIES guard | consilium_bio exact-migrates canonical Sol to Astra; custom overrides remain unchanged |
 | INV-21 | Codex bridge failure is isolated (exit 50) — never rolls back the committed Claude install | install.py::main() exit-50 mapping | Bridge logs error; Claude artifacts remain |
 | INV-22 | JSONL logs are append-only — never UPDATE/DELETE | append_jsonl() write path (no mutators in code) | N/A — enforced by absence of mutators |
 | INV-23 | Canonical Fable wrapper calls begin with the exact shared identity preamble exactly once | byte contract in `tests/test_fable_consult.sh`; helper skill mirrors the same block | Fable self-identification diverges across Agent/Workflow/wrapper paths |
@@ -377,7 +377,7 @@ Claude Booster has **no DB-enforced append-only table**. The append-only contrac
 
 ### Pinned Routing (model_balancer.json)
 
-`model_balancer.json` categories `lead`, `high_blast_radius`, `coding`, `hard` are **pinned** — the active Pareto scorer never overwrites them. Changing a pin in `model_balancer.py` DEFAULT is a **silent no-op on existing installs**; the runtime `~/.claude/model_balancer.json` must be edited in the same change. `high_blast_radius` deliberately stays on Anthropic (Sonnet) via the Agent tool so PreToolUse guards fire (Codex subprocess is opaque to them).
+`model_balancer.json` categories `lead`, `high_blast_radius`, `coding`, `hard`, `recon`, `medium`, and `consilium_bio` are **pinned** — the active Pareto scorer never overwrites them. `consilium_bio` is pinned to keep historical Sol telemetry from resurrecting the retired flagship after migration to Astra. Changing a pin in `model_balancer.py` DEFAULT is a **silent no-op on existing installs**; the canonical installer/decision path must migrate persisted routing in the same change. `high_blast_radius` deliberately stays on Anthropic (Sonnet) via the Agent tool so PreToolUse guards fire (Codex subprocess is opaque to them).
 
 ---
 

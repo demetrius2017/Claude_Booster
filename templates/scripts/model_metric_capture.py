@@ -57,9 +57,10 @@ SAMPLE_LOG = os.path.join(LOGS_DIR, "model_metric_capture_sample.jsonl")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_CODEX = "codex-cli"
 
-# Live ChatGPT-subscription model allowlist (verified 2026-05-12).
+# Live and historical ChatGPT-subscription model allowlist.
 # Only commands that reference one of these models get a DB row.
 _CODEX_ALLOWLIST = frozenset({
+    "gpt-6-astra",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
@@ -70,6 +71,10 @@ _CODEX_ALLOWLIST = frozenset({
     "gpt-5.3-codex-spark",
     "gpt-5.2",
 })
+
+_CAPABILITY_FALLBACK_REQUESTED_MODELS = frozenset({"gpt-6-astra", "gpt-5.6-sol"})
+_CAPABILITY_FALLBACK_SOURCES = frozenset({"balancer", "policy"})
+_CAPABILITY_FALLBACK_CATEGORIES = frozenset({"hard", "lead", "consilium_bio"})
 
 _KNOWN_TASK_CATEGORIES = frozenset({
     "trivial",
@@ -168,18 +173,26 @@ def _codex_provenance(event: dict, requested: str) -> dict | None:
         reason = row.get("reason")
         effective = row.get("effective_model")
         age = row.get("cache_age_seconds")
+        coherent_fallback_context = (
+            row.get("source") in _CAPABILITY_FALLBACK_SOURCES
+            and row.get("category") in _CAPABILITY_FALLBACK_CATEGORIES
+        )
         requested_path = (
             reason == "requested" and effective == requested and age is None
             and len(attempts) == 1 and attempts[0]["model"] == requested
         )
         observed_path = (
-            requested == "gpt-5.6-sol" and reason == "observed_chatgpt_account_unsupported"
+            requested in _CAPABILITY_FALLBACK_REQUESTED_MODELS
+            and coherent_fallback_context
+            and reason == "observed_chatgpt_account_unsupported"
             and effective == "gpt-5.6-terra" and age == 0 and len(attempts) == 2
             and attempts[0]["model"] == requested and attempts[0]["success"] is False
             and attempts[1]["model"] == effective
         )
         cached_path = (
-            requested == "gpt-5.6-sol" and reason == "cached_chatgpt_account_unsupported"
+            requested in _CAPABILITY_FALLBACK_REQUESTED_MODELS
+            and coherent_fallback_context
+            and reason == "cached_chatgpt_account_unsupported"
             and effective == "gpt-5.6-terra" and isinstance(age, int) and not isinstance(age, bool)
             and age >= 0 and len(attempts) == 1 and attempts[0]["model"] == effective
         )

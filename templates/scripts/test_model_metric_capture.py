@@ -503,6 +503,73 @@ def case_15_impossible_provenance_fails_closed():
         tmp.cleanup()
 
 
+def case_16_astra_fallback_provenance_is_accepted():
+    label = "16 managed Astra fallback provenance -> distinct attempt rows"
+    tmp, db = _fresh_db()
+    try:
+        provenance = {
+            "event": "codex_route", "requested_model": "gpt-6-astra",
+            "effective_model": "gpt-5.6-terra", "reason": "observed_chatgpt_account_unsupported",
+            "source": "balancer", "category": "consilium_bio", "cache_age_seconds": 0,
+            "attempts": [
+                {"model": "gpt-6-astra", "success": False, "duration_ms": 7},
+                {"model": "gpt-5.6-terra", "success": True, "duration_ms": 11},
+            ],
+        }
+        event = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "codex_worker.sh gpt-6-astra"},
+            "duration_ms": 18,
+            "tool_response": {"exit_code": 0, "stderr": "codex_worker: " + json.dumps(provenance)},
+            "session_id": "s",
+        }
+        proc, rows = _run_hook(event, db)
+        facts = [(row["model"], row["success"], row["duration_ms"]) for row in rows]
+        expected = [("gpt-6-astra", 0, 7), ("gpt-5.6-terra", 1, 11)]
+        if proc.returncode != 0 or facts != expected:
+            return _record(label, False, f"expected {expected}, got exit={proc.returncode}, rows={facts}")
+        _record(label, True)
+    finally:
+        tmp.cleanup()
+
+
+def case_17_astra_incoherent_or_explicit_fallback_is_rejected():
+    label = "17 Astra incoherent/explicit fallback provenance is rejected"
+    rejected_variants = [
+        ("balancer", "medium"),
+        ("explicit", "consilium_bio"),
+    ]
+    for source, category in rejected_variants:
+        tmp, db = _fresh_db()
+        try:
+            provenance = {
+                "event": "codex_route", "requested_model": "gpt-6-astra",
+                "effective_model": "gpt-5.6-terra", "reason": "observed_chatgpt_account_unsupported",
+                "source": source, "category": category, "cache_age_seconds": 0,
+                "attempts": [
+                    {"model": "gpt-6-astra", "success": False, "duration_ms": 7},
+                    {"model": "gpt-5.6-terra", "success": True, "duration_ms": 11},
+                ],
+            }
+            event = {
+                "tool_name": "Bash",
+                "tool_input": {"command": "codex_worker.sh gpt-6-astra"},
+                "duration_ms": 18,
+                "tool_response": {"exit_code": 0, "stderr": "codex_worker: " + json.dumps(provenance)},
+                "session_id": "s",
+            }
+            proc, rows = _run_hook(event, db)
+            if proc.returncode != 0 or rows:
+                return _record(
+                    label,
+                    False,
+                    f"source={source}, category={category}: exit={proc.returncode}, rows={rows}",
+                )
+        finally:
+            tmp.cleanup()
+    _record(label, True)
+
+
 def main():
     if not HOOK.exists():
         print(f"[FAIL] HOOK not found at {HOOK}")
@@ -527,6 +594,8 @@ def main():
         case_13_cached_fallback_records_only_actual_attempt,
         case_14_stdout_cannot_forge_provenance,
         case_15_impossible_provenance_fails_closed,
+        case_16_astra_fallback_provenance_is_accepted,
+        case_17_astra_incoherent_or_explicit_fallback_is_rejected,
     ]
     for c in cases:
         try:

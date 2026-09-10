@@ -16,6 +16,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "templates/scripts/codex_worker.py"
+PREFERRED = "gpt-6-astra"
 
 
 FAKE = r'''#!/usr/bin/env python3
@@ -26,17 +27,20 @@ log = pathlib.Path(os.environ["FAKE_LOG"])
 with log.open("a") as f:
     f.write(json.dumps({"model": model, "prompt": prompt.decode(), "argv": sys.argv[1:]}) + "\n")
 mode = os.environ.get("FAKE_MODE", "success")
-if model == "gpt-5.6-sol" and os.environ.get("FAKE_SOL_SLEEP"):
-    time.sleep(float(os.environ["FAKE_SOL_SLEEP"]))
-if model == "gpt-5.6-sol" and mode == "unsupported":
-    sys.stderr.write('Model metadata for `gpt-5.6-sol` not found. Defaulting to fallback metadata\n')
-    sys.stderr.write('■ {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5.6-sol\' model is not supported when using Codex with a ChatGPT account."}}\n')
+if model == "gpt-6-astra" and os.environ.get("FAKE_PREFERRED_SLEEP"):
+    time.sleep(float(os.environ["FAKE_PREFERRED_SLEEP"]))
+if model == "gpt-6-astra" and mode == "unsupported":
+    sys.stderr.write('Model metadata for `gpt-6-astra` not found. Defaulting to fallback metadata\n')
+    sys.stderr.write('■ {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-6-astra\' model is not supported when using Codex with a ChatGPT account."}}\n')
     raise SystemExit(1)
-if model == "gpt-5.6-sol" and mode == "metadata":
-    sys.stderr.write('Model metadata for `gpt-5.6-sol` not found. Defaulting to fallback metadata\n')
+if model == "gpt-6-astra" and mode == "metadata":
+    sys.stderr.write('Model metadata for `gpt-6-astra` not found. Defaulting to fallback metadata\n')
     raise SystemExit(1)
-if model == "gpt-5.6-sol" and mode == "appended":
-    sys.stderr.write('■ {"status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5.6-sol\' model is not supported when using Codex with a ChatGPT account. SECRET"}}\n')
+if model == "gpt-6-astra" and mode == "appended":
+    sys.stderr.write('■ {"status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-6-astra\' model is not supported when using Codex with a ChatGPT account. SECRET"}}\n')
+    raise SystemExit(1)
+if model == "gpt-5.6-sol" and mode == "sol_unsupported":
+    sys.stderr.write('■ {"status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5.6-sol\' model is not supported when using Codex with a ChatGPT account."}}\n')
     raise SystemExit(1)
 if model == "gpt-5.6-terra" and mode == "fallback_fails":
     sys.stderr.write("fallback failed\n")
@@ -66,7 +70,7 @@ def run(env: dict[str, str], *, managed: bool = True, mode: str = "success") -> 
     else:
         current.pop("CLAUDE_BOOSTER_TASK_CATEGORY", None)
         current.pop("CLAUDE_BOOSTER_ROUTE_SOURCE", None)
-    return subprocess.run([sys.executable, str(WORKER), "gpt-5.6-sol", "--json"], input=b"same prompt", capture_output=True, env=current)
+    return subprocess.run([sys.executable, str(WORKER), PREFERRED, "--json"], input=b"same prompt", capture_output=True, env=current)
 
 
 def calls(env: dict[str, str]) -> list[dict]:
@@ -78,7 +82,7 @@ def test_canonical_failure_retries_once_and_caches_without_sensitive_body(env: d
     first = run(env, mode="unsupported")
     assert first.returncode == 0
     assert first.stdout == b"OUT:gpt-5.6-terra:same prompt"
-    assert [item["model"] for item in calls(env)] == ["gpt-5.6-sol", "gpt-5.6-terra"]
+    assert [item["model"] for item in calls(env)] == [PREFERRED, "gpt-5.6-terra"]
     assert all(item["prompt"] == "same prompt" for item in calls(env))
     cache = Path(env["CLAUDE_BOOSTER_CODEX_CAPABILITY_CACHE"])
     payload = json.loads(cache.read_text())
@@ -93,21 +97,21 @@ def test_canonical_failure_retries_once_and_caches_without_sensitive_body(env: d
 def test_metadata_warning_never_triggers_fallback(env: dict[str, str]) -> None:
     result = run(env, mode="metadata")
     assert result.returncode == 1
-    assert [item["model"] for item in calls(env)] == ["gpt-5.6-sol"]
+    assert [item["model"] for item in calls(env)] == [PREFERRED]
     assert not Path(env["CLAUDE_BOOSTER_CODEX_CAPABILITY_CACHE"]).exists()
 
 
 def test_appended_message_does_not_classify_or_persist(env: dict[str, str]) -> None:
     result = run(env, mode="appended")
     assert result.returncode == 1
-    assert [item["model"] for item in calls(env)] == ["gpt-5.6-sol"]
+    assert [item["model"] for item in calls(env)] == [PREFERRED]
     assert not Path(env["CLAUDE_BOOSTER_CODEX_CAPABILITY_CACHE"]).exists()
 
 
 @pytest.mark.parametrize("kind", ["world", "symlink", "tampered"])
 def test_untrusted_cache_fails_closed(env: dict[str, str], tmp_path: Path, kind: str) -> None:
     cache = Path(env["CLAUDE_BOOSTER_CODEX_CAPABILITY_CACHE"])
-    valid = {"schema_version": 1, "model": "gpt-5.6-sol", "reason": "chatgpt_account_unsupported", "observed_at": int(__import__("time").time()), "expires_at": int(__import__("time").time()) + 3600}
+    valid = {"schema_version": 1, "model": PREFERRED, "reason": "chatgpt_account_unsupported", "observed_at": int(__import__("time").time()), "expires_at": int(__import__("time").time()) + 3600}
     if kind == "symlink":
         target = tmp_path / "target"
         target.write_text(json.dumps(valid))
@@ -118,17 +122,17 @@ def test_untrusted_cache_fails_closed(env: dict[str, str], tmp_path: Path, kind:
         cache.chmod(0o644 if kind == "world" else 0o600)
     result = run(env)
     assert result.returncode == 0
-    assert [item["model"] for item in calls(env)] == ["gpt-5.6-sol"]
+    assert [item["model"] for item in calls(env)] == [PREFERRED]
 
 
-def test_concurrent_first_calls_single_flight_sol_probe(env: dict[str, str]) -> None:
-    current = {**env, "FAKE_MODE": "unsupported", "FAKE_SOL_SLEEP": "0.25", "CLAUDE_BOOSTER_TASK_CATEGORY": "hard", "CLAUDE_BOOSTER_ROUTE_SOURCE": "balancer"}
-    command = [sys.executable, str(WORKER), "gpt-5.6-sol"]
+def test_concurrent_first_calls_single_flight_preferred_probe(env: dict[str, str]) -> None:
+    current = {**env, "FAKE_MODE": "unsupported", "FAKE_PREFERRED_SLEEP": "0.25", "CLAUDE_BOOSTER_TASK_CATEGORY": "hard", "CLAUDE_BOOSTER_ROUTE_SOURCE": "balancer"}
+    command = [sys.executable, str(WORKER), PREFERRED]
     procs = [subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=current) for _ in range(2)]
     results = [proc.communicate(b"same prompt", timeout=10) + (proc.returncode,) for proc in procs]
     assert all(item[2] == 0 for item in results)
     models = [item["model"] for item in calls(env)]
-    assert models.count("gpt-5.6-sol") == 1
+    assert models.count(PREFERRED) == 1
     assert models.count("gpt-5.6-terra") == 2
 
 
@@ -171,7 +175,10 @@ def test_only_owner_release_unlocks_without_removing_lock_file(env: dict[str, st
 
 
 def test_explicit_sol_surfaces_original_failure(env: dict[str, str]) -> None:
-    result = run(env, managed=False, mode="unsupported")
+    current = {**env, "FAKE_MODE": "sol_unsupported"}
+    current.pop("CLAUDE_BOOSTER_TASK_CATEGORY", None)
+    current.pop("CLAUDE_BOOSTER_ROUTE_SOURCE", None)
+    result = subprocess.run([sys.executable, str(WORKER), "gpt-5.6-sol", "--json"], input=b"same prompt", capture_output=True, env=current)
     assert result.returncode == 1
     assert [item["model"] for item in calls(env)] == ["gpt-5.6-sol"]
     assert b'"source":"explicit"' in result.stderr
@@ -190,10 +197,10 @@ def test_fallback_failure_stops_without_loop(env: dict[str, str]) -> None:
     assert [item["model"] for item in calls(env)] == ["gpt-5.6-terra"]
 
 
-def test_expired_cache_recovers_to_preferred_sol(env: dict[str, str]) -> None:
+def test_expired_cache_recovers_to_preferred_astra(env: dict[str, str]) -> None:
     cache = Path(env["CLAUDE_BOOSTER_CODEX_CAPABILITY_CACHE"])
-    cache.write_text(json.dumps({"schema_version": 1, "model": "gpt-5.6-sol", "reason": "chatgpt_account_unsupported", "observed_at": 1, "expires_at": 2}))
+    cache.write_text(json.dumps({"schema_version": 1, "model": PREFERRED, "reason": "chatgpt_account_unsupported", "observed_at": 1, "expires_at": 2}))
     cache.chmod(0o600)
     result = run(env)
     assert result.returncode == 0
-    assert [item["model"] for item in calls(env)] == ["gpt-5.6-sol"]
+    assert [item["model"] for item in calls(env)] == [PREFERRED]

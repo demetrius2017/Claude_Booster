@@ -15,7 +15,8 @@ Contract (inputs/outputs):
     pal) is recognised and refused by name instead of silently degrading into an
     unpinned Codex fallback. Output and stderr from the selected child are
     preserved, along with at most one sanitized degraded-routing diagnostic when
-    lookup cannot be trusted.
+    lookup is unavailable. A successful lookup with malformed output fails
+    closed before any Codex child is launched.
 
 CLI:
     codex_routed_worker.py CATEGORY [codex exec args...]
@@ -62,6 +63,10 @@ _RUNNER_HINTS = {
 _DEFAULT_RUNNER_HINT = "use that provider's own runner instead"
 
 
+class MalformedRouteError(ValueError):
+    """Signal that a successful balancer lookup violated its output contract."""
+
+
 def _regular_path(path: Path, *, executable: bool) -> Path:
     """Return a resolved regular path, rejecting ambiguous child targets."""
     resolved = path.expanduser().resolve(strict=True)
@@ -98,7 +103,7 @@ def _has_model_override(extra: list[str]) -> bool:
 
 
 def _route(category: str, balancer: Path | None) -> dict[str, str] | None:
-    """Return a fully typed balancer route, or None when lookup is unusable."""
+    """Return a typed route, None when unavailable, or raise on malformed success."""
     if balancer is None:
         return None
     try:
@@ -119,24 +124,20 @@ def _route(category: str, balancer: Path | None) -> dict[str, str] | None:
     try:
         payload: Any = json.loads(result.stdout)
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
+        raise MalformedRouteError("invalid JSON") from None
     if not isinstance(payload, dict):
-        return None
+        raise MalformedRouteError("expected object")
 
-    def _typed(field: str) -> str | None:
+    def _typed(field: str) -> str:
         value = payload.get(field)
         if not isinstance(value, str) or not value or value != value.strip():
-            return None
+            raise MalformedRouteError(f"invalid {field} field")
         return value
 
     provider, model = _typed("provider"), _typed("model")
-    if provider is None or model is None:
-        return None
     route = {"provider": provider, "model": model}
     if provider == "codex-cli":
         effort = _typed("reasoning_effort")
-        if effort is None:
-            return None
         route["reasoning_effort"] = effort
     return route
 
@@ -176,7 +177,15 @@ def main(argv: list[str]) -> int:
         balancer = None
 
     prompt = sys.stdin.buffer.read()
-    route = _route(category, balancer)
+    try:
+        route = _route(category, balancer)
+    except MalformedRouteError as exc:
+        print(
+            f"codex_routed_worker.py: malformed balancer output ({exc}); "
+            "refusing Codex launch",
+            file=sys.stderr,
+        )
+        return 65
     if route is None or "__unknown_category__" in route:
         if route is None:
             reason = "degraded routing"

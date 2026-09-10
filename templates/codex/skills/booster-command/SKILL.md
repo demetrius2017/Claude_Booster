@@ -52,7 +52,7 @@ Execute the command behavior, not the literal Claude Code tool names.
   state that full independent-agent parity is unavailable and run only a local
   second pass; do not label that fallback as a full Booster multi-agent result.
 - Pass the selected route's `reasoning_effort` explicitly: Luna uses `low`;
-  Terra and Sol use `medium` by default. `high` requires evidence that a medium
+  Terra, Sol, and Astra use `medium` by default. `high` requires evidence that a medium
   attempt failed for lack of reasoning depth; never select `xhigh` automatically.
 - **Exact local Codex route invariant.** For every local Codex CLI delegation,
   invoke the routed worker below. It obtains `model_balancer.py get CATEGORY`,
