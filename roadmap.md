@@ -107,3 +107,23 @@ Z.ai route обновлён до `glm-5.3` и подтверждён живым 
 **7/7 suites и 127 assertions**, installed/template parity и `git diff --check`
 прошли. Отдельный wait-history patch из начала roadmap не заменён этой работой:
 он всё ещё pinned к `rust-v0.145.0-alpha.13` и требует rebase для Codex `0.146.1`.
+
+## Завершено в сессии 2026-09-10 — Codex flagship GPT-6 Astra
+
+Commit `6b51ec4` перевёл только флагманский Codex CLI маршрут `consilium_bio` на
+`codex-cli:gpt-6-astra` с `medium` reasoning effort. Luna и Terra не менялись,
+а PAL `audit_external` сохранил `pal:gpt-5.6-sol`; historical и explicit Sol
+совместимость остались на месте. Канонический трёхполевый Sol route мигрирует
+на Astra, custom Sol route с дополнительными операторскими полями сохраняется,
+а active scorer больше не может воскресить Sol для pinned `consilium_bio`.
+
+Boundary adapter теперь fail-closed: malformed успешный ответ балансировщика
+завершается exit `65` до запуска Codex, тогда как реальная недоступность lookup
+сохраняет документированный unpinned fallback. Изменения установлены через
+`python3 install.py --yes`; focused pytest прошёл `38 passed`, model-balancer
+smoke — `7/7`, telemetry — `17/17`, template/runtime parity подтверждён, а
+живой routed smoke вернул `ASTRA_ROUTED_OK` с `source=balancer` и Astra как
+requested/effective model. Остались не-блокирующие предупреждения Astra:
+omitted priority tier, локальные metadata fallback и Context7 `AuthRequired`;
+после обновлений их нужно мониторить. Статус отдельного wait-history patch выше
+эта работа не меняет.
