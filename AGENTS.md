@@ -19,6 +19,8 @@ Booster command:
 - `architecture [--update]` or `/architecture [--update]`
 - `go [fable] <artifact contract>` or `/go [fable] <artifact contract>`
 - `debt <mode>` or `/debt <mode>`
+- `role developer`, `role lead`, `role status`, or `/role` — session execution mode;
+  read the `role` skill directly, without the general Booster command runner
 - `phase`, `update`, `lead`, `delegate`, `$agent-status`, `gantt` or `$gantt`, `loop` or `$loop`, `audit-trace`, `hackathon`,
   `verify-after-edit`, `verify-flow`
 

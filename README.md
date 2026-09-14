@@ -19,6 +19,24 @@ Claude Booster turns those sessions into a compounding asset. One `python instal
 
 ## 🚀 Start here (newcomer's guide)
 
+### Optional session execution modes (Codex)
+
+`$role developer` (default) keeps implementation and integration in the main
+agent, delegating useful research and independent testing. `$role lead` delegates
+to reusable `devops`, `frontend`, `backend`, and `tester` agents, created on demand
+and retained within the conversation. `$role status` shows the selected mode and
+known team. Agents are reused for fixes; the main agent owns the whole user result.
+Host limits still apply: roles may wait, and retained agents cannot survive a host
+that no longer exposes their sessions. New conversations default to developer.
+
+Use `$role` or `/prompts:role` in Codex; bare `/role` depends on the client passing
+it through as text. This is separate from `/lead`, the existing supervisor command.
+The skill runs without loading the general Booster command runner. To activate
+the default outside this repo, append the installed role skill's
+`references/session-defaults.md` snippet to your global Codex instructions (to
+`AGENTS.override.md` if using the temporary commands-only experiment). The ordinary
+installer copies the skill and snippet but does not rewrite that global override.
+
 New to Claude Booster? You don't need to read the whole changelog below. Here's the 5-minute version.
 
 ### 1. Install (one command)
