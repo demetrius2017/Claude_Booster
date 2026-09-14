@@ -19,7 +19,7 @@ Claude Booster turns those sessions into a compounding asset. One `python instal
 
 ## 🚀 Start here (newcomer's guide)
 
-### Optional session execution modes (Codex)
+### Optional session execution modes (Codex and Claude Code)
 
 `$role developer` (default) keeps implementation and integration in the main
 agent, delegating useful research and independent testing. `$role lead` delegates
@@ -36,6 +36,13 @@ the default outside this repo, append the installed role skill's
 `references/session-defaults.md` snippet to your global Codex instructions (to
 `AGENTS.override.md` if using the temporary commands-only experiment). The ordinary
 installer copies the skill and snippet but does not rewrite that global override.
+
+Claude Code uses `/role developer`, `/role lead`, and `/role status` through
+`~/.claude/commands/role.md`. For the new-session default, append the role skill's
+`references/claude-session-defaults.md` snippet to `~/.claude/CLAUDE.md`. It selects
+who implements while keeping hooks, permissions and phase transitions intact;
+legacy blanket delegation hints do not override the selected role. Reuse returned
+Claude Agent IDs or named team members instead of starting one-shot workers.
 
 New to Claude Booster? You don't need to read the whole changelog below. Here's the 5-minute version.
 

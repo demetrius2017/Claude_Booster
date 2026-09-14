@@ -1,6 +1,7 @@
 ---
 description: Choose developer or lead execution for this session; default developer.
 argument-hint: developer | lead | status
+disable-model-invocation: true
 ---
 
 # Session execution role
@@ -14,9 +15,10 @@ Use this contract directly; do not load the general Booster command runner.
 - `/role developer`: main agent implements; delegates research and testing.
 - `/role lead`: main agent coordinates reusable domain agents.
 - `/role` or `/role status`: show the current mode and known team, without changing it.
-- Codex also supports `$role developer`, `$role lead`, `$role status`, and the
-  legacy `/prompts:role` alias. Bare `/role` works only if the client delivers it
-  as user text; do not claim it is a registered native slash command.
+- Claude Code loads this file from `~/.claude/commands/role.md` as `/role`.
+- Codex supports `$role developer`, `$role lead`, `$role status`, and the
+  legacy `/prompts:role` alias. In Codex, bare `/role` works only if the client
+  delivers it as user text; do not claim it is a registered native slash command.
 - Any other argument: show the accepted values and retain the current mode.
 
 Start each new conversation in `developer`. A selection lasts for the current
@@ -68,6 +70,12 @@ for an idle agent and `send_message` for a running agent when those tools exist;
 other hosts may expose equivalent resume/send-input tools. Use actual tool APIs,
 not fabricated session IDs or background processes.
 
+In Claude Code, retain returned Agent IDs and resume those agents through the
+available Agent resume or SendMessage interface. If using native team members,
+send the next assignment to the same named member without a shutdown request.
+Do not replace reusable agents with one-shot `claude -p` subprocesses. Choose the
+mechanism actually exposed by the current client; a name alone is not a session.
+
 Retain agents for the lifetime of this conversation. This is not a promise that
 the host preserves processes or context forever. If an agent is genuinely lost,
 or its usable context is exhausted, disclose the replacement and transfer current
@@ -93,7 +101,11 @@ idle implementation agents stay available but receive no new implementation work
 Switching back to lead reuses them. A bare status request never spawns or polls.
 
 This selection replaces blanket Booster requirements to always delegate ordinary
-implementation. It does not silently weaken a separately requested `/go`, `/audit`,
+implementation, including legacy Lead/delegation cues injected by memory or phase
+hooks. This only changes who implements: permission checks, data protections,
+required verification, and phase transitions still apply. Do not disable or bypass
+a hook to make a role work; report an actual incompatible block if one occurs.
+It does not silently weaken a separately requested `/go`, `/audit`,
 or other explicit command contract, and selecting lead is distinct from the
 existing `/lead` supervisor command. After that command's bounded task, resume the
 selected mode. Access memory when relevant; do not automatically reload old global
