@@ -21,18 +21,19 @@ Claude Booster turns those sessions into a compounding asset. One `python instal
 
 ### Optional session execution modes (Codex and Claude Code)
 
-`$role developer` (default) keeps implementation and integration in the main
+`$role developer` keeps implementation and integration in the main
 agent, delegating useful research and independent testing. `$role lead` delegates
 to reusable `devops`, `frontend`, `backend`, and `tester` agents, created on demand
 and retained within the conversation. `$role status` shows the selected mode and
 known team. Agents are reused for fixes; the main agent owns the whole user result.
 Host limits still apply: roles may wait, and retained agents cannot survive a host
-that no longer exposes their sessions. New conversations default to developer.
+that no longer exposes their sessions. With the default snippet below enabled,
+new conversations start in developer mode.
 
 Use `$role` or `/prompts:role` in Codex; bare `/role` depends on the client passing
 it through as text. This is separate from `/lead`, the existing supervisor command.
 The skill runs without loading the general Booster command runner. To activate
-the default outside this repo, append the installed role skill's
+the default, append the installed role skill's
 `references/session-defaults.md` snippet to your global Codex instructions (to
 `AGENTS.override.md` if using the temporary commands-only experiment). The ordinary
 installer copies the skill and snippet but does not rewrite that global override.
@@ -43,6 +44,12 @@ Claude Code uses `/role developer`, `/role lead`, and `/role status` through
 who implements while keeping hooks, permissions and phase transitions intact;
 legacy blanket delegation hints do not override the selected role. Reuse returned
 Claude Agent IDs or named team members instead of starting one-shot workers.
+
+In the maintainer's practical experiment, developer mode with workflows invoked
+on demand worked better than mandatory delegation. This is qualitative feedback,
+not a measured speed or token-cost improvement. The default installer still
+installs the full rules; the commands-only experiment remains an explicit local
+configuration, and installing the role command alone does not enable it.
 
 New to Claude Booster? You don't need to read the whole changelog below. Here's the 5-minute version.
 
@@ -110,7 +117,7 @@ Three mechanisms, each targeting a distinct way LLM agents fail on multi-session
 
 1. **Temporal-causal memory** — stores *causal chains* (tried → happened → concluded → still-open), not just facts. Kills the "re-discover the same bug every week" loop.
 2. **The семёрка pipeline (`/go`)** — the strong model *thinks* (design critique, independent verification, diff review) while the fast flat-fee model *types*. **No model ever reviews its own code**; the verdict is a timestamped receipt from authorized read-only sources. The final deploy gate then runs durable regression tests and the full existing suite.
-3. **Smart model routing** — GPT-5.6 Luna for cheap recon, Terra for medium implementation, Sol for consilium and external review; Claude Opus 5 owns the heavy lanes and Sonnet 5 the guarded high-blast-radius lane. GLM-5.3 and Grok-4.6 supply independent external review. Right model, right effort, enough quota to finish the week.
+3. **Smart model routing** — GPT-5.6 Luna for cheap recon, Terra for medium implementation, GPT-6 Astra for consilium, and Sol for external review; Claude Opus 5 owns the heavy lanes and Sonnet 5 the guarded high-blast-radius lane. GLM-5.3 and Grok-4.6 supply independent external review. Right model, right effort, enough quota to finish the week.
 
 > **New here?** Run `python install.py`, open a session with `/start`, build something with `/go`, and close with `/handover`. Everything else is depth you'll reach for when you need it.
 
