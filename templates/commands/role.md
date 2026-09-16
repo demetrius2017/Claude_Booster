@@ -46,6 +46,16 @@ defects. Reuse the same research/tester agents for follow-ups in this conversati
 when available. If delegation is unavailable, disclose it and do those steps
 directly; do not block the user's result for a missing helper.
 
+### Work scheme for user-facing changes
+
+- Before an edit: a screen passport — logic, formulas, data sources, numeric
+  examples, related screens, and acceptance criteria.
+- Then: "expected vs actual", the established cause, and the fix.
+- After: check the affected links and the result in production.
+- A complex stage, or two failed attempts: run `/go`; no third trial edit.
+
+Passports are versioned; requirements must not be bent to fit the current code.
+
 ## Lead
 
 Delegate implementation to these long-lived role agents, created only when a
