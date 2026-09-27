@@ -1270,3 +1270,9 @@ Key tradeoffs:
 ## License
 
 MIT.
+
+### Verified automatic model updates
+
+SessionStart now discovers same-class Codex/Claude replacements and qualifies exact
+IDs before changing worker routes. Failed checks retain the working version; explicit
+`selection_mode: pinned` opts out. See [model update policy and operations](docs/model_auto_update.md).

@@ -156,3 +156,16 @@ Commit `025a3de` скорректировал характер Lead в Claude Bo
 `test_lead_epistemic_anchors`, hook/validator проверки, `git diff --check` и
 независимый focused review прошли. Точный эффект на недельный token budget ещё
 не измерен и остаётся operational follow-up.
+
+## Завершено 2026-09-27 — проверяемое автообновление моделей
+
+Установлен ежедневный фоновый discovery для Claude/Codex внутри заданного класса.
+Новая точная версия проходит контрольные задачи до переключения; явный pinned
+сохраняется, невалидные receipts не могут публиковать ни маршрут, ни Claude alias.
+Живые переходы: trivial/recon → GPT-6 Luna; medium → GPT-6 Sol. Routed worker
+подтвердил requested=effective=gpt-6-sol. Проверки: 76 pytest, 7/7 balancer suites.
+Sonnet baseline не прошёл qualification и сохранён; PAL/Z.ai/Grok пока held.
+CLI Claude 2.1.276 разрешает opus в Opus 5; свежесть CLI нужна для новых aliases.
+Дальше: restart Claude-сессий и наблюдение очередного автоматического запуска;
+провайдерские адаптеры и измерение качества — отдельные долги, не доказанный результат.
+Описание: docs/model_auto_update.md; evidence: reports/prototypes/model_auto_update_2026-09-27.md.

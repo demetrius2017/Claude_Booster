@@ -57,20 +57,14 @@ SAMPLE_LOG = os.path.join(LOGS_DIR, "model_metric_capture_sample.jsonl")
 PROVIDER_ANTHROPIC = "anthropic"
 PROVIDER_CODEX = "codex-cli"
 
-# Live and historical ChatGPT-subscription model allowlist.
-# Only commands that reference one of these models get a DB row.
-_CODEX_ALLOWLIST = frozenset({
-    "gpt-6-astra",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-luna",
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.3-codex",
-    "gpt-5.3-codex-spark",
-    "gpt-5.2",
-})
+# Accept versioned GPT IDs without requiring a release-by-release telemetry edit.
+# This validates telemetry syntax only; catalog discovery/probes authorize routing.
+_CODEX_MODEL_ID = re.compile(r"gpt-[0-9]+(?:\.[0-9]+)*(?:-[a-z0-9]+)*\Z")
+
+
+def _is_codex_model(model: object) -> bool:
+    return isinstance(model, str) and bool(_CODEX_MODEL_ID.fullmatch(model))
+
 
 _CAPABILITY_FALLBACK_REQUESTED_MODELS = frozenset({"gpt-6-astra", "gpt-5.6-sol"})
 _CAPABILITY_FALLBACK_SOURCES = frozenset({"balancer", "policy"})
@@ -161,7 +155,7 @@ def _codex_provenance(event: dict, requested: str) -> dict | None:
             valid = valid and isinstance(attempt, dict) and set(attempt) == {"model", "success", "duration_ms"}
             if not valid:
                 break
-            valid = valid and attempt.get("model") in _CODEX_ALLOWLIST
+            valid = valid and _is_codex_model(attempt.get("model"))
             valid = valid and isinstance(attempt.get("success"), bool)
             valid = valid and isinstance(attempt.get("duration_ms"), int) and not isinstance(attempt.get("duration_ms"), bool) and attempt.get("duration_ms") >= 0
         if (
@@ -323,7 +317,7 @@ def _log_no_usage_sample(event: dict) -> None:
 def _match_codex_command(command: str):
     """
     Return the model string if command is a valid codex invocation whose model
-    is in _CODEX_ALLOWLIST; return None otherwise.
+    is a versioned GPT model ID; return None otherwise.
 
     Accepted patterns (token-boundary anchored):
         codex_worker.sh <MODEL> [...]
@@ -333,13 +327,13 @@ def _match_codex_command(command: str):
     Rejected:
         vim codex_worker.sh, grep codex_worker.sh logs/, heredoc fragments,
         codex --help, codex auth, codex exec without -m,
-        codex exec -m <model-not-in-allowlist>.
+        codex exec -m <non-gpt-model>.
     """
     for pattern in (_RE_CODEX_WORKER, _RE_CODEX_SANDBOX_WORKER, _RE_CODEX_EXEC):
         m = pattern.search(command)
         if m:
             model = m.group(1)
-            return model if model in _CODEX_ALLOWLIST else None
+            return model if _is_codex_model(model) else None
     return None
 
 

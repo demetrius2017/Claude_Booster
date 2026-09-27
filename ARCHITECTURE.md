@@ -39,6 +39,7 @@ C4Container
 
     System_Boundary(claude_home, "~/.claude/ (Deployed Runtime)") {
         Container(rolling_memory, "rolling_memory.py", "Python + SQLite", "Memory engine: memorize, recall, search, consolidate, build_context (schema v8)")
+        Container(model_updates, "model_auto_update.py", "Python", "Daily async same-class discovery, exact-ID qualification and guarded receipts")
         Container(balancer, "model_balancer.py", "Python", "Daily routing decision per task-category: anthropic | codex-cli | pal; pinned categories")
         Container(session_hooks, "Session Lifecycle Hooks", "Python", "memory_session_start, memory_session_end, memory_post_tool, model_metric_capture, claude_max_tracker, compact_advisor(+inject)")
         Container(gate_hooks, "Enforcement Gate Hooks", "Python", "go_gate, verify_gate, dep_guard, financial_dml_guard, phase_gate, delegate_gate, ask_gate, require_task, model_tag_enforcer, approval_counter")
@@ -92,6 +93,11 @@ C4Container
     Rel(rolling_memory, sqlite_db, "reads/writes", "agent_memory + agent_memory_fts + model_metrics")
     Rel(rolling_memory, anthropic_api, "calls", "consolidate() → claude-haiku-4-5; token counting")
 
+    Rel(claude_cli, model_updates, "starts", "SessionStart async, at most daily")
+    Rel(model_updates, codex_cli, "discovers and qualifies", "app-server model/list + exact read-only exec")
+    Rel(model_updates, claude_cli, "discovers and qualifies", "alias discovery + exact-ID probe")
+    Rel(model_updates, balancer, "publishes", "validated source-bound receipts and serialized decide")
+    Rel(model_updates, settings, "pins aliases", "ANTHROPIC_DEFAULT tier env; preserve user overrides")
     Rel(balancer, sqlite_db, "reads", "model_metrics 14-day p50 latency")
     Rel(balancer, balancer_json, "writes", "decide() atomic; pinned categories preserved")
     Rel(balancer, pal_mcp, "routes", "audit_external → gpt-5.6-sol")
@@ -119,6 +125,7 @@ C4Container
 | `rolling_memory.py::recall()` / `search()` | db:agent_memory, db:agent_memory_fts | db:agent_memory (touch access_count) on recall | consolidate(), build_context(), build_start_context(), CLI | Retrieval — broken = empty /start context / no FTS knowledge base |
 | `rolling_memory.py::consolidate()` | db:agent_memory, Anthropic API (Haiku) | db:agent_memory (insert synthesized, deactivate originals) | CLI | Memory compaction — broken = unbounded growth. scope='all' forbidden; preserve=1 immune |
 | `rolling_memory.py::init_db()` | db PRAGMA user_version | CREATE/ALTER/INDEX/TRIGGER (schema v8) | get_connection() path | Schema migration — atomic FTS migration in BEGIN IMMEDIATE; broken = corrupt DB |
+| `model_auto_update.py::{refresh,publish,apply_verified}` | live Codex model/list, Claude aliases, source routes, validated receipts | ~/.claude/state/model_auto_update.json, verified Claude alias env, balancer refresh | SessionStart async; balancer route reads | Same-class upgrade admission; invalid evidence must never publish aliases or activate a route |
 | `model_balancer.py::decide()` | model_balancer.json, db:model_metrics (14-day p50), openai_models.json | model_balancer.json (atomic), rolling .bak (max 7) | SessionStart hook, `model_balancer.py decide` CLI | Routing — broken = wrong provider/model per category. Pinned {lead, high_blast_radius, coding, hard, recon, medium, consilium_bio} never overwritten by active scorer |
 | `model_balancer.py::get_routing()` | model_balancer.json (cached) | n/a | memory_session_start, supervisor runtime, delegating Lead | Routing reads — broken = agents fall back to static tier map |
 | `codex_routed_worker.py::main()` | stdin prompt, `model_balancer.py get <category>`, caller args | child stdout/stderr; exact route env to Python `codex_worker.py`, or unpinned `CODEX_BIN exec` fallback | Codex Booster command skill local delegations; installed under `~/.claude/scripts/` by template enumeration | Codex routing boundary — broken = caller model pins or malformed routes can bypass policy; non-Codex routes must not launch local Codex |
@@ -389,3 +396,16 @@ Claude Booster has **no DB-enforced append-only table**. The append-only contrac
 | 2026-05-09 | pending | delegate_gate: phase-aware exemption (RECON/PLAN bypass budget) + fixed ^ anchor in RECON_BASH_PATTERNS | session |
 | 2026-06-13 | pending | **Major /architecture --update**: added /go six-stage pipeline + go_gate + .go_active marker; model_balancer (decide/get_routing) + model_metric_capture + claude_max_tracker + model_metrics/claude_max_usage tables (schema v6→v8); kpi_rework (record/report) + kpi_rework.jsonl; Codex bridge (install_codex_bridge, exit-50 isolation, booster-command skill); supervisor reframed behind /lead; ask_gate + model_tag_enforcer hooks; PAL MCP + Codex CLI providers; append-only re-scoped to JSONL logs; INV-18..22 added; delegate_gate corrected to advisory (INV-16). | Architect (/architecture) |
 | 2026-07-31 | pending | Added `fable-identity` helper skill and deterministic identity injection in the canonical Fable wrapper; bridge now distinguishes helper skills from command aliases; INV-23 added. | session |
+
+## Verified same-class model updates (2026-09-27)
+
+`model_auto_update.py start` launches a locked daily background refresh. Exact-ID
+qualification precedes route activation; shared `valid_receipt` validation guards
+both route reads and Claude settings publication. `selection_mode: pinned` opts
+out; verified routes survive historical scoring. Explicit pins and verified routes
+also bypass the static provider-health fallback, retaining their selected model.
+Claude Agent aliases are admitted only when inherited tier env matches the
+verified concrete route; existing sessions may need restarting. Current baseline
+aliases are frozen even after failed qualification, without a verified claim.
+Unknown families and PAL/Z.ai/Grok are held. See docs/model_auto_update.md for
+limits, state, diagnostics, and installation evidence.

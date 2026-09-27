@@ -32,9 +32,10 @@ Purpose:
 
     When the balancer routes to anthropic and the Agent's `model` param
     disagrees with the recommended model, the hook DOES block (exit 2) with a
-    message telling Claude which model to use.  This is the only hard-block path
-    in routing enforcement: it prevents a weaker model from silently replacing a
-    stronger one recommended by the balancer.
+    message telling Claude which model to use. Automatically verified routes
+    additionally require a tier alias whose inherited ANTHROPIC_DEFAULT_*_MODEL
+    mapping matches the exact tested version. A stale parent session must restart
+    after the settings update. This version guard also covers nested delegation.
 
     Exemptions from routing enforcement:
     - Explore agents (subagent_type == "Explore") always need tool access and
@@ -461,9 +462,9 @@ def main() -> int:
     if tool_name != "Agent":
         return 0
 
-    # --- sub-agent auto-skip: delegation already happened ---
-    if is_subagent_context(payload):
-        return 0
+    # Nested delegations keep the old advisory exemption, but may not bypass
+    # an exact version guard on an automatically managed Claude route.
+    nested_agent = is_subagent_context(payload)
 
     # --- extract relevant fields from tool_input ---
     tool_input = payload.get("tool_input") or {}
@@ -480,6 +481,11 @@ def main() -> int:
     category = _infer_category(description, subagent_type) if routing is not None else None
     if routing is not None:
         route = routing.get(category)
+        if nested_agent and not (
+            isinstance(route, dict) and route.get("provider") == "anthropic"
+            and route.get("auto_update_verified") is True
+        ):
+            return 0
 
         if route:
             provider = route.get("provider", "")
@@ -542,6 +548,33 @@ def main() -> int:
                 })
 
             elif provider == "anthropic" and recommended_model:
+                # Claude Agent accepts tier aliases, not arbitrary model IDs.
+                # The parent session must resolve that alias to our exact tested
+                # version through its startup environment. Updating settings does
+                # not update an already-running parent's inherited environment.
+                verified_tier = _extract_tier(recommended_model)
+                alias_target = os.environ.get(
+                    f"ANTHROPIC_DEFAULT_{(verified_tier or '').upper()}_MODEL", ""
+                )
+                exact_alias = model_param == verified_tier and alias_target == recommended_model
+                if route.get("auto_update_verified") is True and not exact_alias:
+                    print(
+                        f"model_tag_enforcer: '{category}' requires verified model "
+                        f"{recommended_model!r}; use model={verified_tier!r} with "
+                        f"ANTHROPIC_DEFAULT_{(verified_tier or '').upper()}_MODEL="
+                        f"{recommended_model}. Restart this Claude session after "
+                        "the verified settings update so its alias mapping is current. "
+                        "Inherited or unverified aliases cannot pass the pre-switch check.",
+                        file=sys.stderr,
+                    )
+                    append_jsonl(ENFORCER_LOG_NAME, {
+                        "ts": iso_now(), "gate": "model_tag_enforcer",
+                        "decision": "block_unverified_version", "category": category,
+                        "provider": provider, "recommended_model": recommended_model,
+                        "actual_model": model_param or "",
+                        "session_id": payload.get("session_id", ""),
+                    })
+                    return 2
                 param_tier = _extract_tier(model_param) if model_param else None
                 rec_tier = _extract_tier(recommended_model)
                 if param_tier and rec_tier and param_tier != rec_tier:
@@ -579,6 +612,9 @@ def main() -> int:
                             "session_id": payload.get("session_id", ""),
                         })
                         return 2
+
+    if nested_agent:
+        return 0
 
     # --- PHASE 2: tag enforcement (advisory — CC bug #16598 blocks auto-inject) ---
     if not _high_effort:

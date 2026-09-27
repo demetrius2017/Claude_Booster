@@ -78,3 +78,13 @@ When a delegated agent/worker fails:
     - **Memory:** `take_memory_snapshot` — heap snapshots for leak detection
   - `claude-in-chrome` — visual: screenshots, GIF, find (NL), auth sessions
   - `playwright` — E2E tests, cross-browser, visual regression
+
+## Verified automatic model versions
+
+Query the balancer for the concrete route before launching workers. For a route
+with `auto_update_verified: true`, never substitute a historical version from the
+examples above. Codex workers receive the exact model and reasoning effort returned
+by the balancer. Claude Agent receives its tier alias, whose inherited
+`ANTHROPIC_DEFAULT_<TIER>_MODEL` must equal the verified concrete route; restart a
+stale Claude session when the hook requests it. Supervised CLI workers receive the
+exact returned model ID. `selection_mode: pinned` opts a route out of updates.

@@ -91,6 +91,11 @@
             "type": "command",
             "command": "${PYTHON} ${CLAUDE_HOME}/scripts/model_balancer.py decide",
             "source": "booster@${BOOSTER_VERSION}"
+          },
+          {
+            "type": "command",
+            "command": "${PYTHON} ${CLAUDE_HOME}/scripts/model_auto_update.py start",
+            "source": "booster@${BOOSTER_VERSION}"
           }
         ]
       }

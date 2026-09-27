@@ -5,6 +5,27 @@
   "updated": "2026-06-13",
 
   "components": {
+    "model_auto_update": {
+          "file": "templates/scripts/model_auto_update.py::{refresh,publish,apply_verified}",
+          "reads_from": [
+                "external:Codex app-server model/list",
+                "external:Claude alias resolution",
+                "external:~/.claude/model_balancer.json",
+                "external:~/.claude/state/model_auto_update.json",
+                "external:~/.claude/settings.json"
+          ],
+          "writes_to": [
+                "external:~/.claude/state/model_auto_update.json",
+                "external:~/.claude/settings.json env",
+                "domain:model_balancer_decide"
+          ],
+          "called_by": [
+                "hook:SessionStart async",
+                "model_balancer_get_routing"
+          ],
+          "critical": true,
+          "notes": "Exact-ID qualification within provider/class; shared receipt validation before alias publication and activation; pinned routes preserved; unknown classes held. No quality ranking claim."
+    },
     "managed_test_dispatcher": {
       "file": "templates/scripts/test_dispatcher.py::main",
       "reads_from": ["domain:git_candidate_identity", "external:templates/test-contract/*.json", "external:.claude/phase_lease.json"],

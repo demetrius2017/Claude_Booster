@@ -409,12 +409,17 @@ def _with_default_routes(data: dict) -> dict:
         )
         if current is None:
             routing[category] = copy.deepcopy(default_route)
-        elif is_retired:
+        elif is_retired and current.get("selection_mode") != "pinned" and not current.get("auto_update_verified"):
             upgraded = copy.deepcopy(current)
             upgraded.update(copy.deepcopy(default_route))
             routing[category] = _normalise_route(upgraded)
         elif isinstance(current, dict):
             routing[category] = _normalise_route(current)
+    try:
+        from model_auto_update import apply_verified
+        merged = apply_verified(merged)
+    except (ImportError, OSError, ValueError, TypeError, KeyError):
+        pass  # Invalid update state never prevents last-known routing.
     return merged
 
 
@@ -704,6 +709,8 @@ def _apply_provider_health_fallbacks(
     """Demote degraded routes with explicit per-category fallbacks."""
     changed = 0
     for category, route in list(routing.items()):
+        if route.get("selection_mode") == "pinned" or route.get("auto_update_verified"):
+            continue
         if not _is_degraded(route, health):
             continue
 
@@ -764,7 +771,7 @@ def _refresh_same_day_provider_health(decision: dict) -> bool:
         if category in _PINNED_CATEGORIES:
             continue
         route = routing.get(category)
-        if not isinstance(route, dict):
+        if not isinstance(route, dict) or route.get("selection_mode") == "pinned" or route.get("auto_update_verified"):
             continue
 
         fallback_core = _core_route(fallback)
@@ -906,8 +913,8 @@ def _active_decide(prior: dict) -> dict:
 
     pinned: dict[str, dict] = {
         cat: copy.deepcopy(prior_routing[cat])
-        for cat in _PINNED_CATEGORIES
-        if cat in prior_routing
+        for cat in prior_routing
+        if cat in _PINNED_CATEGORIES or prior_routing[cat].get("selection_mode") == "pinned" or prior_routing[cat].get("auto_update_verified")
     }
 
     # Read Anthropic pressure only from the fresh Claude Code rate-limit feed.
@@ -953,7 +960,7 @@ def _active_decide(prior: dict) -> dict:
         if record.get("status") == "degraded"
     }
 
-    categories = [c for c in prior_routing if c not in _PINNED_CATEGORIES]
+    categories = [c for c in prior_routing if c not in pinned]
     total_samples_seen = 0
     categories_updated = 0
     health_fallbacks_applied = 0
@@ -1127,7 +1134,7 @@ def _apply_scheduled_changes(decision: dict) -> bool:
 # Core decide logic
 # ---------------------------------------------------------------------------
 
-def decide(*, force: bool = False) -> dict:
+def _decide_unlocked(*, force: bool = False) -> dict:
     """
     Idempotent daily refresh.
 
@@ -1188,9 +1195,19 @@ def decide(*, force: bool = False) -> dict:
             new_decision = _build_refreshed(prior)
 
     _apply_scheduled_changes(new_decision)
+    new_decision = _with_default_routes(new_decision)
     _write_atomic(new_decision)
     _cached_decision = new_decision
     return new_decision
+
+
+def decide(*, force: bool = False) -> dict:
+    """Serialize daily decisions with asynchronous qualification publication."""
+    import fcntl
+    _BALANCER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with _BALANCER_PATH.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _decide_unlocked(force=force)
 
 
 # ---------------------------------------------------------------------------

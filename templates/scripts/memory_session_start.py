@@ -146,6 +146,12 @@ def _build_balancer_summary(data: dict | None) -> str:
             f"audit_tertiary={audit_tertiary_val}, "
             f"hackathon_coder={hackathon_coder_val}"
         )
+        updates = data.get("model_auto_update", {})
+        if updates.get("checked_at"):
+            checked = datetime.fromtimestamp(updates["checked_at"], timezone.utc).isoformat()
+            checks = updates.get("checks") or {}
+            details = ", ".join(f"{cat}={item.get('status')}:{item.get('candidate', item.get('model', item.get('reason', '?')))}" for cat, item in checks.items())
+            line += f"\n  * auto-update checked={checked} — {details}"
         provider_health = data.get("provider_health", {})
         degraded = [
             key for key, record in provider_health.items()
