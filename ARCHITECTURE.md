@@ -151,6 +151,17 @@ C4Container
 
 ## Managed Test Modes
 
+Project contract portability successor (2026-10-10): `test_modes_core.contract_dir`
+reads only the explicit project's `templates/test-contract`; installed Booster
+defaults cannot supply an external project's test inventory. `test_dispatcher`
+calls `test_contract_admission` only for explicit operator-pinned local first-trust
+assertions. That module reads Git baseline identity and external private admission
+and independent-review assertion files, returns the complete admitted registry and
+immutable binding, and writes nothing. Dispatcher freezes and revalidates this
+binding and rejects protected/trusted-CI execution. The extra admission fields are
+rejected by the unchanged strict pre-push/CI schemas. Identity labels and hashes are
+operator assertions, not cryptographic authentication of authority or independence.
+
 `test_dispatcher.py` is the sole managed test-execution boundary. It captures a stable Git candidate identity (HEAD/tree/index/worktree/untracked), validates the expiring root/run-bound lease written by `phase.py`, and resolves development versus release fail-closed. Development selects conservative impact coverage, critical smoke, unresolved failures, and a deterministic stratified sample. Release freezes the full registry before structured-argv execution and emits only local evidence for an exact clean candidate. `test_pre_push.py` requires that local release receipt for protected destinations; `test_ci_adapter.py` is the separate trusted-host boundary which may issue promotion authorization only for an exact merge-result SHA/tree. The failure ledger is append-only and hash-chained under `.claude/test-modes/`.
 
 ### /go — Six-Stage Pipeline (Flow Designer → Challenge → Worker + Verifier → test → diff-review → verdict)

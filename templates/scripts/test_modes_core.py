@@ -206,12 +206,10 @@ def validate_registry(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def contract_dir(root: Path) -> Path:
-    """Locate installed contracts first, with repository-template fallback."""
-    installed = Path(__file__).resolve().parent.parent / "test-contract"
-    if installed.is_dir(): return installed
+    """Use project contracts only; never borrow an installed project's jobs."""
     source = root / "templates" / "test-contract"
-    if source.is_dir(): return source
-    raise ModeError("versioned test-contract directory unavailable")
+    if source.is_dir() and source.resolve().is_relative_to(root.resolve()): return source
+    raise ModeError("project versioned test-contract directory unavailable")
 
 
 def load_registry(root: Path, contract: Path | None = None) -> dict[str, Any]:
@@ -226,6 +224,19 @@ def load_registry_ref(root: Path, ref: str) -> dict[str, Any]:
     except (json.JSONDecodeError, ModeError) as exc: raise ModeError("trusted base registry unavailable") from exc
     if not isinstance(value, dict): raise ModeError("trusted base registry invalid")
     return validate_registry(value)
+
+
+def preserve_registry_jobs(candidate: dict, baseline: dict) -> None:
+    """Preserve execution/policy exactly; permit only additive source coverage."""
+    jobs = {job["id"]: job for job in candidate["jobs"]}
+    for original in baseline["jobs"]:
+        successor = jobs.get(original["id"])
+        if successor is None:
+            raise ModeError("candidate registry cannot remove trusted-base required jobs")
+        if ({k: v for k, v in original.items() if k != "source_files"}
+                != {k: v for k, v in successor.items() if k != "source_files"}
+                or not set(original["source_files"]) <= set(successor["source_files"])):
+            raise ModeError("candidate registry cannot change trusted-base job definitions except additive source coverage")
 
 
 def load_impact(root: Path, contract: Path | None = None) -> dict[str, Any]:
@@ -323,6 +334,7 @@ def selection(root: Path, registry: dict[str, Any], impact: dict[str, Any], base
         if trusted_registry is None: raise ModeError("contract change requires trusted-base registry union")
         base_ids = {x["id"] for x in trusted_registry["jobs"]}
         if not base_ids <= ids: raise ModeError("candidate registry cannot remove trusted-base required jobs")
+        preserve_registry_jobs(registry, trusted_registry)
         return sorted(ids)  # mode is already release; candidate full registry is required.
     if full: return sorted(ids)
     candidate = candidate_identity(root)
