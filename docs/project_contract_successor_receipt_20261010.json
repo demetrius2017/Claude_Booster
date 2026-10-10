@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "status": "IMPLEMENTATION_READY_FOR_INDEPENDENT_ACCEPTANCE",
+  "source_baseline": "ca0b3662b6a162a1054a2928d179638153c0a7de",
+  "implementation_commit": "1b12e32132dab1cebca85b8c22aa670cce2d12f6",
+  "checkout": "/mnt/data/horizon_lab/c4_sma200_booster_20261010",
+  "branch": "fix/project-contract-first-trust",
+  "origin": "https://github.com/demetrius2017/Claude_Booster.git",
+  "pushed": false,
+  "contract": "docs/project_contract_successor_20261010.md",
+  "investigation": "notebooks/project_contract_investigation_20261010.ipynb",
+  "tests": {
+    "command": "python3 -m unittest tests.test_project_contract_admission tests.test_test_modes_contract",
+    "exit_code": 0,
+    "passed": 34,
+    "duration_seconds": 11.170,
+    "stdout": "docs/project_contract_tests_20261010.stdout.log",
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr": "docs/project_contract_tests_20261010.stderr.log",
+    "stderr_sha256": "1ecee9c4f3bfa9c386d4193a7a00dfaf6569519be9c25ffcdf49e9f4d3ce6093"
+  },
+  "source_plan_probe": {
+    "command": "python3 templates/scripts/test_dispatcher.py --root /mnt/data/horizon_lab/c4_sma200_booster_20261010 plan --mode release --base ca0b3662b6a162a1054a2928d179638153c0a7de",
+    "exit_code": 0,
+    "required_jobs": 44,
+    "all_required": true,
+    "candidate_was_dirty": true,
+    "full_suite_executed": false,
+    "artifact": "/tmp/c4_sma200_booster_source_plan_20261010.json"
+  },
+  "executable_sha256": {
+    "templates/scripts/test_contract_admission.py": "0287455500821194a7ca1d38e94ecd70378ac23abc6201032438c17265ceb8ec",
+    "templates/scripts/test_modes_core.py": "028b8fc4644d4f2bcec917c4ed825ecac7dc2e6e21cca617bd5ca2b49a591ee6",
+    "templates/scripts/test_dispatcher.py": "3f46571b6f5394502a07894e709ea8a24f1167a771aa2344e44d56226769a9b0"
+  },
+  "diff_check_exit_code": 0,
+  "trust_boundary": "Pinned local operator assertion; identity labels and hashes do not authenticate owner or reviewer. Independent acceptance is the orchestrator's separate evidence.",
+  "horizon_admission_activated": false,
+  "horizon_baseline_unchanged": "dfc5536a",
+  "global_install_performed": false,
+  "source_repository_modified": false,
+  "science_db_credentials_network_provider_tests_run": false,
+  "promotion_authorized": false,
+  "remaining": [
+    "Orchestrator independently accepts exact implementation and metadata delta.",
+    "Actual Horizon complete baseline inventory and separately reviewed external admission remain to be prepared and explicitly supplied by an authorized operator.",
+    "Horizon required capabilities and release checks remain separate work; this receipt does not relabel the original frozen go BLOCKED result."
+  ]
+}
