@@ -28,11 +28,19 @@
     },
     "managed_test_dispatcher": {
       "file": "templates/scripts/test_dispatcher.py::main",
-      "reads_from": ["domain:git_candidate_identity", "external:templates/test-contract/*.json", "external:.claude/phase_lease.json"],
+      "reads_from": ["domain:git_candidate_identity", "domain:managed_test_contract_admission", "external:templates/test-contract/*.json", "external:.claude/phase_lease.json"],
       "writes_to": ["external:.claude/test-modes/receipts/*", "external:.claude/test-modes/failure-ledger.jsonl"],
       "called_by": ["command:go", "command:phase", "hook:pre-push"],
       "critical": true,
       "notes": "Fail-closed development/release resolver. Local receipts are evidence only; test_ci_adapter is the sole trusted-CI promotion boundary."
+    },
+    "managed_test_contract_admission": {
+      "file": "templates/scripts/test_contract_admission.py",
+      "reads_from": ["external:Git", "external:operator-pinned admission and independent-review assertion files"],
+      "writes_to": [],
+      "called_by": ["managed_test_dispatcher"],
+      "critical": true,
+      "notes": "Explicit local first-trust assertion only; no identity authentication, discovery, creation, activation, or promotion. Pins exact repository, original baseline and complete job definitions."
     },
     "managed_test_modes_core": {
       "file": "templates/scripts/test_modes_core.py",

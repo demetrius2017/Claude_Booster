@@ -56,7 +56,7 @@ class RepoFixture:
         self.root = root
         (root / "templates/scripts").mkdir(parents=True)
         (root / "templates/test-contract").mkdir(parents=True)
-        for name in ("test_modes_core.py", "test_dispatcher.py", "test_pre_push.py", "test_ci_adapter.py"):
+        for name in ("test_modes_core.py", "test_dispatcher.py", "test_contract_admission.py", "test_pre_push.py", "test_ci_adapter.py"):
             (root / "templates/scripts" / name).write_bytes((SCRIPTS / name).read_bytes())
         for source in CONTRACT.iterdir():
             if source.is_file():

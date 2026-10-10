@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse, json, os, platform, shlex, shutil, stat, subprocess, sys, tempfile
 from pathlib import Path
 from test_modes_core import ModeError, append_failure, atomic_json, candidate_identity, changed_paths, digest, lease_path, load_critical, load_impact, load_registry, load_registry_ref, now, parse_time, project_root, read_json, resolve_git_oid, resolve_mode, selection, unresolved_failures, unresolved_failure_records, validate_lease, validate_registry
+from test_contract_admission import load_admission, preserve_jobs
 
 ALLOW_ENV = {"PATH", "LANG", "LC_ALL", "PYTHONPATH", "HOME", "TMPDIR"}
 MANIFEST_KEYS = {"schema_version","kind","created_at","mode","candidate","lease_valid","trusted_ci","protected_destination","local_advisory_only","base","base_sha","registry_hash","registry","test_ids","jobs","manifest_hash"}
@@ -36,9 +37,19 @@ def cmd_decide(args): return emit(decision(args.root, args))
 
 def cmd_plan(args):
     item = decision(args.root, args); registry, impact = load_registry(args.root), load_impact(args.root)
+    admission = getattr(args, "admission", None)
+    pin = getattr(args, "admission_sha256", None)
+    if bool(admission) != bool(pin): raise ModeError("admission requires path and SHA256 pin")
+    if admission and (args.trusted_ci or args.protected): raise ModeError("admission is local-only, never protected or trusted CI")
     paths = changed_paths(args.root, args.base)
     contract_changed = any(path.startswith("templates/test-contract/") or path.startswith("templates/scripts/test_") or path.endswith((".lock", ".yaml", ".yml")) for path in paths)
-    trusted = load_registry_ref(args.root, args.base) if contract_changed else None
+    if admission:
+        trusted, binding = load_admission(args.root, args.base, admission, pin)
+        preserve_jobs(registry, trusted)
+        item["admission"] = binding
+        item["mode"] = "release"
+    else:
+        trusted = load_registry_ref(args.root, args.base) if contract_changed else None
     if contract_changed: item["mode"] = "release"
     unresolved = set(args.unresolved) | unresolved_failures(args.root)
     critical = load_critical(args.root)
@@ -55,7 +66,7 @@ def cmd_plan(args):
     return emit(item)
 
 def _manifest(value: dict) -> dict:
-    if not isinstance(value, dict) or set(value) != MANIFEST_KEYS: raise ModeError("manifest schema invalid")
+    if not isinstance(value, dict) or set(value) not in (MANIFEST_KEYS, MANIFEST_KEYS | {"admission"}): raise ModeError("manifest schema invalid")
     if value["schema_version"] != 1 or value["kind"] != "manifest" or value["mode"] not in {"development","release"}: raise ModeError("manifest invariant invalid")
     if not isinstance(value["test_ids"], list) or not value["test_ids"] or len(value["test_ids"]) != len(set(value["test_ids"])) or not all(isinstance(x,str) and x for x in value["test_ids"]): raise ModeError("manifest test_ids invalid")
     candidate_keys={"schema_version","root","git_common_dir","head","tree","index_sha256","worktree_sha256","untracked_sha256","dirty"}
@@ -86,6 +97,24 @@ def cmd_run(args):
     before = candidate_identity(root)
     if before != manifest.get("candidate"): raise ModeError("candidate changed before run")
     if manifest["base_sha"] != resolve_git_oid(root, manifest["base"]): raise ModeError("manifest base changed after plan")
+    def check_admission():
+        path, pin = getattr(args, "admission", None), getattr(args, "admission_sha256", None)
+        if "admission" not in manifest:
+            if path or pin: raise ModeError("unexpected admission for ordinary manifest")
+            paths = changed_paths(root, manifest["base"])
+            contract_changed = any(path.startswith("templates/test-contract/") or path.startswith("templates/scripts/test_") or path.endswith((".lock", ".yaml", ".yml")) for path in paths)
+            if contract_changed:
+                preserve_jobs(frozen, load_registry_ref(root, manifest["base"]))
+            return
+        if not path or not pin: raise ModeError("run requires explicit admission path and SHA256 pin")
+        if manifest["trusted_ci"] or manifest["protected_destination"] or manifest["mode"] != "release":
+            raise ModeError("admission is local release evidence only")
+        admitted, binding = load_admission(root, manifest["base"], path, pin)
+        if binding != manifest["admission"]: raise ModeError("admission changed after plan")
+        preserve_jobs(frozen, admitted)
+        if manifest["test_ids"] != sorted(job["id"] for job in frozen["jobs"]):
+            raise ModeError("admission requires full registry execution")
+    check_admission()
     outcomes=[]; active = unresolved_failure_records(root)
     for job in manifest["jobs"]:
         _runtime(job)
@@ -106,8 +135,10 @@ def cmd_run(args):
             key=(job["id"],command_identity,contract_identity)
             if key in active: append_failure(root,{"type":"closure","test_id":job["id"],"failure_hash":active[key]["hash"],"command_identity":command_identity,"contract_identity":contract_identity,"status":"green"})
     after=candidate_identity(root)
+    check_admission()
     passed=all(x["status"] == "pass" for x in outcomes) and after == before
     receipt={"schema_version":1,"kind":"local-release-receipt" if manifest["mode"] == "release" else "development-receipt","created_at":now(),"status":"pass" if passed else "fail","candidate":before,"manifest_hash":manifest["manifest_hash"],"registry_hash":frozen["registry_hash"],"test_ids":manifest["test_ids"],"outcomes":outcomes,"promotion_authorized":False}
+    if "admission" in manifest: receipt["admission"] = manifest["admission"]
     if manifest["mode"] == "release" and before["dirty"]: receipt["status"]="fail"; receipt["reason"]="release receipt requires clean committed candidate"
     receipt["receipt_hash"] = digest(receipt)
     atomic_json(root / ".claude" / "test-modes" / "receipts" / f"{before['head']}-{manifest['manifest_hash']}.json", receipt)
@@ -207,7 +238,10 @@ def main(argv):
     for name in ("decide","plan"):
         p=subs.add_parser(name); p.add_argument("--mode",choices=["development","release"]); p.add_argument("--trusted-ci",action="store_true"); p.add_argument("--protected",action="store_true")
         if name == "plan": p.add_argument("--base",required=True); p.add_argument("--epoch",default="1"); p.add_argument("--unresolved",action="append",default=[])
-    subs.add_parser("run").add_argument("--manifest",type=Path,required=True)
+    runner = subs.add_parser("run"); runner.add_argument("--manifest",type=Path,required=True)
+    for admission_parser in (p, runner):
+        admission_parser.add_argument("--admission",type=Path)
+        admission_parser.add_argument("--admission-sha256")
     p=subs.add_parser("validate-receipt"); p.add_argument("--receipt",type=Path,required=True); p.add_argument("--promotion",action="store_true")
     subs.add_parser("install-hook")
     args=parser.parse_args(argv)

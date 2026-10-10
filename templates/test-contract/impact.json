@@ -4,7 +4,7 @@
     {
       "path_prefix": "templates/scripts/test_modes_core.py",
       "test_ids": [
-        "py-test-modes-contract",
+        "py-contracts-all",
         "script-compile"
       ],
       "reviewed_at": "2026-08-19"
@@ -12,7 +12,7 @@
     {
       "path_prefix": "templates/scripts/test_dispatcher.py",
       "test_ids": [
-        "py-test-modes-contract",
+        "py-contracts-all",
         "script-compile"
       ],
       "reviewed_at": "2026-08-19"
@@ -20,7 +20,7 @@
     {
       "path_prefix": "templates/scripts/test_pre_push.py",
       "test_ids": [
-        "py-test-modes-contract",
+        "py-contracts-all",
         "script-compile"
       ],
       "reviewed_at": "2026-08-19"
@@ -28,7 +28,7 @@
     {
       "path_prefix": "templates/scripts/test_ci_adapter.py",
       "test_ids": [
-        "py-test-modes-contract",
+        "py-contracts-all",
         "script-compile"
       ],
       "reviewed_at": "2026-08-19"
@@ -36,7 +36,7 @@
     {
       "path_prefix": "templates/scripts/phase.py",
       "test_ids": [
-        "py-test-modes-contract",
+        "py-contracts-all",
         "script-compile"
       ],
       "reviewed_at": "2026-08-19"
@@ -51,8 +51,7 @@
     {
       "path_prefix": "install.py",
       "test_ids": [
-        "py-install-codex-bridge-integration",
-        "py-install-codex-bridge-safety",
+        "py-contracts-all",
         "script-compile"
       ],
       "reviewed_at": "2026-08-19"
