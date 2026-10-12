@@ -1,5 +1,21 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Completed 2026-10-12 — shortest safe path to acceptance
+
+English instructions are integrated into Booster core, the Codex bridge reference,
+and the installed global Codex commands-only configuration. The rules bring likely
+late blockers forward, consolidate related failures before expensive reruns,
+preserve candidate-bound evidence and mandatory release gates, constrain scope
+growth, require reassessment after two unproductive correction cycles, preserve
+long-running results, and coordinate immutable release candidates. The old generic
+STOP-and-ask anti-loop wording was reconciled with authorized autonomous reassessment.
+
+Focused Lead checks, skill validation, installed/template/global parity and independent
+review passed; bridge integration: 6 passed. Real task-duration improvement remains
+unmeasured. Observe repeated full CI runs, late deployment blockers and lost results
+on future tasks. The global override was updated through a scoped backed-up install;
+ordinary reinstall does not manage that block. Evidence: [handover_2026-10-12_131545.md](reports/handover_2026-10-12_131545.md).
+
 ## Открыто 2026-10-10 — совместимость Grok CLI 1.0.50
 
 Пользователь повторно авторизовался и обновил Grok с 0.2.72 до 1.0.50.
