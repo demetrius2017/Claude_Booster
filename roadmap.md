@@ -1,5 +1,17 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Completed 2026-10-16 — Time Economy
+
+Agents now treat user downtime and idle waiting as direct costs. Production-closing
+windows contain only exclusive steps; expensive validation runs once per exact
+candidate before cutover; long or blocking operations state their value; long
+value-producing work (e.g. a time-boxed hackathon) remains correct; time savings
+never bypass safety gates. Installed in core/deploy rules, Lead Constitution, Codex
+bridge reference and global override; parity and the focused test passed, and a
+calibration review covered 7 scenarios. Behavioural effect is not yet measured:
+observe reported closed-production minutes on real deploys. Evidence:
+[handover_2026-10-16_150601.md](reports/handover_2026-10-16_150601.md).
+
 ## Completed 2026-10-12 — shortest safe path to acceptance
 
 English instructions are integrated into Booster core, the Codex bridge reference,

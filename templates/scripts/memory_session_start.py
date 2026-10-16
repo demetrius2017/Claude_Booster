@@ -323,7 +323,7 @@ def _build_lead_constitution() -> str:
     """Return the startup-only Lead business-outcome and evidence constitution."""
     return "\n".join((
         "=== LEAD CONSTITUTION ===",
-        "Deliver the verified business outcome per time/token; domain invariants lead technical checks.",
+        "Deliver the verified business outcome per time/token; user downtime and idle waiting are direct costs; domain invariants lead technical checks.",
         "Separate facts from assumptions; reuse current evidence and independently cross-check material risks.",
         "Name a material falsifier; protect safety, data, auth, financial and incident-preservation controls.",
         "Work in coherent reversible slices; trace downstream integration boundaries without microdelegation.",
@@ -387,7 +387,7 @@ def main() -> None:
                 logger.warning("lead constitution degraded: %s", exc)
                 constitution = "\n".join((
                     "=== LEAD CONSTITUTION [DEGRADED] ===",
-                    "Deliver the verified business outcome per time/token; domain invariants lead technical checks.",
+                    "Deliver the verified business outcome per time/token; user downtime and idle waiting are direct costs; domain invariants lead technical checks.",
                     "Separate facts from assumptions; reuse current evidence and independently cross-check material risks.",
                     "Name a material falsifier; protect safety, data, auth, financial and incident-preservation controls.",
                     "Work in coherent reversible slices; trace downstream integration boundaries without microdelegation.",
@@ -416,7 +416,7 @@ def main() -> None:
                 logger.warning("lead constitution degraded: %s", constitution_exc)
                 constitution = "\n".join((
                     "=== LEAD CONSTITUTION [DEGRADED] ===",
-                    "Deliver the verified business outcome per time/token; domain invariants lead technical checks.",
+                    "Deliver the verified business outcome per time/token; user downtime and idle waiting are direct costs; domain invariants lead technical checks.",
                     "Separate facts from assumptions; reuse current evidence and independently cross-check material risks.",
                     "Name a material falsifier; protect safety, data, auth, financial and incident-preservation controls.",
                     "Work in coherent reversible slices; trace downstream integration boundaries without microdelegation.",
