@@ -1,5 +1,18 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Completed 2026-10-22 — leader defaults: Ultracode / Ultra
+
+Set the user's global native-client defaults on this Mac: Claude `ultracode: true`
+with `effortLevel: "xhigh"`, and Codex `model_reasoning_effort = "ultra"`.
+Ultracode enables dynamic-workflow orchestration; Codex Ultra is the closest
+functional counterpart, with maximum reasoning and automatic task delegation.
+Native Codex config/catalog probes, Claude doctor, exact settings comparisons and
+independent review passed. Backups are retained; only the three intended keys
+changed. This is a local configuration result, not an installer/template update
+or proof that existing sessions switched modes. Workflow behavior and quality or
+latency improvements remain unmeasured. Evidence and continuation boundaries:
+[handover_2026-10-22_161429.md](reports/handover_2026-10-22_161429.md).
+
 ## Completed 2026-10-16 — Time Economy
 
 Agents now treat user downtime and idle waiting as direct costs. Production-closing
