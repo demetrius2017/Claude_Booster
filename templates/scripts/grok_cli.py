@@ -123,6 +123,11 @@ READ_ONLY_DENIED_TOOLS = (
     "create_goal",
     "update_goal",
 )
+# ``--deny`` takes permission rules whose prefix grok validates at startup
+# (grok 1.0.50 rejects ``NotebookEdit`` with "unsupported tool prefix" and exits
+# before the turn). Names in this set are skipped when building ``--deny``; the
+# full tuple above still goes to ``--disallowed-tools``, which does not validate.
+_UNSUPPORTED_DENY_PREFIXES = frozenset({"NotebookEdit"})
 INSERT_METRIC_SQL = """
 INSERT INTO model_metrics
     (ts_utc, provider, model, task_category, duration_ms, num_turns,
@@ -349,6 +354,8 @@ def _grok_command(
     ]
     if read_only:
         for tool in READ_ONLY_DENIED_TOOLS:
+            if tool in _UNSUPPORTED_DENY_PREFIXES:
+                continue
             cmd.extend(["--deny", tool])
         cmd.extend(["--disallowed-tools", ",".join(READ_ONLY_DENIED_TOOLS)])
     return cmd

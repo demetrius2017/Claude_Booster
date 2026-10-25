@@ -65,6 +65,32 @@ def test_grok_cli_builds_read_only_command(monkeypatch) -> None:
     assert captured["timeout"] >= 180
 
 
+def test_grok_cli_skips_unsupported_deny_prefix(monkeypatch) -> None:
+    """grok 1.0.50 exits on ``--deny NotebookEdit``; it stays in ``--disallowed-tools`` only."""
+    monkeypatch.setenv("GROK_CLI_DISABLE_TELEMETRY", "1")
+    grok_cli = _import_script("grok_cli")
+
+    cmd = grok_cli._grok_command(
+        "/usr/bin/grok",
+        "review this",
+        model="grok-4.6",
+        budget_turns=3,
+        read_only=True,
+    )
+
+    denied = [cmd[i + 1] for i, arg in enumerate(cmd) if arg == "--deny"]
+    assert "NotebookEdit" not in denied
+    assert denied == [
+        tool
+        for tool in grok_cli.READ_ONLY_DENIED_TOOLS
+        if tool not in grok_cli._UNSUPPORTED_DENY_PREFIXES
+    ]
+    assert {"Edit", "Write", "create_goal", "update_goal"} <= set(denied)
+    disallowed = cmd[cmd.index("--disallowed-tools") + 1].split(",")
+    assert "NotebookEdit" in disallowed
+    assert disallowed == list(grok_cli.READ_ONLY_DENIED_TOOLS)
+
+
 def test_grok_cli_records_model_metrics(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "metrics.db"
     with sqlite3.connect(db_path) as conn:
