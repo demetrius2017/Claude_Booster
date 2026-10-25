@@ -54,6 +54,32 @@ def test_zai_cli_reads_local_secret_file(monkeypatch, tmp_path) -> None:
     assert env["ANTHROPIC_AUTH_TOKEN"] == "secret-from-file"
 
 
+def test_zai_cli_env_overrides_inherited_anthropic_session(monkeypatch) -> None:
+    """A parent Claude session's backend/alias/credential env must not leak into the child."""
+    monkeypatch.setenv("ZAI_API_KEY", "test-zai-key-not-real")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-inherited")
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-inherited")
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-inherited")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-parent-api-key-not-real")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "test-parent-oauth-not-real")
+    zai_cli = _import_script("zai_cli")
+
+    env = zai_cli._env()
+
+    assert env["ANTHROPIC_BASE_URL"] == zai_cli.BASE_URL == "https://api.z.ai/api/anthropic"
+    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == zai_cli.DEFAULT_MODEL
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == zai_cli.DEFAULT_MODEL
+    assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == zai_cli.DEFAULT_AIR_MODEL
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "test-zai-key-not-real"
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+    assert env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "1000000"
+    # _env() works on a copy; the caller's process environment is untouched.
+    assert os.environ["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
+    assert os.environ["ANTHROPIC_API_KEY"] == "test-parent-api-key-not-real"
+
+
 def test_zai_cli_builds_read_only_claude_command(monkeypatch) -> None:
     monkeypatch.setenv("ZAI_API_KEY", "secret-value-that-must-not-print")
     monkeypatch.setenv("ZAI_CLI_DISABLE_TELEMETRY", "1")

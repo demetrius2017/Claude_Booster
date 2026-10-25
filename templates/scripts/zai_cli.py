@@ -114,11 +114,22 @@ def _env() -> dict[str, str]:
         )
         raise SystemExit(64)
     env = os.environ.copy()
+    # Force the Z.ai backend. A parent Claude Code / Desktop session exports
+    # ANTHROPIC_BASE_URL=https://api.anthropic.com and Claude model aliases;
+    # setdefault() kept them, so the Z.ai key went to Anthropic -> 401
+    # "Invalid bearer token". A stale ANTHROPIC_API_KEY / OAuth token from the
+    # parent must not compete with ANTHROPIC_AUTH_TOKEN either.
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
     env["ANTHROPIC_AUTH_TOKEN"] = key
-    env.setdefault("ANTHROPIC_BASE_URL", BASE_URL)
-    env.setdefault("ANTHROPIC_DEFAULT_OPUS_MODEL", DEFAULT_MODEL)
-    env.setdefault("ANTHROPIC_DEFAULT_SONNET_MODEL", DEFAULT_MODEL)
-    env.setdefault("ANTHROPIC_DEFAULT_HAIKU_MODEL", DEFAULT_AIR_MODEL)
+    env["ANTHROPIC_BASE_URL"] = BASE_URL
+    env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = DEFAULT_MODEL
+    env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = DEFAULT_MODEL
+    env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = DEFAULT_AIR_MODEL
+    # GLM-5.3 has a 1M window (Z.ai Claude Code guide); declaring it stops the
+    # "doesn't recognize the model ... assumes 200k tokens" warning. The bare
+    # "[claude-code:unrecognized_model]" stderr line stays (informational).
+    env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = "1000000"
     return env
 
 
