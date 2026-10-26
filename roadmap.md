@@ -1,5 +1,13 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Local 2026-10-26 — cross-account session inventory
+
+Installed `/sessions`: full local Code inventory to TXT, at most five preview rows.
+Verified 82 entries; Dubai label matches 79; empty filters preserve full TXT.
+Isolated branch `feat/desktop-sessions-command`; not merged. Corporate-conflict
+scheduled session remains unfound; cloud/scheduled coverage is UNKNOWN.
+Evidence and continuation: [handover](reports/handover_2026-10-26_145836.md).
+
 ## Completed 2026-10-22 — leader defaults: Ultracode / Ultra
 
 Set the user's global native-client defaults on this Mac: Claude `ultracode: true`
