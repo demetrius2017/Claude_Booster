@@ -1,5 +1,15 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Completed 2026-11-01 — Fable spend hidden from the terminal
+
+The Claude Code statusline and the tmux widget no longer show Fable spend; 5h/7d
+rate limits remain. The background `fable_usage.py` refresh is kept for `/fable`.
+The "missing weekly limit" was not a bug: `7d` renders; 5h is absent because the
+server sends no 5h headers on Ultra, and per-model weekly windows only reach
+`/usage`, not the statusline. Tests 20/20, 40/40, 16/16. Branch
+`fix/statusline-hide-fable` awaits merge. Evidence:
+[handover_2026-11-01_164850.md](reports/handover_2026-11-01_164850.md).
+
 ## Completed 2026-10-22 — leader defaults: Ultracode / Ultra
 
 Set the user's global native-client defaults on this Mac: Claude `ultracode: true`
