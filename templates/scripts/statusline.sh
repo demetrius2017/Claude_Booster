@@ -107,7 +107,9 @@ if [ -f "$progress_file" ]; then
     read -r progress < "$progress_file" 2>/dev/null
 fi
 
-fable_info=""
+# Fable spend is NOT rendered (removed 2026-11-01 at the owner's request);
+# the background refresh below still keeps fable_usage_summary.json current
+# for /fable and fable_usage.py.
 fable_cache="${HOME}/.claude/fable_usage_summary.json"
 fable_script="${HOME}/.claude/scripts/fable_usage.py"
 
@@ -119,32 +121,6 @@ fi
 # Harden: a session id must be a safe token before it reaches a glob or argv.
 # Anything carrying shell/glob metacharacters is dropped (session ids are UUIDs).
 case "$current_session" in *[!A-Za-z0-9_-]*) current_session="" ;; esac
-
-# Render last-task cost + month-to-date from the cache. session/today both
-# legitimately read $0 (fresh session in another project, or just past the
-# Dubai-midnight rollover) and look broken; last_task + mtd are always populated
-# once any Fable spend exists. Every read is // empty guarded.
-if [ -f "$fable_cache" ] && command -v jq >/dev/null 2>&1; then
-    fable_enabled=$(jq -r 'select(.display_enabled == true) | .display_enabled // empty' "$fable_cache" 2>/dev/null)
-    if [ "$fable_enabled" = "true" ]; then
-        # Format inside jq (always '.' decimal, locale-independent + always 2dp).
-        # printf '%.2f' honours LC_NUMERIC ("0,15" / thousands-grouped garbage on
-        # comma-locale hosts); plain jq division drops the decimal on whole values
-        # ("$1" not "$1.00"). Build cents as an integer, then pad to D.CC.
-        fable_last=$(jq -r 'if (.last_task.cost_usd_nanos // 0) > 0 then (.last_task.cost_usd_nanos / 1e7 | round) as $c | "\(($c / 100) | floor).\(($c % 100 | tostring) | if length < 2 then "0" + . else . end)" else empty end' "$fable_cache" 2>/dev/null)
-        # today (local Dubai day) is shown even at $0 — that IS the running-total signal.
-        fable_today=$(jq -r '(.today.cost_usd_nanos // 0) as $n | ($n / 1e7 | round) as $c | "\(($c / 100) | floor).\(($c % 100 | tostring) | if length < 2 then "0" + . else . end)"' "$fable_cache" 2>/dev/null)
-        # m$ = billable credits only (post-cutover), not the included free window.
-        # Falls back to raw mtd on an old cache without the split.
-        fable_mtd=$(jq -r 'if ((.mtd_credits.cost_usd_nanos // .mtd.cost_usd_nanos) // 0) > 0 then ((.mtd_credits.cost_usd_nanos // .mtd.cost_usd_nanos) / 1e9 | round) else empty end' "$fable_cache" 2>/dev/null)
-        if [ -n "$fable_last" ] || [ -n "$fable_today" ] || [ -n "$fable_mtd" ]; then
-            [ -n "$fable_last" ] || fable_last="0.00"
-            [ -n "$fable_today" ] || fable_today="0.00"
-            [ -n "$fable_mtd" ] || fable_mtd="0"
-            fable_info=" | Fable: last \$${fable_last} · today \$${fable_today} · m\$${fable_mtd}"
-        fi
-    fi
-fi
 
 # Throttled, backgrounded, self-healing refresh. The concurrency lock lives
 # INSIDE fable_usage.py (Python fcntl.flock — macOS has no flock binary), so the
@@ -182,7 +158,7 @@ if [ -n "$current_session" ] && command -v jq >/dev/null 2>&1 && command -v pyth
     fi
 fi
 
-# Row 1: phase + progress + model/context. Row 2: rate limits + Fable spend on
+# Row 1: phase + progress + model/context. Row 2: rate limits on
 # their own line so a narrow terminal does not clip them — Claude Code renders
 # each printed line as a separate status row. Row 2 is omitted when empty.
 if [ -n "$progress" ]; then
@@ -190,7 +166,7 @@ if [ -n "$progress" ]; then
 else
     printf '[%s]%s\n' "$phase" "$model_info"
 fi
-line2="${rl_str}${fable_info}"
+line2="${rl_str}"
 line2="${line2# | }"
 [ -n "$line2" ] && printf '%s\n' "$line2"
 exit 0

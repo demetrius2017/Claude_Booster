@@ -315,13 +315,14 @@ assert_eq "statusline output unchanged when no Fable cache exists" "[RECON]" "$S
 env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" \
     python3 "$FABLE_USAGE" ingest --transcript "$TRANSCRIPT" --session-id acceptance-session --project-root "$TMP_ROOT/project" --json >/dev/null
 STATUS_WITH_CACHE="$(cd "$PHASE_DIR" && printf '{"session_id":"acceptance-session"}' | env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" bash "$STATUSLINE")"
-assert_contains "statusline reports Fable label from cache" "$STATUS_WITH_CACHE" "Fable"
-assert_contains "statusline reports latest request/task cost" "$STATUS_WITH_CACHE" "Fable: last \$138.20"
+# Fable spend is intentionally not rendered (removed 2026-11-01).
+assert_not_contains "statusline does not render Fable spend even with a cache" "$STATUS_WITH_CACHE" "Fable"
+assert_not_contains "statusline does not render a dollar figure" "$STATUS_WITH_CACHE" "\$138.20"
 assert_not_contains "statusline does not report cross-session MTD estimate" "$STATUS_WITH_CACHE" "MTD"
 assert_not_contains "statusline does not print transcript path" "$STATUS_WITH_CACHE" "$TRANSCRIPT"
 
 STATUS_OTHER_SESSION="$(cd "$PHASE_DIR" && printf '{"session_id":"other-session"}' | env HOME="$FAKE_HOME" CLAUDE_HOME="$FAKE_CLAUDE_HOME" bash "$STATUSLINE")"
-assert_contains "statusline retains global latest cost in a different session" "$STATUS_OTHER_SESSION" "Fable: last \$138.20"
+assert_not_contains "statusline omits Fable in a different session too" "$STATUS_OTHER_SESSION" "Fable"
 
 echo
 echo "=== Section 5: settings and rolling-memory integration ==="

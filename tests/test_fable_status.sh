@@ -210,7 +210,7 @@ sl() { local fh="$1" json="$2"; printf '%s' "$json" | HOME="$fh" bash "$STATUSLI
 }
 
 # ===========================================================================
-# A8 — cache back-compat keys + fable_tmux_status.sh still prints numeric $
+# A8 — cache back-compat keys + fable_tmux_status.sh prints NO Fable $ (removed 2026-11-01)
 # ===========================================================================
 {
     FH="$(newhome)"; SID="sess-A8"
@@ -223,11 +223,11 @@ sl() { local fh="$1" json="$2"; printf '%s' "$json" | HOME="$fh" bash "$STATUSLI
     se=$(jq -e '.session != null' "$C" >/dev/null 2>&1 && echo ok || echo no)
     td=$(jq -e '.today != null' "$C" >/dev/null 2>&1 && echo ok || echo no)
     tmux_out="$(HOME="$FH" bash "${HOME}/.claude/scripts/fable_tmux_status.sh" 2>/dev/null)"
-    tmux_ok=no; printf '%s' "$tmux_out" | grep -qE '\$[0-9]+\.[0-9]+' && tmux_ok=yes
+    tmux_ok=yes; printf '%s' "$tmux_out" | grep -qE '\$|F l' && tmux_ok=no
     if [ "$de" = ok ] && [ "$lt" = ok ] && [ "$mtd" = ok ] && [ "$se" = ok ] && [ "$td" = ok ] && [ "$tmux_ok" = yes ]; then
-        pass "A8 cache keys (display_enabled,last_task,mtd,session,today) + tmux prints \$ ($tmux_out)"
+        pass "A8 cache keys (display_enabled,last_task,mtd,session,today) + tmux shows no Fable \$ ($tmux_out)"
     else
-        fail "A8 back-compat cache keys" "all keys present + tmux numeric \$" "de=$de lt=$lt mtd=$mtd session=$se today=$td tmux=[$tmux_out]"
+        fail "A8 back-compat cache keys" "all keys present + tmux without Fable \$" "de=$de lt=$lt mtd=$mtd session=$se today=$td tmux=[$tmux_out]"
     fi
 }
 
