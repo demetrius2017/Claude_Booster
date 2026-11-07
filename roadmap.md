@@ -1,5 +1,18 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Completed 2026-11-07 — Claude account profiles and shortcuts
+
+Local Claude profiles now preserve Dubai as the default (`cl3`) and use
+`~/.claude-3` for KYC (`cl1`). Shortcut numbers match the Codex account mapping;
+all existing `cx1/cx2/cx3` aliases remain. VLP was excluded from Claude only.
+Both Claude logins and fresh-shell shortcuts passed direct checks. Live tmux
+`/usage` plus `/status` confirmed two distinct Ultra accounts; the quota snapshot
+is historical. Commands/rules/scripts remain shared Booster assets, while native
+account state and transcripts are separate. Shared Booster quota caches are not
+account-aware and remain a separate follow-up. This is local setup, not an
+installer feature. Backup, evidence, and continuation boundaries:
+[handover_2026-11-07_200834.md](reports/handover_2026-11-07_200834.md).
+
 ## Completed 2026-11-07 — advisory workflow rules
 
 Owner-authored workflow rules are now preferred defaults with justified exceptions,
