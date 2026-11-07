@@ -7,5 +7,6 @@ To select `developer` or `lead`, or inspect `status`, recognize an explicit lead
 `/role`, `role`, or `$role` and read `~/.agents/skills/role/SKILL.md` directly.
 Retain the selected mode and reusable role-agent IDs within this conversation;
 never infer them from another conversation. Do not load the general Booster
-runner for this switch. Explicit command contracts still apply when requested.
+runner for this switch. Command procedures follow the justified-exceptions
+principle; preserve explicit requirements of the current user task.
 <!-- END BOOSTER SESSION ROLE -->

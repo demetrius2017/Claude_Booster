@@ -7,6 +7,13 @@ description: "Run Claude Booster command protocols in Codex. Use when Dmitry inv
 
 This skill is the Codex compatibility layer for Claude Booster command specs.
 
+Read [Workflow guidance and justified exceptions](references/work-principles.md)
+before interpreting a command spec. Our procedural requirements are defaults,
+including those labelled mandatory or non-skippable. Adapt them for a concrete
+task reason; preserve explicit current-task requirements, permissions, and
+concrete safety/domain protections. A command invocation alone does not require
+every historical ceremony or the full test suite.
+
 Use it when the user invokes a Booster command by name, for example:
 
 - `start`
@@ -215,11 +222,11 @@ where the native model is Claude and "the other provider" is Codex
 
 ## Execution Rules
 
-Read and apply [Shortest Safe Path to Acceptance](references/work-principles.md).
-Apply `core.md` proportionality precedence: reversible prompt/docs edits preserving
-safety controls need targeted existing checks plus one focused review, regardless
-of file count. Explicit full command contracts and production/data/auth/financial/
-incident controls remain binding.
+Apply the justified-exceptions and acceptance principles in
+[work-principles.md](references/work-principles.md) to the procedural defaults
+below. For a reversible prompt/docs change, targeted validation and a focused
+review normally suffice, regardless of file count. Choose additional checks for
+concrete risk or explicit current-task requirements, not to satisfy ceremony.
 
 - **Pre-Work Context Gate:** before any command step that can lead to a code/config
   edit, deploy, migration, or coding subagent/worker spawn, build and state a

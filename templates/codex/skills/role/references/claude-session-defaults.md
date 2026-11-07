@@ -10,8 +10,9 @@ compaction/resume. New conversations start in developer mode.
 This role selection replaces legacy blanket always-Lead/always-delegate cues in
 Booster memory and phase prompts for ordinary implementation. Permission checks,
 data protections, verification and phase transitions remain applicable; report
-an incompatible hook block instead of bypassing it. Explicitly requested command
-contracts apply to their tasks. Keep hooks and memory access configured as they are.
+an incompatible hook block instead of bypassing it. Command procedures follow
+the justified-exceptions principle; preserve explicit requirements of the current
+user task. Keep hooks and memory access configured as they are.
 Before code edits, complete proportionate recon/planning and advance the project
 phase with `python3 ~/.claude/scripts/phase.py set IMPLEMENT`. Selecting `/role`
 alone does not change phase. Resolve phase blocks through the normal transition.
