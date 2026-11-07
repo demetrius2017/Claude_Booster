@@ -1,5 +1,20 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Completed 2026-11-07 — advisory workflow rules
+
+Owner-authored workflow rules are now preferred defaults with justified exceptions,
+including legacy procedural MUST/mandatory wording. Agents may omit irrelevant,
+redundant, or disproportionately costly steps with a brief reason, while preserving
+explicit current-task requirements, permissions, concrete safety/domain protections,
+and truthful evidence. Command invocation alone does not mandate every historical
+ceremony. Commit `5c70d88` updates five templates; nine instruction files were
+installed across three Codex profiles and Claude with backups. Both skills validate,
+template/runtime parity and independent wording review pass; this session received
+the updated instructions. Actual time/test savings and adoption by other running
+agents remain unmeasured. Dispatcher behavior and missing project-specific rules
+in sibling worktrees remain separate issues. Evidence and continuation boundaries:
+[handover_2026-11-07_193657.md](reports/handover_2026-11-07_193657.md).
+
 ## Completed 2026-11-01 — Fable spend hidden from the terminal
 
 The Claude Code statusline and the tmux widget no longer show Fable spend; 5h/7d
