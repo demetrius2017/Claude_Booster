@@ -1,5 +1,23 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Completed 2026-11-10 — handover workspace closure for Claude and Codex
+
+Commit `51021da` adds completion/cleanup of owned work and a `Workspace closure`
+inventory to the shared handover protocol. Unfinished branches, dirty paths and
+local folders remain visible in Summary, First step and Outstanding Debts.
+Both installed command copies match the template; an independent wording review
+passed after resolving the old ambiguous "session clean" wording.
+
+The first handover using this protocol removed two obsolete clean worktrees,
+three local branches whose commits were preserved in published target refs,
+and five stale worktree registrations. Remaining work is explicit: published
+`fix/statusline-hide-fable` has not reached `main`; Grok PR #2 is open;
+`feat/desktop-sessions-command` and its worktree remain unmerged; ten untracked
+wait-patch files plus local release/source/verification folders need their own
+completion decision. They were preserved. No remote branch was deleted.
+Evidence, exact paths and resume commands:
+[handover_2026-11-10_203554.md](reports/handover_2026-11-10_203554.md).
+
 ## Completed 2026-11-07 — Claude account profiles and shortcuts
 
 Local Claude profiles now preserve Dubai as the default (`cl3`) and use
