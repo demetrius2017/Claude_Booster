@@ -267,8 +267,25 @@ def _autopilot_owns_stop(cwd_hint: str) -> bool:
     path = root / ".claude" / "autopilot.json"
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
-        return bool(state.get("enabled") is True and Path(str(state.get("scope", ""))).resolve() == root)
+        # A degraded autopilot no longer handles Stop, so it must not silence this gate.
+        return bool(
+            state.get("enabled") is True and state.get("degraded") is not True
+            and Path(str(state.get("scope", ""))).resolve() == root
+        )
     except (OSError, ValueError, json.JSONDecodeError, AttributeError):
+        return False
+
+
+def _question_router_owns_stop(data: dict, text: str) -> bool:
+    """Yield closing questions to question_router.py when it is active for the session."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import question_router
+        message = data.get("last_assistant_message")
+        if isinstance(message, str) and message.strip():
+            text = message
+        return bool(question_router.router_active(data) and question_router.trailing_question(text))
+    except Exception:  # noqa: BLE001 — router absent/broken: keep the legacy gate
         return False
 
 
@@ -413,6 +430,14 @@ def main() -> int:
             **base,
             "decision": DECISION_ALLOW,
             "reason": "no assistant text found",
+            "matched_pattern": "",
+        })
+        return 0
+
+    if _question_router_owns_stop(data, text):
+        append_jsonl(ASK_LOG_NAME, {
+            **base, "decision": DECISION_ALLOW,
+            "reason": "unattended mode: question_router answers the closing question",
             "matched_pattern": "",
         })
         return 0

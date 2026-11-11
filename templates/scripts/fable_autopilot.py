@@ -319,7 +319,9 @@ def _trusted_consult(cwd: str, kind: str, phase: str | None, prompt_file: Path) 
             "CLAUDE_CONFIG_DIR",
         )
         clean_env = {key: os.environ[key] for key in allowed_env if key in os.environ}
-        clean_env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        # The native Claude installer puts the CLI in ~/.local/bin; omitting it
+        # made every consult exit 69 and permanently degraded autopilot.
+        clean_env["PATH"] = f"{Path.home() / '.local/bin'}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         proc = subprocess.run(
             [str(wrapper)], input=prompt, capture_output=True, timeout=180,
             check=False, env=clean_env,
@@ -349,6 +351,23 @@ def _trusted_consult(cwd: str, kind: str, phase: str | None, prompt_file: Path) 
         return 2
 
 
+def _question_router_owns(data: dict[str, Any]) -> bool:
+    """In unattended modes question_router.py answers questions itself; yield to it."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import question_router
+        if not question_router.router_active(data):
+            return False
+        if str(data.get("hook_event_name") or "") == "Stop" or data.get("stop_hook_active") is not None:
+            text = data.get("last_assistant_message")
+            if not isinstance(text, str) or not text.strip():
+                text, _ = _last_assistant_text(data.get("transcript_path"))
+            return bool(question_router.trailing_question(text or ""))
+        return True
+    except Exception:  # noqa: BLE001 — absence/failure of the router keeps legacy behaviour
+        return False
+
+
 def main() -> int:
     if len(sys.argv) > 1:
         return _cli()
@@ -358,6 +377,8 @@ def main() -> int:
         sys.stderr.write("autopilot_gate: malformed hook payload; allowing user routing\n")
         return 0
     if not isinstance(data, dict):
+        return 0
+    if _question_router_owns(data):
         return 0
     state, reason = _load_state(str(data.get("cwd") or ""))
     if state is None:

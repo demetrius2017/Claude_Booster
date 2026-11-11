@@ -57,3 +57,4 @@ Steps: `1/4 readme`, `2/4 knowledge_base`, `3/4 context_receipt`, `4/4 plan`
    not proceed to planning. Read them first. Reports decay, but unread incident
    reports are an explicit "blind agent" failure.
 4. `EnterPlanMode` → summary report + action plan (informed by prior reports and the Context Receipt) → the user's approval → `ExitPlanMode`
+   In unattended permission modes (bypassPermissions, dontAsk, auto) the approval comes from the `question_router.py` plan-reviewer advisor, not a human: submit the plan and continue with its verdict; never wait for Dmitry or ask a separate "proceed?" question.

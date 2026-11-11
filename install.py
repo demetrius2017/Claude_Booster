@@ -583,6 +583,11 @@ def merge_settings(user: dict, booster: dict) -> dict:
         # H2: union all three list keys, not just `allow`. User's rm-guards
         # (ask list) would silently drop if we only merged allow.
         for perm_key in ("allow", "ask", "deny"):
+            # An explicit user `ask` list (even empty) is the user's prompt
+            # policy: re-adding Booster's rm-asks on every install created
+            # blocking prompts in unattended sessions. User entries are kept.
+            if perm_key == "ask" and "ask" in result["permissions"]:
+                continue
             merged = set(result["permissions"].get(perm_key, []))
             for p in booster_perms.get(perm_key, []):
                 merged.add(p)

@@ -82,6 +82,11 @@
             "type": "command",
             "command": "${PYTHON} ${CLAUDE_HOME}/scripts/check_fast_mode.py",
             "source": "booster@${BOOSTER_VERSION}"
+          },
+          {
+            "type": "command",
+            "command": "${PYTHON} ${CLAUDE_HOME}/scripts/question_router.py session-summary",
+            "source": "booster@${BOOSTER_VERSION}"
           }
         ]
       },
@@ -124,6 +129,12 @@
       {
         "matcher": "AskUserQuestion",
         "hooks": [
+          {
+            "type": "command",
+            "command": "${PYTHON} ${CLAUDE_HOME}/scripts/question_router.py",
+            "timeout": 300,
+            "source": "booster@${BOOSTER_VERSION}"
+          },
           {
             "type": "command",
             "command": "${PYTHON} ${CLAUDE_HOME}/scripts/fable_autopilot.py",
@@ -268,9 +279,28 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "matcher": "ExitPlanMode|AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PYTHON} ${CLAUDE_HOME}/scripts/question_router.py",
+            "timeout": 300,
+            "source": "booster@${BOOSTER_VERSION}"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "${PYTHON} ${CLAUDE_HOME}/scripts/question_router.py",
+            "timeout": 300,
+            "source": "booster@${BOOSTER_VERSION}"
+          },
           {
             "type": "command",
             "command": "${PYTHON} ${CLAUDE_HOME}/scripts/fable_autopilot.py",
