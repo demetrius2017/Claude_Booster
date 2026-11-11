@@ -1,5 +1,17 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Completed 2026-11-11 — unattended sessions answer questions via BIO advisors
+
+`question_router.py` (commit `ffd79b3`, branch `feat/unattended-question-router`,
+pushed, not merged) answers AskUserQuestion, plan approval and closing questions
+in bypass/dontAsk/auto sessions with a role-specific advisor (Claude read-only →
+Codex accounts → deterministic default), so overnight sessions no longer idle
+(ETIM baseline: 7.7h/7.9h stalls on 2026-11-11). Hard owner boundaries (live orders,
+secrets, prod data deletion, payments, external messages) are deferred to an owner
+queue without waiting. Manual mode is unchanged. Live CLI tests and 441 python
+contracts pass; Desktop behaviour awaits the next unattended night. Evidence and
+retained work: [handover_2026-11-11_111929.md](reports/handover_2026-11-11_111929.md).
+
 ## Completed 2026-11-10 — handover workspace closure for Claude and Codex
 
 Commit `51021da` adds completion/cleanup of owned work and a `Workspace closure`
