@@ -1,5 +1,21 @@
 # Roadmap: локальный патч Codex для истории ожидания агентов
 
+## Configured locally 2026-11-13 — native 70% compaction
+
+All three Codex profiles now set `model_post_turn_compact_threshold_percent = 70`;
+both Claude profiles set `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=70` and disable Booster's
+PLAN-phase compaction deferral through its existing skip setting. Five config
+comparisons, three native Codex strict-config probes, and two Claude PLAN-hook
+probes passed. Backups are retained; unrelated settings and repository runtime
+code are unchanged.
+
+Codex checks this percentage **after a final response**, not inside one long turn.
+Actual threshold-triggered compaction and adoption by already-running clients are
+not verified; clients were not restarted. Router/statusline/Grok and Desktop
+sessions integration, plus the ten untracked wait-patch files, remain separate
+unfinished tracks. Exact settings, rollback, verification and retained work:
+[handover_2026-11-13_200110.md](reports/handover_2026-11-13_200110.md).
+
 ## Completed 2026-11-11 — unattended sessions answer questions via BIO advisors
 
 `question_router.py` (commit `ffd79b3`, branch `feat/unattended-question-router`,
